@@ -1,51 +1,33 @@
 # MetaAgentPlugin
 
-- UE5 gameplay plugin with reusable runtime systems.
+Under heavy development. 
+
+- UE5 plugin focused on possessing a placed MetaHuman and enabling movement at runtime.
 - Modules: MetaAgentPlugin (Runtime), MetaAgentPluginEditor (Editor).
-- Plugin deps: EnhancedInput, StateTree, GameplayStateTree, MovieRenderPipeline, Takes (Editor only).
 
-## Current Scope
+## What Works Now
 
-- Runtime code is centralized under Source/MetaAgentPlugin/Core, Gameplay, Systems, UI, Public, and Private.
-- Support/plugin-native classes live under Source/MetaAgentPlugin/Public and Private.
-- Editor module currently provides startup/shutdown hooks with logging.
+1. Create your MetaHuman in MetaHuman Creator.
+2. Add that MetaHuman Blueprint to your map.
+3. Name the placed actor MAIN_CHARACTER.
+4. Use AMetaAgentGameMode (or a BP derived from it) as your startup GameMode.
+5. At Play start, the plugin controller possesses MAIN_CHARACTER.
+6. If the pawn is missing camera rig parts, runtime camera fallback is added.
+7. Keyboard movement works through fallback input (walk + sprint).
 
-## Main Runtime Pieces
+## Minimum Setup
 
-- Runtime gate: global flag GMetaAgentRuntimeActive.
-- Settings: UMetaAgentPluginSettings with feature flags and networking config.
-- Subsystem path: UMetaAgentRuntimeSubsystem with active-state API and HTTP/platform helpers.
-- Gameplay path: UMetaAgentGameInstance + AMetaAgentGameMode + AMetaAgentPlayerController.
-- Blueprint helper: UMetaAgentBlueprintLibrary exposes runtime active query.
-- World toggle actor: AMetaAgentMainActor with Activate/Deactivate/Toggle.
-
-## Implemented Features
-
-- Character/controller runtime with Enhanced Input + keyboard/mouse fallback.
-- Autopilot handoff to AI controller and runtime patrol behavior tree.
-- Cinematic orbit camera mode with runtime camera actor.
-- HUD transient messages and persistent status lines.
-- Take Recorder + Movie Render Queue flow for autopilot takes.
-- HTTP server endpoints: /health, /echo, /notify.
-- Outbound platform event forwarding with JSON payload + response-driven HUD feedback.
-
-## Important Findings
-
-- Startup architecture is currently mixed: subsystem path and game instance path both exist.
-- Networking/server logic is duplicated across subsystem and game instance paths.
-- Subsystem defines StartLocalHttpServer but does not invoke it in Initialize.
-- Game instance path invokes StartLocalHttpServer in Init.
-- Project config currently does not set plugin-native GameInstanceClass in DefaultEngine.ini.
-- Project config currently uses a blueprint GlobalDefaultGameMode path.
-
-## New Project Possession Checklist
-
-- Set your startup game mode to AMetaAgentGameMode (or a BP derived from it).
-- Place exactly one MetaHuman pawn/character in the level with name MAIN_CHARACTER.
-- For strict production behavior, keep:
+- Startup GameMode: AMetaAgentGameMode (or derived BP).
+- Placed actor name: MAIN_CHARACTER.
+- Keep strict possession settings:
 	- bRequireExactPreferredPawnName=True
 	- bRequireUniquePreferredPawnName=True
 	- bAllowSpawnFallback=False
-- If the placed MetaHuman has no spring-arm/camera rig, the controller now adds a runtime third-person camera fallback.
-- If you want another actor name, change PreferredPlacedPawnName in MetaAgentGameMode config/defaults.
 
+## Current Boundaries
+
+- Anything beyond possession + camera fallback + movement is work in progress and intentionally not documented here yet.
+
+## License
+
+Licensed under the ![MIT License](./LICENSE)

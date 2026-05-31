@@ -32,7 +32,7 @@ namespace
 
 			if (SecondUnderscore != INDEX_NONE && (SecondUnderscore + 1) < Out.Len())
 			{
-				Out.RightChopInline(SecondUnderscore + 1, false);
+				Out.RightChopInline(SecondUnderscore + 1, EAllowShrinking::No);
 			}
 		}
 
@@ -64,12 +64,12 @@ namespace
 				break;
 			}
 
-			Out.LeftInline(LastUnderscore, false);
+			Out.LeftInline(LastUnderscore, EAllowShrinking::No);
 		}
 
 		if (Out.EndsWith(TEXT("_C")))
 		{
-			Out.LeftChopInline(2, false);
+			Out.LeftChopInline(2, EAllowShrinking::No);
 		}
 
 		return Out;

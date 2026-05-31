@@ -68,6 +68,32 @@ struct FMetaAgentMovementDiagnosticsState
 {
 	GENERATED_BODY()
 
+	// Emergency override. Keep disabled by default and let AnimBlueprint drive locomotion first.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback")
+	bool bEnableEmergencySingleNodeLocomotion = false;
+
+	// Preferred runtime mode: try AnimBlueprint locomotion first.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback")
+	bool bPreferAnimBlueprintLocomotion = true;
+
+	// Automatically switch to emergency single-node fallback if AnimBlueprint appears stalled while moving.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback")
+	bool bEnableAutoFallbackOnAnimStall = true;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="600.0"))
+	float AutoFallbackMinSpeed = 5.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.05", ClampMax="5.0"))
+	float AutoFallbackStallSeconds = 0.15f;
+
+	// Approximate authored world speed of the emergency in-place walk clip.
+	// Used to compute play-rate so visual stride matches movement speed better.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="600.0"))
+	float EmergencySingleNodeAuthoredWalkSpeed = 45.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.001", ClampMax="10.0"))
+	float AutoFallbackMinBoneDelta = 0.02f;
+
 	UPROPERTY(Transient)
 	bool bLoggedMovementAnimDiagnostics = false;
 
@@ -85,6 +111,18 @@ struct FMetaAgentMovementDiagnosticsState
 
 	UPROPERTY(Transient)
 	int32 ProbeSampleCount = 0;
+
+	UPROPERTY(Transient)
+	bool bAutoFallbackActivated = false;
+
+	UPROPERTY(Transient)
+	float MovingWithoutPoseChangeSeconds = 0.0f;
+
+	UPROPERTY(Transient)
+	FVector LastProbeBoneLocation = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	bool bHasLastProbeBoneLocation = false;
 };
 
 USTRUCT()

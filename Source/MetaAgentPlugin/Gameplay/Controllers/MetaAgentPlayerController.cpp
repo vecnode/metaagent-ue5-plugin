@@ -50,6 +50,30 @@
 
 namespace
 {
+	UAnimationAsset* GetEmergencyIdleAsset()
+	{
+		static UAnimationAsset* IdleAsset = nullptr;
+		if (!IdleAsset)
+		{
+			IdleAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
+				TEXT("/MetaAgentPlugin/Animations/Loco/MTN_N_Idle.MTN_N_Idle")));
+		}
+
+		return IdleAsset;
+	}
+
+	UAnimationAsset* GetEmergencyWalkAsset()
+	{
+		static UAnimationAsset* WalkAsset = nullptr;
+		if (!WalkAsset)
+		{
+			WalkAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
+				TEXT("/MetaAgentPlugin/Animations/Loco/MTN_N_Walk_InPlace.MTN_N_Walk_InPlace")));
+		}
+
+		return WalkAsset;
+	}
+
 	UInputMappingContext* ResolveMappingContextWithFallback(
 		const TSoftObjectPtr<UInputMappingContext>& SoftReference,
 		const TCHAR* LegacyPath,
@@ -649,6 +673,39 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 				MovementComp->MaxAcceleration = 2048.0f;
 			}
 		}
+
+		// Preload emergency fallback locomotion assets so first activation has no visible delay.
+		if (USkeletalMeshComponent* PossessedPrimaryMesh = PossessedCharacter->GetMesh())
+		{
+			if (PossessedPrimaryMesh->GetAnimClass())
+			{
+				const bool bUsingCrowdFallbackClass =
+					PossessedPrimaryMesh->GetAnimClass()->GetName().Contains(TEXT("tal_nrw_animbp"), ESearchCase::IgnoreCase);
+				if (bUsingCrowdFallbackClass)
+				{
+					UAnimationAsset* IdleAsset = GetEmergencyIdleAsset();
+					GetEmergencyWalkAsset();
+
+					// Harden the known working path: activate emergency locomotion immediately on possess
+					// for this recovered crowd AnimBP setup, avoiding startup wait and probe gating.
+					MovementDiagnostics.bAutoFallbackActivated = true;
+					MovementDiagnostics.MovingWithoutPoseChangeSeconds = MovementDiagnostics.AutoFallbackStallSeconds;
+
+					if (IdleAsset)
+					{
+						if (PossessedPrimaryMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
+						{
+							PossessedPrimaryMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+						}
+						PossessedPrimaryMesh->PlayAnimation(IdleAsset, true);
+					}
+
+					UE_LOG(LogMetaAgent, Warning,
+						TEXT("AnimFallback: '%s' crowd AnimBP path hardened; emergency single-node fallback activated immediately on possess."),
+						*GetNameSafe(PossessedCharacter));
+				}
+			}
+		}
 	}
 
 	UE_LOG(LogMetaAgent, Log,
@@ -665,6 +722,10 @@ void AMetaAgentPlayerController::ResetMovementDiagnosticsState()
 	MovementDiagnostics.ProbePeakSpeed2D = 0.0f;
 	MovementDiagnostics.ProbePeakAcceleration2D = 0.0f;
 	MovementDiagnostics.ProbeSampleCount = 0;
+	MovementDiagnostics.bAutoFallbackActivated = false;
+	MovementDiagnostics.MovingWithoutPoseChangeSeconds = 0.0f;
+	MovementDiagnostics.LastProbeBoneLocation = FVector::ZeroVector;
+	MovementDiagnostics.bHasLastProbeBoneLocation = false;
 }
 
 void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
@@ -704,30 +765,53 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 			UClass* ActiveAnimClass = PrimaryMesh->GetAnimClass();
 			const bool bUsingCrowdFallbackClass =
 				ActiveAnimClass && ActiveAnimClass->GetName().Contains(TEXT("tal_nrw_animbp"), ESearchCase::IgnoreCase);
+			const float Speed2D = ControlledCharacter->GetVelocity().Size2D();
+
+			if (!MovementDiagnostics.bAutoFallbackActivated
+				&& MovementDiagnostics.bPreferAnimBlueprintLocomotion
+				&& MovementDiagnostics.bEnableAutoFallbackOnAnimStall
+				&& bUsingCrowdFallbackClass)
+			{
+				if (PrimaryMesh->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+					&& PrimaryMesh->GetAnimInstance()
+					&& Speed2D >= MovementDiagnostics.AutoFallbackMinSpeed)
+				{
+					// Crowd fallback AnimBP can stay visually static for this recovered MetaHuman setup.
+					// If movement is sustained in AnimBlueprint mode, trigger emergency fallback.
+					MovementDiagnostics.MovingWithoutPoseChangeSeconds += DeltaTime;
+
+					if (MovementDiagnostics.MovingWithoutPoseChangeSeconds >= MovementDiagnostics.AutoFallbackStallSeconds)
+					{
+						MovementDiagnostics.bAutoFallbackActivated = true;
+						UE_LOG(LogMetaAgent, Warning,
+							TEXT("AnimFallback: '%s' detected sustained movement with crowd AnimBP (Speed2D=%.2f, Duration=%.2fs). Activating emergency single-node fallback."),
+							*GetNameSafe(ControlledCharacter),
+							Speed2D,
+							MovementDiagnostics.MovingWithoutPoseChangeSeconds);
+					}
+				}
+				else
+				{
+					MovementDiagnostics.MovingWithoutPoseChangeSeconds = 0.0f;
+					MovementDiagnostics.bHasLastProbeBoneLocation = false;
+				}
+			}
+
+			const bool bUseEmergencyFallback =
+				MovementDiagnostics.bEnableEmergencySingleNodeLocomotion
+				|| MovementDiagnostics.bAutoFallbackActivated;
 
 			// If the crowd fallback AnimBP is present but still visually static on this pawn,
 			// force a deterministic idle/walk single-node animation from the same content set.
-			if (bUsingCrowdFallbackClass)
+			if (bUseEmergencyFallback && bUsingCrowdFallbackClass)
 			{
-				static UAnimationAsset* IdleAsset = nullptr;
-				static UAnimationAsset* WalkAsset = nullptr;
-
-				if (!IdleAsset)
-				{
-					IdleAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
-						TEXT("/Game/CitySampleCrowd/Character/Anims/Loco/MTN_N_Idle.MTN_N_Idle")));
-				}
-
-				if (!WalkAsset)
-				{
-					WalkAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
-						TEXT("/Game/CitySampleCrowd/Character/Anims/Loco/MTN_N_Walk_InPlace.MTN_N_Walk_InPlace")));
-				}
+				UAnimationAsset* IdleAsset = GetEmergencyIdleAsset();
+				UAnimationAsset* WalkAsset = GetEmergencyWalkAsset();
 
 				if (IdleAsset && WalkAsset)
 				{
-					const float Speed2D = ControlledCharacter->GetVelocity().Size2D();
-					UAnimationAsset* DesiredAsset = (Speed2D > 50.0f) ? WalkAsset : IdleAsset;
+					const float MoveAnimThreshold = FMath::Max(5.0f, InputFallback.WalkSpeed * 0.20f);
+					UAnimationAsset* DesiredAsset = (Speed2D > MoveAnimThreshold) ? WalkAsset : IdleAsset;
 
 					if (PrimaryMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
 					{
@@ -739,6 +823,17 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 					if (CurrentAsset != DesiredAsset)
 					{
 						PrimaryMesh->PlayAnimation(DesiredAsset, true);
+						SingleNodeInstance = PrimaryMesh->GetSingleNodeInstance();
+					}
+
+					if (SingleNodeInstance)
+					{
+						const float AuthoredWalkSpeed = FMath::Max(1.0f, MovementDiagnostics.EmergencySingleNodeAuthoredWalkSpeed);
+						const float DesiredPlayRate =
+							(DesiredAsset == WalkAsset)
+								? FMath::Clamp(Speed2D / AuthoredWalkSpeed, 0.60f, 2.20f)
+								: 1.0f;
+						SingleNodeInstance->SetPlayRate(DesiredPlayRate);
 					}
 				}
 			}
