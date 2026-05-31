@@ -12,8 +12,9 @@ Under heavy development.
 3. Name the placed actor MAIN_CHARACTER.
 4. Use AMetaAgentGameMode (or a BP derived from it) as your startup GameMode.
 5. At Play start, the plugin controller possesses MAIN_CHARACTER.
-6. If the pawn is missing camera rig parts, runtime camera fallback is added.
-7. Keyboard movement works through fallback input (walk + sprint).
+6. The plugin generates the camera at runtime, so MetaHumans work even when the blueprint has no authored camera.
+7. Press `P` to cycle 4 camera positions: third-person, close over-shoulder, side-cinematic close, and first-person.
+8. Keyboard movement works through fallback input (walk + sprint).
 
 ## Minimum Setup
 
@@ -24,10 +25,27 @@ Under heavy development.
 	- bRequireUniquePreferredPawnName=True
 	- bAllowSpawnFallback=False
 
-## Current Boundaries
+## Features
 
-- Anything beyond possession + camera fallback + movement is work in progress and intentionally not documented here yet.
+- Possess a placed MetaHuman at Play start through `AMetaAgentGameMode`.
+- Generate the camera at runtime so the plugin works even when the MetaHuman blueprint has no authored camera.
+- Press `P` to cycle 4 camera positions: third-person, close over-shoulder, side-cinematic close, and first-person.
+- Keyboard movement through fallback input, including walk and sprint.
+- Plugin runtime and editor modules split for cleaner maintenance.
+
+## Features Not Used Yet
+
+- AI wander and patrol helpers.
+- Autopilot control flow.
+- Recording hooks.
+- Networking hooks.
+- Diagnostics helpers.
+- HUD and UI extension points.
+- Blueprint library and runtime subsystem helpers.
+
+
+
 
 ## License
 
-Licensed under the ![MIT License](./LICENSE)
+Licensed under the [MIT License](./LICENSE).

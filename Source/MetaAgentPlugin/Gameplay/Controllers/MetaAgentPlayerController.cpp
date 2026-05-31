@@ -111,6 +111,72 @@ namespace
 	}
 }
 
+void AMetaAgentPlayerController::HandleToggleCameraModePressed()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (CinematicCamera.bModeEnabled)
+	{
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("Exit Cinematic Camera (V) before cycling camera modes."), FColor::Yellow, 2.0f);
+		}
+		return;
+	}
+
+	switch (CameraMode.ActiveMode)
+	{
+	case EMetaAgentCameraMode::ThirdPerson:
+		EnableCloseOverShoulderCameraMode();
+		break;
+	case EMetaAgentCameraMode::CloseOverShoulder:
+		EnableSideCinematicCloseCameraMode();
+		break;
+	case EMetaAgentCameraMode::SideCinematicClose:
+		EnableFirstPersonCameraMode();
+		break;
+	case EMetaAgentCameraMode::FirstPerson:
+	default:
+		EnableThirdPersonCameraMode();
+		break;
+	}
+}
+
+void AMetaAgentPlayerController::EnableFirstPersonCameraMode()
+{
+	CameraMode.ActiveMode = EMetaAgentCameraMode::FirstPerson;
+	ApplyCameraModeToPawn(GetPawn());
+
+	UE_LOG(LogMetaAgent, Log, TEXT("CameraMode: switched to first-person (P cycles: Third -> Close -> Side -> First)."));
+}
+
+void AMetaAgentPlayerController::EnableCloseOverShoulderCameraMode()
+{
+	CameraMode.ActiveMode = EMetaAgentCameraMode::CloseOverShoulder;
+	ApplyCameraModeToPawn(GetPawn());
+
+	UE_LOG(LogMetaAgent, Log, TEXT("CameraMode: switched to close over-shoulder (P cycles: Third -> Close -> Side -> First)."));
+}
+
+void AMetaAgentPlayerController::EnableSideCinematicCloseCameraMode()
+{
+	CameraMode.ActiveMode = EMetaAgentCameraMode::SideCinematicClose;
+	ApplyCameraModeToPawn(GetPawn());
+
+	UE_LOG(LogMetaAgent, Log, TEXT("CameraMode: switched to tight side cinematic (P cycles: Third -> Close -> Side -> First)."));
+}
+
+void AMetaAgentPlayerController::EnableThirdPersonCameraMode()
+{
+	CameraMode.ActiveMode = EMetaAgentCameraMode::ThirdPerson;
+	ApplyCameraModeToPawn(GetPawn());
+
+	UE_LOG(LogMetaAgent, Log, TEXT("CameraMode: switched to third-person (P cycles: Third -> Close -> Side -> First)."));
+}
+
 void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
@@ -126,7 +192,7 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 	}
 
 	ResetMovementDiagnosticsState();
-	ConfigureCameraForPawn(InPawn);
+	ApplyCameraModeToPawn(InPawn);
 
 	if (ACharacter* PossessedCharacter = Cast<ACharacter>(InPawn))
 	{
@@ -708,6 +774,8 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 		}
 	}
 
+	ApplyCameraModeToPawn(InPawn);
+
 	UE_LOG(LogMetaAgent, Log,
 		TEXT("AMetaAgentPlayerController: Possessed '%s' (%s)."),
 		*GetNameSafe(InPawn),
@@ -726,6 +794,8 @@ void AMetaAgentPlayerController::ResetMovementDiagnosticsState()
 	MovementDiagnostics.MovingWithoutPoseChangeSeconds = 0.0f;
 	MovementDiagnostics.LastProbeBoneLocation = FVector::ZeroVector;
 	MovementDiagnostics.bHasLastProbeBoneLocation = false;
+	MovementDiagnostics.bEmergencyWalkActive = false;
+	MovementDiagnostics.EmergencyWalkBlendAlpha = 0.0f;
 }
 
 void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
@@ -810,8 +880,35 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 
 				if (IdleAsset && WalkAsset)
 				{
-					const float MoveAnimThreshold = FMath::Max(5.0f, InputFallback.WalkSpeed * 0.20f);
-					UAnimationAsset* DesiredAsset = (Speed2D > MoveAnimThreshold) ? WalkAsset : IdleAsset;
+					const float EnterSpeed = FMath::Max(0.1f, MovementDiagnostics.EmergencyWalkEnterSpeed);
+					const float ExitSpeed = FMath::Clamp(
+						MovementDiagnostics.EmergencyWalkExitSpeed,
+						0.1f,
+						EnterSpeed - 0.1f);
+
+					if (MovementDiagnostics.bEmergencyWalkActive)
+					{
+						if (Speed2D <= ExitSpeed)
+						{
+							MovementDiagnostics.bEmergencyWalkActive = false;
+						}
+					}
+					else if (Speed2D >= EnterSpeed)
+					{
+						MovementDiagnostics.bEmergencyWalkActive = true;
+					}
+
+					const float TargetWalkBlendAlpha = MovementDiagnostics.bEmergencyWalkActive ? 1.0f : 0.0f;
+					const float BlendSeconds = MovementDiagnostics.bEmergencyWalkActive
+						? FMath::Max(0.01f, MovementDiagnostics.EmergencyWalkBlendInSeconds)
+						: FMath::Max(0.01f, MovementDiagnostics.EmergencyWalkBlendOutSeconds);
+					const float BlendInterpSpeed = 1.0f / BlendSeconds;
+					MovementDiagnostics.EmergencyWalkBlendAlpha = FMath::FInterpTo(
+						MovementDiagnostics.EmergencyWalkBlendAlpha,
+						TargetWalkBlendAlpha,
+						DeltaTime,
+						BlendInterpSpeed);
+					const float WalkBlendAlpha = FMath::Clamp(MovementDiagnostics.EmergencyWalkBlendAlpha, 0.0f, 1.0f);
 
 					if (PrimaryMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
 					{
@@ -820,6 +917,31 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 
 					UAnimSingleNodeInstance* SingleNodeInstance = PrimaryMesh->GetSingleNodeInstance();
 					UAnimationAsset* CurrentAsset = SingleNodeInstance ? SingleNodeInstance->GetAnimationAsset() : nullptr;
+					UAnimationAsset* DesiredAsset = CurrentAsset;
+
+					if (!DesiredAsset)
+					{
+						DesiredAsset = WalkBlendAlpha >= MovementDiagnostics.EmergencyWalkEnterAssetAlpha ? WalkAsset : IdleAsset;
+					}
+					else if (CurrentAsset == IdleAsset)
+					{
+						if (WalkBlendAlpha >= MovementDiagnostics.EmergencyWalkEnterAssetAlpha)
+						{
+							DesiredAsset = WalkAsset;
+						}
+					}
+					else if (CurrentAsset == WalkAsset)
+					{
+						if (WalkBlendAlpha <= MovementDiagnostics.EmergencyWalkExitAssetAlpha)
+						{
+							DesiredAsset = IdleAsset;
+						}
+					}
+					else
+					{
+						DesiredAsset = WalkBlendAlpha >= MovementDiagnostics.EmergencyWalkEnterAssetAlpha ? WalkAsset : IdleAsset;
+					}
+
 					if (CurrentAsset != DesiredAsset)
 					{
 						PrimaryMesh->PlayAnimation(DesiredAsset, true);
@@ -829,18 +951,25 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 					if (SingleNodeInstance)
 					{
 						const float AuthoredWalkSpeed = FMath::Max(1.0f, MovementDiagnostics.EmergencySingleNodeAuthoredWalkSpeed);
-						const float DesiredPlayRate =
+						const float RawWalkPlayRate =
 							(DesiredAsset == WalkAsset)
 								? FMath::Clamp(Speed2D / AuthoredWalkSpeed, 0.60f, 2.20f)
 								: 1.0f;
-						SingleNodeInstance->SetPlayRate(DesiredPlayRate);
+						const float DesiredPlayRate =
+							(DesiredAsset == WalkAsset)
+								? FMath::Lerp(
+									FMath::Clamp(MovementDiagnostics.EmergencyWalkStartPlayRate, 0.1f, 2.0f),
+									RawWalkPlayRate,
+									WalkBlendAlpha)
+								: 1.0f;
+						SingleNodeInstance->SetPlayRate(FMath::Clamp(DesiredPlayRate, 0.1f, 3.0f));
 					}
 				}
 			}
 		}
 	}
 
-	if (ControlledPawn && !CinematicCamera.bModeEnabled)
+	if (ControlledPawn && !CinematicCamera.bModeEnabled && CameraMode.ActiveMode == EMetaAgentCameraMode::ThirdPerson)
 	{
 		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
 	}
@@ -915,6 +1044,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		{
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
 			InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMetaAgentPlayerController::HandleYPressed);
+			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCameraModePressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);
 			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);

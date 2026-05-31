@@ -14,6 +14,16 @@ class AAIController;
 class UInputMappingContext;
 class ULevelSequence;
 class UUserWidget;
+class USkeletalMeshComponent;
+
+UENUM()
+enum class EMetaAgentCameraMode : uint8
+{
+	ThirdPerson,
+	CloseOverShoulder,
+	SideCinematicClose,
+	FirstPerson
+};
 
 USTRUCT()
 struct FMetaAgentCameraZoomState
@@ -34,6 +44,54 @@ struct FMetaAgentCameraZoomState
 
 	UPROPERTY(Transient)
 	float DesiredDistance = -1.0f;
+};
+
+USTRUCT()
+struct FMetaAgentCameraModeState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode")
+	EMetaAgentCameraMode ActiveMode = EMetaAgentCameraMode::ThirdPerson;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="1500.0"))
+	float ThirdPersonArmLength = 400.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="600.0"))
+	float CloseOverShoulderArmLength = 165.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-200.0", ClampMax="300.0"))
+	float CloseOverShoulderHeightOffset = 58.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-120.0", ClampMax="120.0"))
+	float CloseOverShoulderLateralOffset = 18.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="600.0"))
+	float SideCinematicCloseArmLength = 118.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-200.0", ClampMax="300.0"))
+	float SideCinematicCloseHeightOffset = 66.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-120.0", ClampMax="120.0"))
+	float SideCinematicCloseLateralOffset = 46.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="200.0"))
+	float FirstPersonEyeHeightOffset = 12.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-60.0", ClampMax="120.0"))
+	float FirstPersonForwardOffset = 16.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-60.0", ClampMax="80.0"))
+	float FirstPersonVerticalOffset = 2.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode")
+	bool bPreferHeadSocketForFirstPerson = true;
+
+	UPROPERTY(Transient)
+	float LastThirdPersonArmLength = 400.0f;
+
+	UPROPERTY(Transient)
+	FName PreferredFirstPersonSocket = NAME_None;
 };
 
 USTRUCT()
@@ -91,6 +149,31 @@ struct FMetaAgentMovementDiagnosticsState
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="600.0"))
 	float EmergencySingleNodeAuthoredWalkSpeed = 45.0f;
 
+	// Enter/exit hysteresis thresholds (cm/s) used to avoid abrupt idle/walk toggles.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="600.0"))
+	float EmergencyWalkEnterSpeed = 24.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="600.0"))
+	float EmergencyWalkExitSpeed = 12.0f;
+
+	// Blend timing for smoothing transitions between idle and walk fallback clips.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.01", ClampMax="2.0"))
+	float EmergencyWalkBlendInSeconds = 0.18f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.01", ClampMax="2.0"))
+	float EmergencyWalkBlendOutSeconds = 0.24f;
+
+	// Asset switch thresholds over the transition alpha.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float EmergencyWalkEnterAssetAlpha = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float EmergencyWalkExitAssetAlpha = 0.15f;
+
+	// Eases initial walk movement by ramping play-rate up from this value.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="2.0"))
+	float EmergencyWalkStartPlayRate = 0.45f;
+
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.001", ClampMax="10.0"))
 	float AutoFallbackMinBoneDelta = 0.02f;
 
@@ -123,6 +206,12 @@ struct FMetaAgentMovementDiagnosticsState
 
 	UPROPERTY(Transient)
 	bool bHasLastProbeBoneLocation = false;
+
+	UPROPERTY(Transient)
+	bool bEmergencyWalkActive = false;
+
+	UPROPERTY(Transient)
+	float EmergencyWalkBlendAlpha = 0.0f;
 };
 
 USTRUCT()
@@ -323,6 +412,9 @@ protected:
 	/** Shows a quick HUD debug message when Y is pressed. */
 	void HandleYPressed();
 
+	/** Toggles between the generated third-person and first-person camera modes. */
+	void HandleToggleCameraModePressed();
+
 	/** Toggles player possession between manual control and runtime AI autopilot. */
 	void HandleToggleAutopilotPressed();
 
@@ -369,6 +461,21 @@ protected:
 
 	/** Pushes current recording/take/render state into the persistent HUD status panel. */
 	void UpdateRecordingStatusHud();
+
+	/** Applies the active camera mode to the currently possessed pawn. */
+	void ApplyCameraModeToPawn(APawn* InPawn);
+
+	/** Enables the generated first-person camera mode. */
+	void EnableFirstPersonCameraMode();
+
+	/** Enables the generated close over-shoulder camera mode. */
+	void EnableCloseOverShoulderCameraMode();
+
+	/** Enables the generated tight side cinematic camera mode. */
+	void EnableSideCinematicCloseCameraMode();
+
+	/** Enables the generated third-person camera mode. */
+	void EnableThirdPersonCameraMode();
 
 	/** Receives the final recorded take sequence from Take Recorder. */
 	UFUNCTION()
@@ -419,6 +526,10 @@ protected:
 	/** Camera zoom configuration and current zoom target. */
 	UPROPERTY(EditAnywhere, Category = "Camera|Zoom")
 	FMetaAgentCameraZoomState CameraZoom;
+
+	/** Generated camera mode configuration and runtime state. */
+	UPROPERTY(EditAnywhere, Category = "Camera|Mode")
+	FMetaAgentCameraModeState CameraMode;
 
 	/** Raw keyboard/mouse fallback configuration plus input setup runtime flags. */
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback")

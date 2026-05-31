@@ -37,6 +37,48 @@ namespace
 
 		return false;
 	}
+
+	bool TryGetFirstValidSocketName(
+		const USkeletalMeshComponent* Mesh,
+		const TArray<FName>& CandidateSockets,
+		FName& OutSocketName)
+	{
+		if (!Mesh)
+		{
+			return false;
+		}
+
+		for (const FName& SocketName : CandidateSockets)
+		{
+			if (Mesh->DoesSocketExist(SocketName))
+			{
+				OutSocketName = SocketName;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	FName ResolveFirstPersonCameraSocket(const USkeletalMeshComponent* Mesh)
+	{
+		FName SocketName = NAME_None;
+		if (Mesh)
+		{
+			const TArray<FName> CandidateSockets = {TEXT("head"), TEXT("Head"), TEXT("headSocket"), TEXT("neck_01")};
+			if (TryGetFirstValidSocketName(Mesh, CandidateSockets, SocketName))
+			{
+				return SocketName;
+			}
+		}
+
+		return NAME_None;
+	}
+}
+
+void AMetaAgentPlayerController::ApplyCameraModeToPawn(APawn* InPawn)
+{
+	ConfigureCameraForPawn(InPawn);
 }
 
 void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
@@ -46,16 +88,39 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 		return;
 	}
 
+	const bool bUseFirstPersonCamera = CameraMode.ActiveMode == EMetaAgentCameraMode::FirstPerson;
+	const bool bUseCloseOverShoulderCamera = CameraMode.ActiveMode == EMetaAgentCameraMode::CloseOverShoulder;
+	const bool bUseSideCinematicCloseCamera = CameraMode.ActiveMode == EMetaAgentCameraMode::SideCinematicClose;
+	const float ThirdPersonArmTarget = CameraMode.LastThirdPersonArmLength > 0.0f
+		? CameraMode.LastThirdPersonArmLength
+		: CameraMode.ThirdPersonArmLength;
 	USpringArmComponent* SpringArm = nullptr;
 	UCameraComponent* FollowCam = nullptr;
 	USceneComponent* PawnRoot = InPawn->GetRootComponent();
 	USceneComponent* CameraParent = PawnRoot;
+	FName CameraParentSocket = NAME_None;
+	USkeletalMeshComponent* CharacterMesh = nullptr;
+	ACharacter* CharacterPawn = Cast<ACharacter>(InPawn);
 
-	if (const ACharacter* CharacterPawn = Cast<ACharacter>(InPawn))
+	if (CharacterPawn)
 	{
+		CharacterMesh = CharacterPawn->GetMesh();
+
+		if (bUseFirstPersonCamera && CharacterMesh)
+		{
+			CameraParent = CharacterMesh;
+			if (CameraMode.bPreferHeadSocketForFirstPerson)
+			{
+				CameraParentSocket = ResolveFirstPersonCameraSocket(CharacterMesh);
+			}
+		}
+
 		if (UCapsuleComponent* CapsuleComp = CharacterPawn->GetCapsuleComponent())
 		{
-			CameraParent = CapsuleComp;
+			if (!bUseFirstPersonCamera)
+			{
+				CameraParent = CapsuleComp;
+			}
 		}
 	}
 
@@ -80,8 +145,19 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 		if (SpringArm)
 		{
 			InPawn->AddInstanceComponent(SpringArm);
-			SpringArm->SetupAttachment(CameraParent);
-			SpringArm->TargetArmLength = 400.0f;
+			if (CameraParentSocket != NAME_None)
+			{
+				SpringArm->SetupAttachment(CameraParent, CameraParentSocket);
+			}
+			else
+			{
+				SpringArm->SetupAttachment(CameraParent);
+			}
+			SpringArm->TargetArmLength = bUseFirstPersonCamera
+				? 0.0f
+				: (bUseCloseOverShoulderCamera
+					? CameraMode.CloseOverShoulderArmLength
+					: (bUseSideCinematicCloseCamera ? CameraMode.SideCinematicCloseArmLength : CameraMode.ThirdPersonArmLength));
 			SpringArm->bUsePawnControlRotation = true;
 			SpringArm->bDoCollisionTest = false;
 			SpringArm->RegisterComponent();
@@ -93,9 +169,20 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 	}
 	else if (SpringArm && CameraParent)
 	{
-		if (SpringArm->GetAttachParent() != CameraParent)
+		const bool bNeedsReattach = SpringArm->GetAttachParent() != CameraParent;
+		const bool bSocketMismatch =
+			(CameraParentSocket != NAME_None) &&
+			(SpringArm->GetAttachSocketName() != CameraParentSocket);
+		if (bNeedsReattach || bSocketMismatch)
 		{
-			SpringArm->AttachToComponent(CameraParent, FAttachmentTransformRules::KeepRelativeTransform);
+			if (CameraParentSocket != NAME_None)
+			{
+				SpringArm->AttachToComponent(CameraParent, FAttachmentTransformRules::KeepRelativeTransform, CameraParentSocket);
+			}
+			else
+			{
+				SpringArm->AttachToComponent(CameraParent, FAttachmentTransformRules::KeepRelativeTransform);
+			}
 		}
 	}
 
@@ -157,32 +244,86 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 
 	if (SpringArm)
 	{
-		SpringArm->TargetArmLength = 400.0f;
+		SpringArm->TargetArmLength = bUseFirstPersonCamera
+			? 0.0f
+			: (bUseCloseOverShoulderCamera
+				? CameraMode.CloseOverShoulderArmLength
+				: (bUseSideCinematicCloseCamera ? CameraMode.SideCinematicCloseArmLength : ThirdPersonArmTarget));
 		SpringArm->bUsePawnControlRotation = true;
 		SpringArm->bDoCollisionTest = false;
-		CameraZoom.DesiredDistance = FMath::Clamp(SpringArm->TargetArmLength, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+		SpringArm->TargetOffset = FVector::ZeroVector;
+		SpringArm->SocketOffset = FVector::ZeroVector;
+
+		if (bUseFirstPersonCamera)
+		{
+			if (!CameraParentSocket.IsNone())
+			{
+				SpringArm->SetRelativeLocation(FVector::ZeroVector);
+			}
+			else if (CharacterPawn)
+			{
+				SpringArm->TargetOffset = FVector(0.0f, 0.0f, CharacterPawn->BaseEyeHeight + CameraMode.FirstPersonEyeHeightOffset);
+			}
+			CameraMode.PreferredFirstPersonSocket = CameraParentSocket;
+		}
+		else if (bUseCloseOverShoulderCamera)
+		{
+			SpringArm->TargetOffset = FVector(0.0f, 0.0f, CameraMode.CloseOverShoulderHeightOffset);
+			SpringArm->SocketOffset = FVector(0.0f, CameraMode.CloseOverShoulderLateralOffset, 0.0f);
+		}
+		else if (bUseSideCinematicCloseCamera)
+		{
+			SpringArm->TargetOffset = FVector(0.0f, 0.0f, CameraMode.SideCinematicCloseHeightOffset);
+			SpringArm->SocketOffset = FVector(0.0f, CameraMode.SideCinematicCloseLateralOffset, 0.0f);
+		}
+		else
+		{
+			CameraMode.LastThirdPersonArmLength = FMath::Max(0.0f, ThirdPersonArmTarget);
+			CameraZoom.DesiredDistance = FMath::Clamp(ThirdPersonArmTarget, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+		}
 	}
 
 	if (FollowCam)
 	{
 		FollowCam->bUsePawnControlRotation = false;
 		FollowCam->Activate();
+		if (bUseFirstPersonCamera)
+		{
+			FollowCam->SetRelativeLocation(FVector(CameraMode.FirstPersonForwardOffset, 0.0f, CameraMode.FirstPersonVerticalOffset));
+			FollowCam->SetRelativeRotation(FRotator::ZeroRotator);
+		}
+		else
+		{
+			FollowCam->SetRelativeLocation(FVector::ZeroVector);
+			FollowCam->SetRelativeRotation(FRotator::ZeroRotator);
+		}
 	}
 
 	bAutoManageActiveCameraTarget = false;
 	SetViewTargetWithBlend(InPawn, 0.0f);
 
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("CameraSetup: Pawn='%s' SpringArm=%s Camera=%s TargetDistance=%.2f"),
+		TEXT("CameraSetup: Pawn='%s' Mode=%s SpringArm=%s Camera=%s TargetDistance=%.2f Socket=%s"),
 		*GetNameSafe(InPawn),
+		bUseFirstPersonCamera
+			? TEXT("FirstPerson")
+			: (bUseCloseOverShoulderCamera
+				? TEXT("CloseOverShoulder")
+				: (bUseSideCinematicCloseCamera ? TEXT("SideCinematicClose") : TEXT("ThirdPerson"))),
 		SpringArm ? TEXT("found") : TEXT("MISSING"),
 		FollowCam ? TEXT("found") : TEXT("MISSING"),
-		CameraZoom.DesiredDistance);
+		CameraZoom.DesiredDistance,
+		CameraParentSocket.IsNone() ? TEXT("none") : *CameraParentSocket.ToString());
 }
 
 void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, float DeltaTime)
 {
 	if (!ControlledPawn)
+	{
+		return;
+	}
+
+	if (CameraMode.ActiveMode != EMetaAgentCameraMode::ThirdPerson)
 	{
 		return;
 	}
@@ -195,7 +336,10 @@ void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, floa
 
 	if (CameraZoom.DesiredDistance < 0.0f)
 	{
-		CameraZoom.DesiredDistance = FMath::Clamp(SpringArm->TargetArmLength, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+		CameraZoom.DesiredDistance = FMath::Clamp(
+			CameraMode.LastThirdPersonArmLength > 0.0f ? CameraMode.LastThirdPersonArmLength : SpringArm->TargetArmLength,
+			CameraZoom.MinDistance,
+			CameraZoom.MaxDistance);
 	}
 
 	bool bConsumedDiscreteWheelInput = false;
@@ -220,6 +364,7 @@ void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, floa
 	}
 
 	CameraZoom.DesiredDistance = FMath::Clamp(CameraZoom.DesiredDistance, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+	CameraMode.LastThirdPersonArmLength = CameraZoom.DesiredDistance;
 	SpringArm->TargetArmLength = FMath::FInterpTo(
 		SpringArm->TargetArmLength,
 		CameraZoom.DesiredDistance,
