@@ -149,12 +149,23 @@ struct FMetaAgentMovementDiagnosticsState
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="600.0"))
 	float EmergencySingleNodeAuthoredWalkSpeed = 45.0f;
 
+	// Approximate authored world speed of the emergency run clip.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="1200.0"))
+	float EmergencySingleNodeAuthoredRunSpeed = 260.0f;
+
 	// Enter/exit hysteresis thresholds (cm/s) used to avoid abrupt idle/walk toggles.
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="600.0"))
 	float EmergencyWalkEnterSpeed = 24.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="600.0"))
 	float EmergencyWalkExitSpeed = 12.0f;
+
+	// Enter/exit hysteresis thresholds (cm/s) for switching between walk and run fallback clips.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="2400.0"))
+	float EmergencyRunEnterSpeed = 280.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="1.0", ClampMax="2400.0"))
+	float EmergencyRunExitSpeed = 200.0f;
 
 	// Blend timing for smoothing transitions between idle and walk fallback clips.
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.01", ClampMax="2.0"))
@@ -173,6 +184,10 @@ struct FMetaAgentMovementDiagnosticsState
 	// Eases initial walk movement by ramping play-rate up from this value.
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.1", ClampMax="2.0"))
 	float EmergencyWalkStartPlayRate = 0.45f;
+
+	// Near-zero speed tolerance used to settle exactly onto idle and avoid visible end-of-blend gaps.
+	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.0", ClampMax="30.0"))
+	float EmergencyIdleSnapSpeed = 2.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Animation|Fallback", meta=(ClampMin="0.001", ClampMax="10.0"))
 	float AutoFallbackMinBoneDelta = 0.02f;
@@ -211,7 +226,13 @@ struct FMetaAgentMovementDiagnosticsState
 	bool bEmergencyWalkActive = false;
 
 	UPROPERTY(Transient)
+	bool bEmergencyRunActive = false;
+
+	UPROPERTY(Transient)
 	float EmergencyWalkBlendAlpha = 0.0f;
+
+	UPROPERTY(Transient)
+	float EmergencyRunBlendAlpha = 0.0f;
 };
 
 USTRUCT()
@@ -268,10 +289,19 @@ struct FMetaAgentRecordingState
 	bool bRenderPngSequenceAlongsideMp4 = true;
 };
 
+UENUM()
+enum class EMetaAgentCinematicCameraStyle : uint8
+{
+	OscillatingHold
+};
+
 USTRUCT()
 struct FMetaAgentCinematicCameraState
 {
 	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic")
+	EMetaAgentCinematicCameraStyle ActiveStyle = EMetaAgentCinematicCameraStyle::OscillatingHold;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.0", ClampMax="5.0"))
 	float BlendInSeconds = 0.35f;
@@ -284,6 +314,9 @@ struct FMetaAgentCinematicCameraState
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.1", ClampMax="30.0"))
 	float PanDurationSeconds = 4.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.1", ClampMax="45.0"))
+	float OscillationYawAmplitudeDegrees = 8.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="-200.0", ClampMax="400.0"))
 	float LookAtZOffset = 100.0f;
@@ -313,7 +346,7 @@ struct FMetaAgentCinematicCameraState
 	float SwayFrequency = 0.85f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic")
-	bool bDisablePlayerInput = true;
+	bool bDisablePlayerInput = false;
 
 	UPROPERTY(Transient)
 	bool bModeEnabled = false;
@@ -370,15 +403,12 @@ protected:
 	UPROPERTY(EditAnywhere, Category ="Input|Input Mappings")
 	TArray<UInputMappingContext*> DefaultMappingContexts;
 
-	/** Input Mapping Contexts */
-	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")
+	/** Input Mapping Contexts skipped when touch controls are active */
+	UPROPERTY(EditAnywhere, Category ="Input|Input Mappings")
 	TArray<UInputMappingContext*> MobileExcludedMappingContexts;
 
-	/** Optional soft reference fallback for default input mapping context. */
-	UPROPERTY(EditDefaultsOnly, Category="Input|Input Mappings")
+	/** Input Mapping Contexts */
 	TSoftObjectPtr<UInputMappingContext> DefaultMappingContextAsset;
-
-	/** Optional soft reference fallback for mouse-look mapping context. */
 	UPROPERTY(EditDefaultsOnly, Category="Input|Input Mappings")
 	TSoftObjectPtr<UInputMappingContext> MouseLookMappingContextAsset;
 
@@ -421,7 +451,7 @@ protected:
 	/** Submits the most recently recorded autopilot take to Movie Render Queue. */
 	void HandleRenderRecordedTakePressed();
 
-	/** Bound to V: toggles cinematic orbit camera mode on/off. */
+	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
 	/** Enables cinematic orbit camera mode around the active character. */

@@ -9,7 +9,9 @@
 
 void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPawn)
 {
-	if (!ControlledPawn || !InputFallback.bEnableKeyboardMovement || CinematicCamera.bModeEnabled)
+	if (!ControlledPawn
+		|| !InputFallback.bEnableKeyboardMovement
+		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
 		return;
 	}
@@ -48,7 +50,8 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 
 void AMetaAgentPlayerController::ApplyFallbackLookInput()
 {
-	if (!InputFallback.bEnableMouseLook || CinematicCamera.bModeEnabled)
+	if (!InputFallback.bEnableMouseLook
+		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
 		return;
 	}
