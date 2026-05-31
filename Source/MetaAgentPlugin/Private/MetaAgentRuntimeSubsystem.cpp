@@ -2,6 +2,10 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/SpectatorPawn.h"
 #include "HttpModule.h"
 #include "HttpPath.h"
 #include "HttpServerModule.h"
@@ -16,12 +20,87 @@
 #include "MetaAgentPlugin.h"
 #include "MetaAgentPluginSettings.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "TimerManager.h"
 #include "UI/HUD/MetaAgentHUD.h"
 
 namespace
 {
+	FString NormalizeNameForMatching(const FString& InName)
+	{
+		FString Out = InName;
+		Out.TrimStartAndEndInline();
+		Out.ToUpperInline();
+
+		if (Out.StartsWith(TEXT("UEDPIE_")))
+		{
+			const int32 FirstUnderscore = Out.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromStart, 0);
+			const int32 SecondUnderscore = (FirstUnderscore != INDEX_NONE)
+				? Out.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromStart, FirstUnderscore + 1)
+				: INDEX_NONE;
+
+			if (SecondUnderscore != INDEX_NONE && (SecondUnderscore + 1) < Out.Len())
+			{
+				Out.RightChopInline(SecondUnderscore + 1, false);
+			}
+		}
+
+		while (true)
+		{
+			int32 LastUnderscore = INDEX_NONE;
+			if (!Out.FindLastChar(TEXT('_'), LastUnderscore))
+			{
+				break;
+			}
+
+			if ((LastUnderscore + 1) >= Out.Len())
+			{
+				break;
+			}
+
+			bool bAllDigits = true;
+			for (int32 Index = LastUnderscore + 1; Index < Out.Len(); ++Index)
+			{
+				if (!FChar::IsDigit(Out[Index]))
+				{
+					bAllDigits = false;
+					break;
+				}
+			}
+
+			if (!bAllDigits)
+			{
+				break;
+			}
+
+			Out.LeftInline(LastUnderscore, false);
+		}
+
+		if (Out.EndsWith(TEXT("_C")))
+		{
+			Out.LeftChopInline(2, false);
+		}
+
+		return Out;
+	}
+
+	bool IsFlexibleNameMatch(const FString& Candidate, const FString& Preferred)
+	{
+		const FString CandidateNorm = NormalizeNameForMatching(Candidate);
+		const FString PreferredNorm = NormalizeNameForMatching(Preferred);
+
+		if (CandidateNorm.IsEmpty() || PreferredNorm.IsEmpty())
+		{
+			return false;
+		}
+
+		return CandidateNorm.Equals(PreferredNorm, ESearchCase::CaseSensitive)
+			|| CandidateNorm.EndsWith(PreferredNorm, ESearchCase::CaseSensitive)
+			|| CandidateNorm.Contains(PreferredNorm, ESearchCase::CaseSensitive);
+	}
+
 	const TCHAR* GetBuildConfigurationLabel()
 	{
 #if UE_BUILD_SHIPPING
@@ -63,6 +142,29 @@ namespace
 		{
 			Handles.Add(Handle);
 		}
+	}
+
+	bool MatchesPreferredName(const APawn* Pawn, const FString& PreferredName)
+	{
+		if (!Pawn || PreferredName.IsEmpty())
+		{
+			return false;
+		}
+
+		if (IsFlexibleNameMatch(Pawn->GetName(), PreferredName)
+			|| IsFlexibleNameMatch(Pawn->GetFName().ToString(), PreferredName))
+		{
+			return true;
+		}
+
+#if WITH_EDITOR
+		if (IsFlexibleNameMatch(Pawn->GetActorLabel(), PreferredName))
+		{
+			return true;
+		}
+#endif
+
+		return false;
 	}
 }
 
@@ -128,7 +230,193 @@ void UMetaAgentRuntimeSubsystem::HandleWorldBeginPlay(UWorld& InWorld)
 	GMetaAgentRuntimeActive = bRequestedActive;
 	UE_LOG(LogMetaAgentPlugin, Log, TEXT("MetaAgent runtime global active state: %s"), GMetaAgentRuntimeActive ? TEXT("ACTIVE") : TEXT("INACTIVE"));
 
+	if (GMetaAgentRuntimeActive)
+	{
+		// Possession fallback for projects still running a non-plugin GameMode.
+		ScheduleAutoPossessPreferredPawn(&InWorld, 20);
+	}
+
 	// Startup orchestration point for runtime systems.
+}
+
+void UMetaAgentRuntimeSubsystem::ScheduleAutoPossessPreferredPawn(UWorld* InWorld, int32 AttemptsRemaining)
+{
+	if (!InWorld || AttemptsRemaining <= 0)
+	{
+		return;
+	}
+
+	TWeakObjectPtr<UWorld> WeakWorld(InWorld);
+	InWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this, WeakWorld, AttemptsRemaining]()
+	{
+		if (!WeakWorld.IsValid())
+		{
+			return;
+		}
+
+		UWorld* World = WeakWorld.Get();
+		const bool bLogFailure = (AttemptsRemaining <= 1);
+		const bool bFinished = TryAutoPossessPreferredPawn(*World, bLogFailure);
+		if (!bFinished)
+		{
+			ScheduleAutoPossessPreferredPawn(World, AttemptsRemaining - 1);
+		}
+	}));
+}
+
+bool UMetaAgentRuntimeSubsystem::TryAutoPossessPreferredPawn(UWorld& InWorld, bool bLogFailure)
+{
+	if (!bRuntimeActive || !InWorld.IsGameWorld() || !GMetaAgentRuntimeActive)
+	{
+		return true;
+	}
+
+	APlayerController* PlayerController = InWorld.GetFirstPlayerController();
+	if (!PlayerController)
+	{
+		return false;
+	}
+
+	FString PreferredPawnName = TEXT("MAIN_CHARACTER");
+	bool bRequireExactPreferredPawnName = true;
+	bool bRequireUniquePreferredPawnName = true;
+	if (GConfig)
+	{
+		GConfig->GetString(TEXT("/Script/MetaAgentPlugin.MetaAgentGameMode"), TEXT("PreferredPlacedPawnName"), PreferredPawnName, GGameIni);
+		GConfig->GetBool(TEXT("/Script/MetaAgentPlugin.MetaAgentGameMode"), TEXT("bRequireExactPreferredPawnName"), bRequireExactPreferredPawnName, GGameIni);
+		GConfig->GetBool(TEXT("/Script/MetaAgentPlugin.MetaAgentGameMode"), TEXT("bRequireUniquePreferredPawnName"), bRequireUniquePreferredPawnName, GGameIni);
+	}
+
+	APawn* CurrentPawn = PlayerController->GetPawn();
+	if (CurrentPawn && !CurrentPawn->IsA<ASpectatorPawn>()
+		&& (!bRequireExactPreferredPawnName || MatchesPreferredName(CurrentPawn, PreferredPawnName)))
+	{
+		return true;
+	}
+
+	APawn* NamedPawn = nullptr;
+	APawn* FirstUsablePawn = nullptr;
+	int32 NamedPawnMatchCount = 0;
+
+	for (TActorIterator<APawn> It(&InWorld); It; ++It)
+	{
+		APawn* Candidate = *It;
+		if (!Candidate || Candidate->IsA<ASpectatorPawn>())
+		{
+			continue;
+		}
+
+		AController* ExistingController = Candidate->GetController();
+		const bool bCanRepossess = (ExistingController == nullptr)
+			|| (ExistingController == PlayerController)
+			|| !ExistingController->IsPlayerController();
+		if (!bCanRepossess)
+		{
+			continue;
+		}
+
+		if (!FirstUsablePawn)
+		{
+			FirstUsablePawn = Candidate;
+		}
+
+		if (MatchesPreferredName(Candidate, PreferredPawnName))
+		{
+			++NamedPawnMatchCount;
+			if (!NamedPawn)
+			{
+				NamedPawn = Candidate;
+			}
+		}
+	}
+
+	APawn* TargetPawn = nullptr;
+	if (bRequireExactPreferredPawnName && !PreferredPawnName.IsEmpty())
+	{
+		if (NamedPawnMatchCount == 1)
+		{
+			TargetPawn = NamedPawn;
+		}
+		else if (NamedPawnMatchCount > 1 && bRequireUniquePreferredPawnName)
+		{
+			if (bLogFailure)
+			{
+				UE_LOG(LogMetaAgentPlugin, Error,
+					TEXT("AutoPossess fallback failed: preferred pawn name '%s' is ambiguous (%d matches)."),
+					*PreferredPawnName,
+					NamedPawnMatchCount);
+			}
+			return true;
+		}
+		else if (NamedPawnMatchCount == 0)
+		{
+			AActor* MatchingNonPawnActor = nullptr;
+			for (TActorIterator<AActor> It(&InWorld); It; ++It)
+			{
+				AActor* CandidateActor = *It;
+				if (!CandidateActor || Cast<APawn>(CandidateActor))
+				{
+					continue;
+				}
+
+				if (IsFlexibleNameMatch(CandidateActor->GetName(), PreferredPawnName))
+				{
+					MatchingNonPawnActor = CandidateActor;
+					break;
+				}
+
+#if WITH_EDITOR
+				if (IsFlexibleNameMatch(CandidateActor->GetActorLabel(), PreferredPawnName))
+				{
+					MatchingNonPawnActor = CandidateActor;
+					break;
+				}
+#endif
+			}
+
+			if (MatchingNonPawnActor)
+			{
+				UE_LOG(LogMetaAgentPlugin, Error,
+					TEXT("AutoPossess fallback: found actor '%s' for preferred name '%s', but class '%s' is not a Pawn/Character and cannot be possessed."),
+					*GetNameSafe(MatchingNonPawnActor),
+					*PreferredPawnName,
+					*GetNameSafe(MatchingNonPawnActor->GetClass()));
+			}
+
+			if (bLogFailure)
+			{
+				UE_LOG(LogMetaAgentPlugin, Error,
+					TEXT("AutoPossess fallback failed: required pawn '%s' was not found in world '%s'."),
+					*PreferredPawnName,
+					*InWorld.GetMapName());
+			}
+			return true;
+		}
+	}
+	else
+	{
+		TargetPawn = NamedPawn ? NamedPawn : FirstUsablePawn;
+	}
+
+	if (!TargetPawn)
+	{
+		if (bLogFailure)
+		{
+			UE_LOG(LogMetaAgentPlugin, Error,
+				TEXT("AutoPossess fallback failed: no suitable pawn found to possess in world '%s'."),
+				*InWorld.GetMapName());
+		}
+		return true;
+	}
+
+	PlayerController->Possess(TargetPawn);
+	UE_LOG(LogMetaAgentPlugin, Log,
+		TEXT("AutoPossess fallback succeeded: controller '%s' now possesses '%s' (%s)."),
+		*GetNameSafe(PlayerController),
+		*GetNameSafe(TargetPawn),
+		*GetNameSafe(TargetPawn->GetClass()));
+
+	return true;
 }
 
 FString UMetaAgentRuntimeSubsystem::BuildPlatformUrl() const

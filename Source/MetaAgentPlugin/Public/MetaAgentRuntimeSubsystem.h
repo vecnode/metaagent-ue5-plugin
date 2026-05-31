@@ -29,6 +29,8 @@ public:
 
 private:
 	void HandleWorldBeginPlay(UWorld& InWorld);
+	void ScheduleAutoPossessPreferredPawn(UWorld* InWorld, int32 AttemptsRemaining);
+	bool TryAutoPossessPreferredPawn(UWorld& InWorld, bool bLogFailure);
 	void StartLocalHttpServer();
 	void StopLocalHttpServer();
 	FString BuildPlatformUrl() const;

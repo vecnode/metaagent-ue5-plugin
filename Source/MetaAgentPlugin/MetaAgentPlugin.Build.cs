@@ -21,6 +21,7 @@ public class MetaAgentPlugin : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"EngineSettings",
 				"InputCore",
 				"EnhancedInput",
 				"AIModule",

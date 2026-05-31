@@ -7,6 +7,7 @@
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
 #include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpectatorPawn.h"
@@ -16,6 +17,79 @@
 
 namespace
 {
+	FString NormalizeNameForMatching(const FString& InName)
+	{
+		FString Out = InName;
+		Out.TrimStartAndEndInline();
+		Out.ToUpperInline();
+
+		if (Out.StartsWith(TEXT("UEDPIE_")))
+		{
+			const int32 FirstUnderscore = Out.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromStart, 0);
+			const int32 SecondUnderscore = (FirstUnderscore != INDEX_NONE)
+				? Out.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromStart, FirstUnderscore + 1)
+				: INDEX_NONE;
+
+			if (SecondUnderscore != INDEX_NONE && (SecondUnderscore + 1) < Out.Len())
+			{
+				Out.RightChopInline(SecondUnderscore + 1, false);
+			}
+		}
+
+		while (true)
+		{
+			int32 LastUnderscore = INDEX_NONE;
+			if (!Out.FindLastChar(TEXT('_'), LastUnderscore))
+			{
+				break;
+			}
+
+			if ((LastUnderscore + 1) >= Out.Len())
+			{
+				break;
+			}
+
+			bool bAllDigits = true;
+			for (int32 Index = LastUnderscore + 1; Index < Out.Len(); ++Index)
+			{
+				if (!FChar::IsDigit(Out[Index]))
+				{
+					bAllDigits = false;
+					break;
+				}
+			}
+
+			if (!bAllDigits)
+			{
+				break;
+			}
+
+			Out.LeftInline(LastUnderscore, false);
+		}
+
+		if (Out.EndsWith(TEXT("_C")))
+		{
+			Out.LeftChopInline(2, false);
+		}
+
+		return Out;
+	}
+
+	bool IsFlexibleNameMatch(const FString& Candidate, const FString& Preferred)
+	{
+		const FString CandidateNorm = NormalizeNameForMatching(Candidate);
+		const FString PreferredNorm = NormalizeNameForMatching(Preferred);
+
+		if (CandidateNorm.IsEmpty() || PreferredNorm.IsEmpty())
+		{
+			return false;
+		}
+
+		return CandidateNorm.Equals(PreferredNorm, ESearchCase::CaseSensitive)
+			|| CandidateNorm.EndsWith(PreferredNorm, ESearchCase::CaseSensitive)
+			|| CandidateNorm.Contains(PreferredNorm, ESearchCase::CaseSensitive);
+	}
+
 	bool IsSelectablePlacedPawn(const APawn* Pawn)
 	{
 		return IsValid(Pawn)
@@ -51,14 +125,14 @@ namespace
 			return false;
 		}
 
-		if (Pawn->GetName().Equals(PreferredName, ESearchCase::IgnoreCase)
-			|| Pawn->GetFName().ToString().Equals(PreferredName, ESearchCase::IgnoreCase))
+		if (IsFlexibleNameMatch(Pawn->GetName(), PreferredName)
+			|| IsFlexibleNameMatch(Pawn->GetFName().ToString(), PreferredName))
 		{
 			return true;
 		}
 
 #if WITH_EDITOR
-		if (Pawn->GetActorLabel().Equals(PreferredName, ESearchCase::IgnoreCase))
+		if (IsFlexibleNameMatch(Pawn->GetActorLabel(), PreferredName))
 		{
 			return true;
 		}
@@ -177,6 +251,39 @@ void AMetaAgentGameMode::RestartPlayer(AController* NewPlayer)
 		}
 		else
 		{
+			AActor* MatchingNonPawnActor = nullptr;
+			if (!PreferredPlacedPawnName.IsEmpty())
+			{
+				for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+				{
+					AActor* CandidateActor = *It;
+					if (CandidateActor && !Cast<APawn>(CandidateActor)
+						&& IsFlexibleNameMatch(CandidateActor->GetName(), PreferredPlacedPawnName))
+					{
+						MatchingNonPawnActor = CandidateActor;
+						break;
+					}
+
+#if WITH_EDITOR
+					if (CandidateActor && !Cast<APawn>(CandidateActor)
+						&& IsFlexibleNameMatch(CandidateActor->GetActorLabel(), PreferredPlacedPawnName))
+					{
+						MatchingNonPawnActor = CandidateActor;
+						break;
+					}
+#endif
+				}
+			}
+
+			if (MatchingNonPawnActor)
+			{
+				UE_LOG(LogMetaAgent, Error,
+					TEXT("MetaAgentGameMode: Found actor '%s' for preferred name '%s', but class '%s' is not a Pawn/Character and cannot be possessed."),
+					*GetNameSafe(MatchingNonPawnActor),
+					*PreferredPlacedPawnName,
+					*GetNameSafe(MatchingNonPawnActor->GetClass()));
+			}
+
 			UE_LOG(LogMetaAgent, Error,
 				TEXT("MetaAgentGameMode: Required preferred pawn '%s' was not found. Place a pawn/character with this exact name, or disable strict name requirement."),
 				*PreferredPlacedPawnName);
