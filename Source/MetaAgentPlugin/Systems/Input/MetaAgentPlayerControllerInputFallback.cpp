@@ -45,12 +45,30 @@ void AMetaAgentPlayerController::ApplyFallbackLookInput()
 	float MouseDeltaY = 0.0f;
 	GetInputMouseDelta(MouseDeltaX, MouseDeltaY);
 
+	// PIE can report zero mouse delta depending on capture mode. Use axis keys as fallback.
+	if (FMath::IsNearlyZero(MouseDeltaX) && FMath::IsNearlyZero(MouseDeltaY))
+	{
+		MouseDeltaX = GetInputAnalogKeyState(EKeys::MouseX);
+		MouseDeltaY = GetInputAnalogKeyState(EKeys::MouseY);
+	}
+
 	if (FMath::IsNearlyZero(MouseDeltaX) && FMath::IsNearlyZero(MouseDeltaY))
 	{
 		return;
 	}
 
-	AddYawInput(MouseDeltaX * InputFallback.MouseSensitivity);
-	AddPitchInput(-MouseDeltaY * InputFallback.MouseSensitivity);
+	const float EffectiveMouseSensitivity = InputFallback.MouseSensitivity * 2.0f;
+
+	// PIE/editor capture paths can ignore AddYawInput/AddPitchInput.
+	// Apply rotation directly so camera look always responds to mouse movement.
+	if (IsLookInputIgnored())
+	{
+		SetIgnoreLookInput(false);
+	}
+
+	FRotator NewControlRotation = GetControlRotation();
+	NewControlRotation.Yaw = FRotator::NormalizeAxis(NewControlRotation.Yaw + (MouseDeltaX * EffectiveMouseSensitivity));
+	NewControlRotation.Pitch = FMath::ClampAngle(NewControlRotation.Pitch - (MouseDeltaY * EffectiveMouseSensitivity), -85.0f, 85.0f);
+	SetControlRotation(NewControlRotation);
 }
 

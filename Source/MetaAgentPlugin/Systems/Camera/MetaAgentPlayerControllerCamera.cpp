@@ -7,6 +7,7 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
@@ -45,31 +46,77 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 		return;
 	}
 
-	USpringArmComponent* SpringArm = InPawn->FindComponentByClass<USpringArmComponent>();
-	UCameraComponent* FollowCam = InPawn->FindComponentByClass<UCameraComponent>();
+	USpringArmComponent* SpringArm = nullptr;
+	UCameraComponent* FollowCam = nullptr;
 	USceneComponent* PawnRoot = InPawn->GetRootComponent();
+	USceneComponent* CameraParent = PawnRoot;
 
-	if (!SpringArm && PawnRoot)
+	if (const ACharacter* CharacterPawn = Cast<ACharacter>(InPawn))
 	{
-		SpringArm = NewObject<USpringArmComponent>(InPawn, TEXT("MetaAgentRuntimeSpringArm"));
+		if (UCapsuleComponent* CapsuleComp = CharacterPawn->GetCapsuleComponent())
+		{
+			CameraParent = CapsuleComp;
+		}
+	}
+
+	TInlineComponentArray<USpringArmComponent*> SpringArms;
+	InPawn->GetComponents(SpringArms);
+	for (USpringArmComponent* Candidate : SpringArms)
+	{
+		if (Candidate && Candidate->GetFName() == TEXT("CameraBoom"))
+		{
+			SpringArm = Candidate;
+			break;
+		}
+	}
+	if (!SpringArm)
+	{
+		SpringArm = InPawn->FindComponentByClass<USpringArmComponent>();
+	}
+
+	if (!SpringArm && CameraParent)
+	{
+		SpringArm = NewObject<USpringArmComponent>(InPawn, TEXT("CameraBoom"));
 		if (SpringArm)
 		{
 			InPawn->AddInstanceComponent(SpringArm);
-			SpringArm->SetupAttachment(PawnRoot);
+			SpringArm->SetupAttachment(CameraParent);
 			SpringArm->TargetArmLength = 400.0f;
 			SpringArm->bUsePawnControlRotation = true;
 			SpringArm->bDoCollisionTest = false;
 			SpringArm->RegisterComponent();
 
 			UE_LOG(LogMetaAgent, Warning,
-				TEXT("CameraSetup: Pawn '%s' had no spring arm. Added runtime spring arm fallback."),
+				TEXT("CameraSetup: Pawn '%s' had no spring arm. Added runtime CameraBoom fallback."),
 				*GetNameSafe(InPawn));
 		}
+	}
+	else if (SpringArm && CameraParent)
+	{
+		if (SpringArm->GetAttachParent() != CameraParent)
+		{
+			SpringArm->AttachToComponent(CameraParent, FAttachmentTransformRules::KeepRelativeTransform);
+		}
+	}
+
+	TInlineComponentArray<UCameraComponent*> Cameras;
+	InPawn->GetComponents(Cameras);
+	for (UCameraComponent* Candidate : Cameras)
+	{
+		if (Candidate && Candidate->GetFName() == TEXT("FollowCamera"))
+		{
+			FollowCam = Candidate;
+			break;
+		}
+	}
+	if (!FollowCam)
+	{
+		FollowCam = InPawn->FindComponentByClass<UCameraComponent>();
 	}
 
 	if (!FollowCam)
 	{
-		FollowCam = NewObject<UCameraComponent>(InPawn, TEXT("MetaAgentRuntimeFollowCamera"));
+		FollowCam = NewObject<UCameraComponent>(InPawn, TEXT("FollowCamera"));
 		if (FollowCam)
 		{
 			InPawn->AddInstanceComponent(FollowCam);
@@ -86,13 +133,31 @@ void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 			FollowCam->Activate();
 
 			UE_LOG(LogMetaAgent, Warning,
-				TEXT("CameraSetup: Pawn '%s' had no camera. Added runtime follow camera fallback."),
+				TEXT("CameraSetup: Pawn '%s' had no camera. Added runtime FollowCamera fallback."),
 				*GetNameSafe(InPawn));
+		}
+	}
+	else if (FollowCam)
+	{
+		if (SpringArm)
+		{
+			if (FollowCam->GetAttachParent() != SpringArm)
+			{
+				FollowCam->AttachToComponent(SpringArm, FAttachmentTransformRules::KeepRelativeTransform, USpringArmComponent::SocketName);
+			}
+		}
+		else if (CameraParent)
+		{
+			if (FollowCam->GetAttachParent() != CameraParent)
+			{
+				FollowCam->AttachToComponent(CameraParent, FAttachmentTransformRules::KeepRelativeTransform);
+			}
 		}
 	}
 
 	if (SpringArm)
 	{
+		SpringArm->TargetArmLength = 400.0f;
 		SpringArm->bUsePawnControlRotation = true;
 		SpringArm->bDoCollisionTest = false;
 		CameraZoom.DesiredDistance = FMath::Clamp(SpringArm->TargetArmLength, CameraZoom.MinDistance, CameraZoom.MaxDistance);

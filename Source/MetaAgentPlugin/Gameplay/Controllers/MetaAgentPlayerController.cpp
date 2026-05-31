@@ -15,12 +15,18 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/MeshComponent.h"
+#include "Components/SkinnedMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
+#include "EngineUtils.h"
 #include "InputCoreTypes.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "LevelSequence.h"
@@ -100,6 +106,459 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 
 	if (ACharacter* PossessedCharacter = Cast<ACharacter>(InPawn))
 	{
+		if (USkeletalMeshComponent* PrimaryMesh = PossessedCharacter->GetMesh())
+		{
+			const bool bNeedsMeshRecovery = (PrimaryMesh->GetSkeletalMeshAsset() == nullptr);
+			const bool bNeedsAnimRecovery = (PrimaryMesh->GetAnimClass() == nullptr && PrimaryMesh->GetAnimInstance() == nullptr);
+
+			if (bNeedsMeshRecovery || bNeedsAnimRecovery)
+			{
+				USkeletalMeshComponent* RecoveryMesh = nullptr;
+				AActor* RecoveryOwner = nullptr;
+				bool bRecoveredFromWorldSearch = false;
+
+				TArray<AActor*> AttachedActors;
+				PossessedCharacter->GetAttachedActors(AttachedActors, true, true);
+
+				for (AActor* AttachedActor : AttachedActors)
+				{
+					if (!AttachedActor)
+					{
+						continue;
+					}
+
+					TInlineComponentArray<USkeletalMeshComponent*> AttachedMeshes;
+					AttachedActor->GetComponents(AttachedMeshes);
+					for (USkeletalMeshComponent* AttachedMesh : AttachedMeshes)
+					{
+						if (AttachedMesh && AttachedMesh->GetSkeletalMeshAsset())
+						{
+							RecoveryMesh = AttachedMesh;
+							RecoveryOwner = AttachedActor;
+							break;
+						}
+					}
+
+					if (RecoveryMesh)
+					{
+						break;
+					}
+				}
+
+				if (RecoveryMesh)
+				{
+					if (PrimaryMesh->GetSkeletalMeshAsset() == nullptr)
+					{
+						PrimaryMesh->SetSkeletalMesh(RecoveryMesh->GetSkeletalMeshAsset());
+					}
+
+					if (PrimaryMesh->GetAnimClass() == nullptr)
+					{
+						if (RecoveryMesh->GetAnimClass())
+						{
+							PrimaryMesh->SetAnimInstanceClass(RecoveryMesh->GetAnimClass());
+						}
+						else if (UAnimInstance* RecoveryAnimInstance = RecoveryMesh->GetAnimInstance())
+						{
+							PrimaryMesh->SetAnimInstanceClass(RecoveryAnimInstance->GetClass());
+						}
+					}
+
+					PrimaryMesh->SetRelativeLocation(RecoveryMesh->GetRelativeLocation());
+					PrimaryMesh->SetRelativeRotation(RecoveryMesh->GetRelativeRotation());
+					PrimaryMesh->SetRelativeScale3D(RecoveryMesh->GetRelativeScale3D());
+					PrimaryMesh->SetVisibility(true, true);
+					PrimaryMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+					PrimaryMesh->SetGenerateOverlapEvents(false);
+
+					UE_LOG(LogMetaAgent, Warning,
+						TEXT("BodyRecovery: '%s' recovered primary mesh '%s' from attached actor '%s' component '%s'."),
+						*GetNameSafe(PossessedCharacter),
+						*GetNameSafe(PrimaryMesh->GetSkeletalMeshAsset()),
+						*GetNameSafe(RecoveryOwner),
+						*GetNameSafe(RecoveryMesh));
+				}
+				else
+				{
+					for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+					{
+						AActor* CandidateActor = *It;
+						if (!CandidateActor || CandidateActor == PossessedCharacter)
+						{
+							continue;
+						}
+
+						const FString CandidateName = CandidateActor->GetName();
+						const bool bLikelyMetaHumanVisual =
+							CandidateName.Contains(TEXT("MetaHuman"), ESearchCase::IgnoreCase) ||
+							CandidateName.Contains(TEXT("Visual"), ESearchCase::IgnoreCase);
+						if (!bLikelyMetaHumanVisual)
+						{
+							continue;
+						}
+
+						TInlineComponentArray<USkeletalMeshComponent*> CandidateMeshes;
+						CandidateActor->GetComponents(CandidateMeshes);
+						for (USkeletalMeshComponent* CandidateMesh : CandidateMeshes)
+						{
+							if (CandidateMesh && CandidateMesh->GetSkeletalMeshAsset())
+							{
+								RecoveryMesh = CandidateMesh;
+								RecoveryOwner = CandidateActor;
+								bRecoveredFromWorldSearch = true;
+								break;
+							}
+						}
+
+						if (RecoveryMesh)
+						{
+							break;
+						}
+					}
+
+					if (RecoveryMesh)
+					{
+						if (PrimaryMesh->GetSkeletalMeshAsset() == nullptr)
+						{
+							PrimaryMesh->SetSkeletalMesh(RecoveryMesh->GetSkeletalMeshAsset());
+						}
+
+						if (PrimaryMesh->GetAnimClass() == nullptr)
+						{
+							if (RecoveryMesh->GetAnimClass())
+							{
+								PrimaryMesh->SetAnimInstanceClass(RecoveryMesh->GetAnimClass());
+							}
+							else if (UAnimInstance* RecoveryAnimInstance = RecoveryMesh->GetAnimInstance())
+							{
+								PrimaryMesh->SetAnimInstanceClass(RecoveryAnimInstance->GetClass());
+							}
+						}
+
+						PrimaryMesh->SetRelativeLocation(RecoveryMesh->GetRelativeLocation());
+						PrimaryMesh->SetRelativeRotation(RecoveryMesh->GetRelativeRotation());
+						PrimaryMesh->SetRelativeScale3D(RecoveryMesh->GetRelativeScale3D());
+						PrimaryMesh->SetVisibility(true, true);
+						PrimaryMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+						PrimaryMesh->SetGenerateOverlapEvents(false);
+
+						if (bRecoveredFromWorldSearch)
+						{
+							UE_LOG(LogMetaAgent, Warning,
+								TEXT("BodyRecovery: '%s' recovered primary mesh '%s' from world actor '%s' component '%s'."),
+								*GetNameSafe(PossessedCharacter),
+								*GetNameSafe(PrimaryMesh->GetSkeletalMeshAsset()),
+								*GetNameSafe(RecoveryOwner),
+								*GetNameSafe(RecoveryMesh));
+						}
+					}
+					else
+					{
+						UE_LOG(LogMetaAgent, Warning,
+							TEXT("BodyRecovery: '%s' mesh '%s' has no SkeletalMesh and no attached/world visual actor with a valid skeletal mesh was found. Configure CharacterMesh0 SkeletalMesh + AnimClass in BP_MH_PlayerChar."),
+							*GetNameSafe(PossessedCharacter),
+							*GetNameSafe(PrimaryMesh));
+					}
+				}
+
+				if (RecoveryOwner && RecoveryMesh)
+				{
+					// Requested tuning: face front and sit slightly lower on the ground.
+					PrimaryMesh->SetRelativeRotation(FRotator(
+						RecoveryMesh->GetRelativeRotation().Pitch,
+						RecoveryMesh->GetRelativeRotation().Yaw - 90.0f,
+						RecoveryMesh->GetRelativeRotation().Roll));
+					PrimaryMesh->SetRelativeLocation(RecoveryMesh->GetRelativeLocation() + FVector(0.0f, 0.0f, -95.0f));
+
+					if (PrimaryMesh->GetAnimClass() == nullptr)
+					{
+						PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+
+						if (RecoveryMesh->GetAnimClass())
+						{
+							PrimaryMesh->SetAnimInstanceClass(RecoveryMesh->GetAnimClass());
+						}
+						else if (UAnimInstance* RecoveryAnimInstance = RecoveryMesh->GetAnimInstance())
+						{
+							PrimaryMesh->SetAnimInstanceClass(RecoveryAnimInstance->GetClass());
+						}
+
+						if (PrimaryMesh->GetAnimClass() == nullptr)
+						{
+							if (AActor* RecoveryCDO = Cast<AActor>(RecoveryOwner->GetClass()->GetDefaultObject()))
+							{
+								TInlineComponentArray<USkeletalMeshComponent*> DefaultMeshes;
+								RecoveryCDO->GetComponents(DefaultMeshes);
+								const USkeleton* PrimarySkeleton =
+									PrimaryMesh->GetSkeletalMeshAsset() ? PrimaryMesh->GetSkeletalMeshAsset()->GetSkeleton() : nullptr;
+
+								for (USkeletalMeshComponent* DefaultMeshComp : DefaultMeshes)
+								{
+									if (!DefaultMeshComp)
+									{
+										continue;
+									}
+
+									if (DefaultMeshComp->GetFName() == RecoveryMesh->GetFName() && DefaultMeshComp->GetAnimClass())
+									{
+										PrimaryMesh->SetAnimInstanceClass(DefaultMeshComp->GetAnimClass());
+										break;
+									}
+
+									if (PrimarySkeleton && DefaultMeshComp->GetAnimClass() &&
+										DefaultMeshComp->GetSkeletalMeshAsset() &&
+										DefaultMeshComp->GetSkeletalMeshAsset()->GetSkeleton() == PrimarySkeleton)
+									{
+										PrimaryMesh->SetAnimInstanceClass(DefaultMeshComp->GetAnimClass());
+										break;
+									}
+								}
+							}
+						}
+
+						if (PrimaryMesh->GetAnimClass() == nullptr)
+						{
+							if (ACharacter* PossessedCDOCharacter = Cast<ACharacter>(PossessedCharacter->GetClass()->GetDefaultObject()))
+							{
+								if (USkeletalMeshComponent* PossessedCDOMesh = PossessedCDOCharacter->GetMesh())
+								{
+									if (PossessedCDOMesh->GetAnimClass())
+									{
+										PrimaryMesh->SetAnimInstanceClass(PossessedCDOMesh->GetAnimClass());
+									}
+								}
+							}
+						}
+
+						if (PrimaryMesh->GetAnimClass() == nullptr && PrimaryMesh->GetSkeletalMeshAsset())
+						{
+							const USkeleton* PrimarySkeleton = PrimaryMesh->GetSkeletalMeshAsset()->GetSkeleton();
+							if (PrimarySkeleton)
+							{
+								for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+								{
+									AActor* CandidateActor = *It;
+									if (!CandidateActor)
+									{
+										continue;
+									}
+
+									TInlineComponentArray<USkeletalMeshComponent*> CandidateMeshes;
+									CandidateActor->GetComponents(CandidateMeshes);
+									for (USkeletalMeshComponent* CandidateMesh : CandidateMeshes)
+									{
+										if (!CandidateMesh || !CandidateMesh->GetSkeletalMeshAsset())
+										{
+											continue;
+										}
+
+										const USkeleton* CandidateSkeleton = CandidateMesh->GetSkeletalMeshAsset()->GetSkeleton();
+										if (!CandidateSkeleton || CandidateSkeleton != PrimarySkeleton)
+										{
+											continue;
+										}
+
+										if (CandidateMesh->GetAnimClass())
+										{
+											PrimaryMesh->SetAnimInstanceClass(CandidateMesh->GetAnimClass());
+											break;
+										}
+
+										if (UAnimInstance* CandidateAnimInstance = CandidateMesh->GetAnimInstance())
+										{
+											PrimaryMesh->SetAnimInstanceClass(CandidateAnimInstance->GetClass());
+											break;
+										}
+									}
+
+									if (PrimaryMesh->GetAnimClass())
+									{
+										break;
+									}
+								}
+							}
+						}
+
+						if (PrimaryMesh->GetAnimClass() == nullptr)
+						{
+							static const TCHAR* FallbackAnimClassPaths[] =
+							{
+								TEXT("/Game/CitySampleCrowd/Character/Male/Rig/m_tal_nrw_animbp.m_tal_nrw_animbp_C"),
+								TEXT("/Game/CitySampleCrowd/Character/Female/Rig/f_tal_nrw_animbp.f_tal_nrw_animbp_C"),
+								TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C")
+							};
+
+							for (const TCHAR* AnimClassPath : FallbackAnimClassPaths)
+							{
+								if (!AnimClassPath)
+								{
+									continue;
+								}
+
+								if (UClass* LoadedAnimClass = StaticLoadClass(UAnimInstance::StaticClass(), nullptr, AnimClassPath))
+								{
+									PrimaryMesh->SetAnimInstanceClass(LoadedAnimClass);
+									UE_LOG(LogMetaAgent, Warning,
+										TEXT("BodyRecovery: Loaded fallback AnimClass '%s' for primary mesh '%s'."),
+										AnimClassPath,
+										*GetNameSafe(PrimaryMesh));
+									break;
+								}
+							}
+						}
+
+						if (PrimaryMesh->GetAnimClass())
+						{
+							PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+							PrimaryMesh->InitAnim(true);
+							UE_LOG(LogMetaAgent, Warning,
+								TEXT("BodyRecovery: Applied animation class '%s' to primary mesh '%s'."),
+								*GetNameSafe(PrimaryMesh->GetAnimClass()),
+								*GetNameSafe(PrimaryMesh));
+						}
+						else
+						{
+							UE_LOG(LogMetaAgent, Warning,
+								TEXT("BodyRecovery: Unable to resolve an AnimClass for primary mesh '%s'."),
+								*GetNameSafe(PrimaryMesh));
+						}
+					}
+
+					TInlineComponentArray<UMeshComponent*> SourceMeshes;
+					RecoveryOwner->GetComponents(SourceMeshes);
+					TMap<const USceneComponent*, USceneComponent*> SourceToRecoveredSceneMap;
+
+					// First pass: create/find recovered components.
+
+					for (UMeshComponent* SourceMeshComp : SourceMeshes)
+					{
+						if (!SourceMeshComp || SourceMeshComp == RecoveryMesh)
+						{
+							continue;
+						}
+
+						if (USkeletalMeshComponent* SourceSkeletal = Cast<USkeletalMeshComponent>(SourceMeshComp))
+						{
+							if (!SourceSkeletal->GetSkeletalMeshAsset())
+							{
+								continue;
+							}
+						}
+
+						const FString RecoveredName = FString::Printf(TEXT("MetaAgentRecovered_%s"), *SourceMeshComp->GetName());
+						UMeshComponent* RecoveredComp = FindObject<UMeshComponent>(PossessedCharacter, *RecoveredName);
+						if (!RecoveredComp)
+						{
+							RecoveredComp = DuplicateObject<UMeshComponent>(SourceMeshComp, PossessedCharacter, *RecoveredName);
+							if (!RecoveredComp)
+							{
+								continue;
+							}
+
+							PossessedCharacter->AddInstanceComponent(RecoveredComp);
+							RecoveredComp->SetVisibility(true, true);
+							RecoveredComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+							RecoveredComp->SetGenerateOverlapEvents(false);
+							RecoveredComp->RegisterComponent();
+
+							UE_LOG(LogMetaAgent, Warning,
+								TEXT("BodyRecovery: Added follower component '%s' class '%s' from source '%s' on actor '%s'."),
+								*GetNameSafe(RecoveredComp),
+								*GetNameSafe(RecoveredComp->GetClass()),
+								*GetNameSafe(SourceMeshComp),
+								*GetNameSafe(RecoveryOwner));
+						}
+
+						if (const USceneComponent* SourceScene = Cast<USceneComponent>(SourceMeshComp))
+						{
+							if (USceneComponent* RecoveredScene = Cast<USceneComponent>(RecoveredComp))
+							{
+								SourceToRecoveredSceneMap.FindOrAdd(SourceScene) = RecoveredScene;
+							}
+						}
+					}
+
+					// Second pass: preserve source hierarchy and safe pose links.
+					for (UMeshComponent* SourceMeshComp : SourceMeshes)
+					{
+						if (!SourceMeshComp || SourceMeshComp == RecoveryMesh)
+						{
+							continue;
+						}
+
+						const FString RecoveredName = FString::Printf(TEXT("MetaAgentRecovered_%s"), *SourceMeshComp->GetName());
+						UMeshComponent* RecoveredComp = FindObject<UMeshComponent>(PossessedCharacter, *RecoveredName);
+						if (!RecoveredComp)
+						{
+							continue;
+						}
+
+						if (USceneComponent* RecoveredScene = Cast<USceneComponent>(RecoveredComp))
+						{
+							if (const USceneComponent* SourceScene = Cast<USceneComponent>(SourceMeshComp))
+							{
+								const USceneComponent* SourceParent = SourceScene->GetAttachParent();
+								USceneComponent* TargetParent = nullptr;
+
+								if (SourceParent == RecoveryMesh)
+								{
+									TargetParent = PrimaryMesh;
+								}
+								else if (SourceParent)
+								{
+									if (USceneComponent* const* FoundParent = SourceToRecoveredSceneMap.Find(SourceParent))
+									{
+										TargetParent = *FoundParent;
+									}
+								}
+
+								if (!TargetParent)
+								{
+									TargetParent = PrimaryMesh;
+								}
+
+								if (RecoveredScene->GetAttachParent() != TargetParent)
+								{
+									RecoveredScene->AttachToComponent(TargetParent, FAttachmentTransformRules::KeepRelativeTransform);
+								}
+
+								RecoveredScene->SetRelativeTransform(SourceScene->GetRelativeTransform());
+							}
+						}
+
+						if (USkinnedMeshComponent* RecoveredSkinned = Cast<USkinnedMeshComponent>(RecoveredComp))
+						{
+							RecoveredSkinned->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+							RecoveredSkinned->bEnableUpdateRateOptimizations = false;
+
+							if (USkinnedMeshComponent* SourceSkinned = Cast<USkinnedMeshComponent>(SourceMeshComp))
+							{
+								if (USkinnedMeshComponent* SourceLeader = SourceSkinned->LeaderPoseComponent.Get())
+								{
+									USkinnedMeshComponent* TargetLeader = nullptr;
+
+									if (SourceLeader == RecoveryMesh)
+									{
+										TargetLeader = PrimaryMesh;
+									}
+									else
+									{
+										const FString LeaderRecoveredName = FString::Printf(TEXT("MetaAgentRecovered_%s"), *SourceLeader->GetName());
+										TargetLeader = FindObject<USkinnedMeshComponent>(PossessedCharacter, *LeaderRecoveredName);
+									}
+
+									if (TargetLeader)
+									{
+										RecoveredSkinned->SetLeaderPoseComponent(TargetLeader, true, true);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		TInlineComponentArray<USkeletalMeshComponent*> SkeletalMeshes;
 		PossessedCharacter->GetComponents(SkeletalMeshes);
 
@@ -236,6 +695,54 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 	ApplyFallbackLookInput();
 	LogMovementAnimationDiagnostics(ControlledPawn);
 	UpdateMovementProbe(ControlledPawn, DeltaTime);
+
+	if (ACharacter* ControlledCharacter = Cast<ACharacter>(ControlledPawn))
+	{
+		if (USkeletalMeshComponent* PrimaryMesh = ControlledCharacter->GetMesh())
+		{
+			UClass* ActiveAnimClass = PrimaryMesh->GetAnimClass();
+			const bool bUsingCrowdFallbackClass =
+				ActiveAnimClass && ActiveAnimClass->GetName().Contains(TEXT("tal_nrw_animbp"), ESearchCase::IgnoreCase);
+
+			// If the crowd fallback AnimBP is present but still visually static on this pawn,
+			// force a deterministic idle/walk single-node animation from the same content set.
+			if (bUsingCrowdFallbackClass)
+			{
+				static UAnimationAsset* IdleAsset = nullptr;
+				static UAnimationAsset* WalkAsset = nullptr;
+
+				if (!IdleAsset)
+				{
+					IdleAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
+						TEXT("/Game/CitySampleCrowd/Character/Anims/Loco/MTN_N_Idle.MTN_N_Idle")));
+				}
+
+				if (!WalkAsset)
+				{
+					WalkAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
+						TEXT("/Game/CitySampleCrowd/Character/Anims/Loco/MTN_N_Walk_InPlace.MTN_N_Walk_InPlace")));
+				}
+
+				if (IdleAsset && WalkAsset)
+				{
+					const float Speed2D = ControlledCharacter->GetVelocity().Size2D();
+					UAnimationAsset* DesiredAsset = (Speed2D > 50.0f) ? WalkAsset : IdleAsset;
+
+					if (PrimaryMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
+					{
+						PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+					}
+
+					UAnimSingleNodeInstance* SingleNodeInstance = PrimaryMesh->GetSingleNodeInstance();
+					UAnimationAsset* CurrentAsset = SingleNodeInstance ? SingleNodeInstance->GetAnimationAsset() : nullptr;
+					if (CurrentAsset != DesiredAsset)
+					{
+						PrimaryMesh->PlayAnimation(DesiredAsset, true);
+					}
+				}
+			}
+		}
+	}
 
 	if (ControlledPawn && !CinematicCamera.bModeEnabled)
 	{
