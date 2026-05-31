@@ -268,7 +268,7 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 						RecoveryMesh->GetRelativeRotation().Pitch,
 						RecoveryMesh->GetRelativeRotation().Yaw - 90.0f,
 						RecoveryMesh->GetRelativeRotation().Roll));
-					PrimaryMesh->SetRelativeLocation(RecoveryMesh->GetRelativeLocation() + FVector(0.0f, 0.0f, -95.0f));
+					PrimaryMesh->SetRelativeLocation(RecoveryMesh->GetRelativeLocation() + FVector(0.0f, 0.0f, -94.0f));
 
 					if (PrimaryMesh->GetAnimClass() == nullptr)
 					{
@@ -630,13 +630,14 @@ void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
 
 		if (UCharacterMovementComponent* MovementComp = PossessedCharacter->GetCharacterMovement())
 		{
-			if (MovementComp->MaxWalkSpeed < 150.0f)
+			if (MovementComp->MaxWalkSpeed < 1.0f)
 			{
 				UE_LOG(LogMetaAgent, Warning,
-					TEXT("MovementGuard: '%s' MaxWalkSpeed was %.2f; clamping to 350.00 to keep locomotion out of idle band."),
+					TEXT("MovementGuard: '%s' MaxWalkSpeed was %.2f; clamping to fallback walk speed %.2f."),
 					*GetNameSafe(PossessedCharacter),
-					MovementComp->MaxWalkSpeed);
-				MovementComp->MaxWalkSpeed = 350.0f;
+					MovementComp->MaxWalkSpeed,
+					InputFallback.WalkSpeed);
+				MovementComp->MaxWalkSpeed = FMath::Max(1.0f, InputFallback.WalkSpeed);
 			}
 
 			if (MovementComp->MaxAcceleration < 500.0f)

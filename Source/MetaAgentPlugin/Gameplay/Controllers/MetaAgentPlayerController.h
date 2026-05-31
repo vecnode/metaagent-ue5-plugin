@@ -48,7 +48,13 @@ struct FMetaAgentInputFallbackState
 	bool bEnableMouseLook = true;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="0.001", ClampMax="5.0"))
-	float MouseSensitivity = 0.15f;
+	float MouseSensitivity = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="1.0", ClampMax="1200.0"))
+	float WalkSpeed = 60.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="1.0", ClampMax="2400.0"))
+	float SprintSpeed = 600.0f;
 
 	UPROPERTY(Transient)
 	bool bAddedAnyMappingContext = false;

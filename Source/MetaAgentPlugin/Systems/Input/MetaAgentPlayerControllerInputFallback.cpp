@@ -2,6 +2,8 @@
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "InputCoreTypes.h"
 
@@ -23,6 +25,16 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 	if (FMath::IsNearlyZero(ForwardRaw) && FMath::IsNearlyZero(RightRaw))
 	{
 		return;
+	}
+
+	if (ACharacter* ControlledCharacter = Cast<ACharacter>(ControlledPawn))
+	{
+		if (UCharacterMovementComponent* MovementComp = ControlledCharacter->GetCharacterMovement())
+		{
+			const bool bWantsSprint = IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
+			const float DesiredSpeed = bWantsSprint ? InputFallback.SprintSpeed : InputFallback.WalkSpeed;
+			MovementComp->MaxWalkSpeed = FMath::Max(1.0f, DesiredSpeed);
+		}
 	}
 
 	const FRotator CurrentControlRotation = GetControlRotation();
