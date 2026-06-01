@@ -252,6 +252,9 @@ struct FMetaAgentAutopilotState
 	UPROPERTY(Transient)
 	TWeakObjectPtr<APawn> Pawn;
 
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AAIController> Controller;
+
 	UPROPERTY(EditAnywhere, Category = "AI|Autopilot")
 	TSubclassOf<AAIController> AIControllerClass;
 };

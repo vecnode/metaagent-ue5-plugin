@@ -9,6 +9,7 @@
 #include "BehaviorTree/Composites/BTComposite_Selector.h"
 #include "BehaviorTree/Composites/BTComposite_Sequence.h"
 #include "BehaviorTree/Tasks/BTTask_Wait.h"
+#include "BrainComponent.h"
 #include "Core/MetaAgent.h"
 #include "Gameplay/AI/Tasks/MetaAgentBTTask_MoveToPatrolPoint.h"
 #include "Gameplay/AI/Tasks/MetaAgentBTTask_SetRandomPatrolPoint.h"
@@ -27,9 +28,20 @@ void AMetaAgentWanderAIController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
+	if (!IsValid(InPawn))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("WanderAI: OnPossess received invalid pawn."));
+		return;
+	}
+
 	if (!IsMetaAgentRuntimeActive())
 	{
 		return;
+	}
+
+	if (UBrainComponent* Brain = GetBrainComponent())
+	{
+		Brain->StopLogic(TEXT("Reinitialize runtime behavior tree"));
 	}
 
 	BuildRuntimeBehaviorTree();
@@ -38,6 +50,11 @@ void AMetaAgentWanderAIController::OnPossess(APawn* InPawn)
 
 void AMetaAgentWanderAIController::OnUnPossess()
 {
+	if (UBrainComponent* Brain = GetBrainComponent())
+	{
+		Brain->StopLogic(TEXT("Pawn unpossessed"));
+	}
+
 	StopMovement();
 	Super::OnUnPossess();
 }
@@ -67,7 +84,7 @@ void AMetaAgentWanderAIController::BuildRuntimeBehaviorTree()
 	PatrolBranch.ChildComposite = PatrolSequence;
 
 	UMetaAgentBTTask_SetRandomPatrolPoint* RandomPointTask = NewObject<UMetaAgentBTTask_SetRandomPatrolPoint>(PatrolSequence, TEXT("Task_SetRandomPoint"));
-	RandomPointTask->SearchRadius = PatrolRadius;
+	RandomPointTask->SearchRadius = FMath::Max(100.0f, PatrolRadius);
 
 	UMetaAgentBTTask_MoveToPatrolPoint* MoveToTask = NewObject<UMetaAgentBTTask_MoveToPatrolPoint>(PatrolSequence, TEXT("Task_MoveToPoint"));
 

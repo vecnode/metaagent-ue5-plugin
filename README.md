@@ -77,7 +77,7 @@ Under heavy development.
 ### Module 2: MetaAgentCameraRuntime
 
 - Camera bootstrap and attachment ownership
-- Standard playable camera modes (`P`)
+- Standard playable camera modes (`L`)
 - Runtime cinematic camera orchestration (`O`)
 - Third-person zoom and camera-state continuity
 - Implemented in:
@@ -117,9 +117,9 @@ Under heavy development.
 28. Clamp zoom distances to configured min/max bounds before applying.
 29. Clamp and sanitize zoom tuning values before runtime use.
 30. Clamp and sanitize cinematic tuning values before runtime use.
-31. Execute `P` camera mode cycling entirely through runtime mode-cycle sequence.
-32. Block `P` mode cycling while cinematic mode is active.
-33. Display a HUD transient warning when `P` is pressed during cinematic mode.
+31. Execute `L` camera mode cycling entirely through runtime mode-cycle sequence.
+32. Block `L` mode cycling while cinematic mode is active.
+33. Display a HUD transient warning when `L` is pressed during cinematic mode.
 34. Route `ApplyCameraModeToPawn` through runtime camera-application sequence.
 35. Route `ConfigureCameraForPawn` through runtime camera-application sequence.
 36. Route third-person wheel zoom updates through runtime zoom sequence.
@@ -244,6 +244,36 @@ Under heavy development.
 
 </details>
 
+
+### Module 6: MetaAgentAIRuntime
+
+- Runtime AI wander controller (`AMetaAgentWanderAIController`) builds and runs a behavior tree in code.
+- Autopilot toggle logic (`AMetaAgentPlayerController`) now lives in AIRuntime and hands possession to AI.
+- Autopilot runtime toggle key is `I`.
+- AI behavior is simple patrol wandering:
+	- pick random patrol point in radius
+	- move to patrol point
+	- wait for random interval
+	- repeat
+- Implemented in:
+	- `Systems/AIRuntime/MetaAgentWanderAIController.cpp`
+	- `Systems/AIRuntime/MetaAgentPlayerControllerAutopilot.cpp`
+
+<details>
+<summary>Module 6: 10 sequential runtime steps</summary>
+
+1. Player presses `I` to toggle autopilot.
+2. Debounce guards prevent rapid toggle spam.
+3. Controller caches currently possessed pawn.
+4. Controller spawns runtime AI controller (`AMetaAgentWanderAIController` by default).
+5. Player controller unpossesses pawn.
+6. AI controller possesses pawn and starts runtime behavior tree.
+7. Runtime behavior tree sets a random patrol location.
+8. AI moves to location, then waits random interval.
+9. Loop repeats for continuous roaming.
+10. Press `I` again to unpossess AI, destroy it, and restore player possession.
+
+</details>
 
 
 

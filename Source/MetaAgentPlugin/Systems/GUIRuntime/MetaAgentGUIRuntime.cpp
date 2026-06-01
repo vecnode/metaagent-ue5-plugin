@@ -20,8 +20,9 @@ namespace
 		GUI.BaseHelpPanelLines.Reset();
 		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Toggle this controls panel"));
-		GUI.BaseHelpPanelLines.Add(TEXT("P       : Cycle playable camera modes"));
+		GUI.BaseHelpPanelLines.Add(TEXT("L       : Cycle playable camera modes"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
+		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle HiRes frame capture"));
 		GUI.BaseHelpPanelLines.Add(TEXT("U       : Show capture output status"));
