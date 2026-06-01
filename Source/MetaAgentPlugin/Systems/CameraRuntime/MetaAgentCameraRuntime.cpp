@@ -1,7 +1,7 @@
 // Based on Unreal Engine template code.
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
-#include "Systems/Camera/MetaAgentCameraRuntime.h"
+#include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
@@ -18,6 +18,35 @@
 
 namespace
 {
+		void SanitizeCameraZoomState(FMetaAgentCameraZoomState& CameraZoom)
+		{
+			CameraZoom.MinDistance = FMath::Max(0.0f, CameraZoom.MinDistance);
+			CameraZoom.MaxDistance = FMath::Max(CameraZoom.MinDistance + 1.0f, CameraZoom.MaxDistance);
+			CameraZoom.MouseWheelStep = FMath::Max(1.0f, CameraZoom.MouseWheelStep);
+			CameraZoom.InterpSpeed = FMath::Max(0.01f, CameraZoom.InterpSpeed);
+
+			if (CameraZoom.DesiredDistance >= 0.0f)
+			{
+				CameraZoom.DesiredDistance = FMath::Clamp(CameraZoom.DesiredDistance, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+			}
+		}
+
+		void SanitizeCinematicCameraState(FMetaAgentCinematicCameraState& CinematicCamera)
+		{
+			CinematicCamera.BlendInSeconds = FMath::Max(0.0f, CinematicCamera.BlendInSeconds);
+			CinematicCamera.BlendOutSeconds = FMath::Max(0.0f, CinematicCamera.BlendOutSeconds);
+			CinematicCamera.PanDegrees = FMath::Clamp(CinematicCamera.PanDegrees, 1.0f, 360.0f);
+			CinematicCamera.PanDurationSeconds = FMath::Max(0.1f, CinematicCamera.PanDurationSeconds);
+			CinematicCamera.OscillationYawAmplitudeDegrees = FMath::Max(0.0f, CinematicCamera.OscillationYawAmplitudeDegrees);
+			CinematicCamera.HeadFocusAlpha = FMath::Clamp(CinematicCamera.HeadFocusAlpha, 0.0f, 1.0f);
+			CinematicCamera.OrbitSpeedScale = FMath::Max(0.01f, CinematicCamera.OrbitSpeedScale);
+			CinematicCamera.TurnsPerDirection = FMath::Max(1, CinematicCamera.TurnsPerDirection);
+			CinematicCamera.CloseOrbitRadius = FMath::Max(60.0f, CinematicCamera.CloseOrbitRadius);
+			CinematicCamera.SwayHorizontalAmplitude = FMath::Max(0.0f, CinematicCamera.SwayHorizontalAmplitude);
+			CinematicCamera.SwayVerticalAmplitude = FMath::Max(0.0f, CinematicCamera.SwayVerticalAmplitude);
+			CinematicCamera.SwayFrequency = FMath::Max(0.1f, CinematicCamera.SwayFrequency);
+		}
+
 	bool TryGetFirstValidSocketLocation(
 		const USkeletalMeshComponent* Mesh,
 		const TArray<FName>& CandidateSockets,
@@ -161,6 +190,8 @@ void FMetaAgentCameraRuntime::RunApplyCameraModeSequence(
 	FMetaAgentCameraModeState& CameraMode,
 	FMetaAgentCameraZoomState& CameraZoom)
 {
+	SanitizeCameraZoomState(CameraZoom);
+
 	if (!InPawn)
 	{
 		return;
@@ -401,6 +432,8 @@ void FMetaAgentCameraRuntime::RunThirdPersonZoomSequence(
 	FMetaAgentCameraModeState& CameraMode,
 	FMetaAgentCameraZoomState& CameraZoom)
 {
+	SanitizeCameraZoomState(CameraZoom);
+
 	if (!ControlledPawn)
 	{
 		return;
@@ -561,10 +594,24 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 		return;
 	}
 
+	SanitizeCinematicCameraState(CinematicCamera);
+
 	UWorld* World = Controller.GetWorld();
 	if (!World || !Controller.PlayerCameraManager)
 	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("CinematicCamera: missing world or player camera manager. Cannot enable cinematic camera."));
 		return;
+	}
+
+	if (CinematicCamera.RuntimeCameraActor && !IsValid(CinematicCamera.RuntimeCameraActor))
+	{
+		CinematicCamera.RuntimeCameraActor = nullptr;
+	}
+
+	if (CinematicCamera.RuntimeCameraActor && CinematicCamera.RuntimeCameraActor->GetWorld() != World)
+	{
+		CinematicCamera.RuntimeCameraActor->Destroy();
+		CinematicCamera.RuntimeCameraActor = nullptr;
 	}
 
 	AActor* TargetActor = ResolveCinematicTargetActor(Controller, Autopilot);
@@ -623,6 +670,7 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 		CameraLocation,
 		Controller.PlayerCameraManager->GetCameraRotation());
 
+	Controller.bAutoManageActiveCameraTarget = false;
 	Controller.SetViewTargetWithBlend(CinematicCamera.RuntimeCameraActor, CinematicCamera.BlendInSeconds);
 	CinematicCamera.bModeEnabled = true;
 
@@ -707,16 +755,44 @@ void FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(
 	FMetaAgentCinematicCameraState& CinematicCamera,
 	const FMetaAgentAutopilotState& Autopilot)
 {
-	if (!CinematicCamera.bModeEnabled || !CinematicCamera.RuntimeCameraActor)
+	if (!CinematicCamera.bModeEnabled)
 	{
+		return;
+	}
+
+	SanitizeCinematicCameraState(CinematicCamera);
+
+	if (DeltaTime <= 0.0f)
+	{
+		return;
+	}
+
+	if (!Controller.GetWorld() || !Controller.PlayerCameraManager)
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("CinematicCamera: world/camera manager became invalid during update. Disabling cinematic camera."));
+		RunDisableCinematicCameraSequence(Controller, CinematicCamera, Autopilot);
+		return;
+	}
+
+	if (!CinematicCamera.RuntimeCameraActor || !IsValid(CinematicCamera.RuntimeCameraActor))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("CinematicCamera: runtime camera actor was lost. Disabling cinematic camera."));
+		RunDisableCinematicCameraSequence(Controller, CinematicCamera, Autopilot);
 		return;
 	}
 
 	AActor* TargetActor = CinematicCamera.TargetActor.Get();
 	if (!TargetActor)
 	{
-		RunDisableCinematicCameraSequence(Controller, CinematicCamera, Autopilot);
-		return;
+		TargetActor = ResolveCinematicTargetActor(Controller, Autopilot);
+		if (!TargetActor)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("CinematicCamera: no valid target actor during update. Disabling cinematic camera."));
+			RunDisableCinematicCameraSequence(Controller, CinematicCamera, Autopilot);
+			return;
+		}
+
+		CinematicCamera.TargetActor = TargetActor;
 	}
 
 	CinematicCamera.PanElapsedSeconds += DeltaTime;

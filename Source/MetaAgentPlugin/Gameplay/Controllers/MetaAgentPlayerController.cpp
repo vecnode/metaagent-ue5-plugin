@@ -9,7 +9,7 @@
 #include "InputMappingContext.h"
 #include "Blueprint/UserWidget.h"
 #include "Core/MetaAgent.h"
-#include "Systems/Camera/MetaAgentCameraRuntime.h"
+#include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "UI/HUD/MetaAgentHUD.h"
 #include "Systems/Runtime/MetaAgentGameInstance.h"

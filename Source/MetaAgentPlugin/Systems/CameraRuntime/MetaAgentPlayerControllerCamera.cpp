@@ -2,7 +2,7 @@
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
-#include "Systems/Camera/MetaAgentCameraRuntime.h"
+#include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 
 void AMetaAgentPlayerController::ApplyCameraModeToPawn(APawn* InPawn)
 {

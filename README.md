@@ -81,66 +81,73 @@ Under heavy development.
 - Runtime cinematic camera orchestration (`O`)
 - Third-person zoom and camera-state continuity
 - Implemented in:
-	- `Systems/Camera/MetaAgentCameraRuntime.h`
-	- `Systems/Camera/MetaAgentCameraRuntime.cpp`
+	- `Systems/CameraRuntime/MetaAgentCameraRuntime.h`
+	- `Systems/CameraRuntime/MetaAgentCameraRuntime.cpp`
 
 <details>
 <summary>Module 2: 52 sequential runtime steps</summary>
 
-1. Create `Systems/Camera/MetaAgentCameraRuntime.h`
-2. Create `Systems/Camera/MetaAgentCameraRuntime.cpp`
-3. Keep current camera behavior as the baseline during the refactor
-4. Route controller camera calls through a dedicated runtime module
-5. Preserve all working `P` camera modes exactly as they behave now
-6. Preserve the working `O` cinematic oscillation behavior exactly as it behaves now
-7. Keep the controller as the input owner, not the camera logic owner
-8. Move camera-only helper functions into the runtime module first
-9. Move first-person socket resolution into the runtime module
-10. Move cinematic focus-location resolution into the runtime module
-11. Move runtime spring-arm discovery into the runtime module
-12. Move follow-camera discovery into the runtime module
-13. Move runtime fallback creation of `CameraBoom` into the runtime module
-14. Move runtime fallback creation of `FollowCamera` into the runtime module
-15. Add a sequential camera bootstrap entry point for possessed pawns
-16. Add a sequential standard camera application entry point
-17. Add a sequential third-person zoom update entry point
-18. Add a sequential cinematic camera toggle entry point
-19. Add a sequential cinematic camera tick entry point
-20. Keep `FMetaAgentCameraModeState` in the controller initially for low-risk migration
-21. Keep `FMetaAgentCameraZoomState` in the controller initially for low-risk migration
-22. Keep `FMetaAgentCinematicCameraState` in the controller initially for low-risk migration
-23. Move `ApplyCameraModeToPawn` behavior behind the runtime module API
-24. Move `ConfigureCameraForPawn` behavior behind the runtime module API
-25. Move third-person camera setup into an explicit sequential step group
-26. Move close over-shoulder camera setup into an explicit sequential step group
-27. Move side cinematic close camera setup into an explicit sequential step group
-28. Move first-person camera setup into an explicit sequential step group
-29. Keep third-person zoom restricted to the third-person mode only
-30. Preserve existing mouse-wheel interpolation behavior
-31. Preserve the remembered third-person arm length across mode changes
-32. Preserve existing runtime attachment repair when camera parent changes
-33. Preserve existing first-person head-socket preference behavior
-34. Preserve existing camera fallback logging behavior
-35. Move `P` mode cycling logic to a runtime sequence owned by Module 2
-36. Keep `P` key binding in the controller and call the runtime module from there
-37. Move `O` toggle logic to a runtime sequence owned by Module 2
-38. Keep `O` key binding in the controller and call the runtime module from there
-39. Move cinematic target resolution into the runtime module
-40. Move cinematic camera activation into the runtime module
-41. Move cinematic camera deactivation into the runtime module
-42. Move cinematic per-frame update into the runtime module
-43. Preserve current non-blocking player-input behavior during cinematic mode
-44. Preserve current oscillating-hold timing and amplitude behavior
-45. Preserve current cinematic camera actor reuse behavior
-46. Preserve current cinematic restore-view-target behavior
-47. Reduce `AMetaAgentPlayerController` to orchestration-only camera calls
-48. Validate the camera module with a focused build after each refactor phase
-49. Verify `P` mode cycling after the runtime module is wired
-50. Verify `O` cinematic toggle and oscillation after the runtime module is wired
-51. Update the README to mark Module 2 as implemented only after the port is complete
-52. Keep Module 2 extensible for future cinematic styles beyond the first oscillating type
+1. Keep `AMetaAgentPlayerController` as the input owner for camera actions.
+2. Route all camera execution through `FMetaAgentCameraRuntime` sequences.
+3. Keep `FMetaAgentCameraModeState` in the controller as runtime-owned state data.
+4. Keep `FMetaAgentCameraZoomState` in the controller as runtime-owned state data.
+5. Keep `FMetaAgentCinematicCameraState` in the controller as runtime-owned state data.
+6. Resolve first-person preferred sockets through runtime mesh-socket probing.
+7. Resolve cinematic focus points through runtime head/chest socket selection.
+8. Resolve cinematic target actors from possessed pawn, autopilot pawn, or view target.
+9. Discover `CameraBoom` spring arm components by explicit name first.
+10. Discover `FollowCamera` components by explicit name first.
+11. Fall back to class-based spring-arm discovery when named lookup misses.
+12. Fall back to class-based camera discovery when named lookup misses.
+13. Create runtime `CameraBoom` fallback when a pawn has no spring arm.
+14. Create runtime `FollowCamera` fallback when a pawn has no camera component.
+15. Repair spring-arm parent attachment when the desired parent changes.
+16. Repair spring-arm socket attachment when first-person socket selection changes.
+17. Repair follow-camera parent attachment to the spring arm when needed.
+18. Repair follow-camera parent attachment to camera parent when no spring arm exists.
+19. Apply third-person camera offsets and arm length through a deterministic sequence.
+20. Apply close over-shoulder offsets and arm length through a deterministic sequence.
+21. Apply side cinematic close offsets and arm length through a deterministic sequence.
+22. Apply first-person offsets and socket anchoring through a deterministic sequence.
+23. Preserve and reuse remembered third-person arm length across mode changes.
+24. Keep third-person zoom active only while third-person mode is active.
+25. Consume discrete mouse-wheel up/down zoom input when present.
+26. Consume analog wheel-axis zoom input when discrete wheel input is absent.
+27. Interpolate spring-arm length toward desired third-person zoom distance.
+28. Clamp zoom distances to configured min/max bounds before applying.
+29. Clamp and sanitize zoom tuning values before runtime use.
+30. Clamp and sanitize cinematic tuning values before runtime use.
+31. Execute `P` camera mode cycling entirely through runtime mode-cycle sequence.
+32. Block `P` mode cycling while cinematic mode is active.
+33. Display a HUD transient warning when `P` is pressed during cinematic mode.
+34. Route `ApplyCameraModeToPawn` through runtime camera-application sequence.
+35. Route `ConfigureCameraForPawn` through runtime camera-application sequence.
+36. Route third-person wheel zoom updates through runtime zoom sequence.
+37. Route `O` toggle handling through runtime cinematic-toggle sequence.
+38. Enable cinematic mode through runtime camera-activation sequence.
+39. Disable cinematic mode through runtime camera-teardown sequence.
+40. Update cinematic camera every frame through runtime update sequence.
+41. Spawn a transient runtime `ACameraActor` when cinematic mode starts.
+42. Reuse existing runtime cinematic camera actor when still valid.
+43. Rebuild runtime cinematic camera actor when stale or world-mismatched.
+44. Preserve pre-cinematic view target for deterministic restore on exit.
+45. Restore view target to pre-cinematic target, pawn, or autopilot pawn on exit.
+46. Keep player input enabled by default during cinematic mode.
+47. Optionally disable move/look input during cinematic mode when configured.
+48. Keep oscillating-hold cinematic motion style as the active implemented style.
+49. Apply runtime sway and look-at behavior while tracking target focus continuity.
+50. Auto-disable cinematic mode when required runtime camera prerequisites are lost.
+51. Auto-disable cinematic mode when no valid cinematic target can be resolved.
+52. Keep the runtime camera module extensible for additional cinematic styles.
 
 </details>
+
+
+### Module 3: MetaAgentGUIRuntime
+
+Lorem ipsum
+
+
 
 ## Minimum Setup
 
@@ -150,21 +157,6 @@ Under heavy development.
 	- bRequireExactPreferredPawnName=True
 	- bRequireUniquePreferredPawnName=True
 	- bAllowSpawnFallback=False
-
-## Features
-
-Module 1:
-- Possess a placed MetaHuman at Play start through `AMetaAgentGameMode`.
-- Run the full startup flow through the sequential `MetaAgentCharacterRuntime` module.
-- Generate the camera at runtime so the plugin works even when the MetaHuman blueprint has no authored camera.
-- Keyboard movement through fallback input, including walk and sprint.
-
-Module 2:
-- Run camera bootstrap and runtime attachment repair through `MetaAgentCameraRuntime`.
-- Route all `P` camera mode cycling through the sequential camera runtime module.
-- Route all `O` cinematic camera activation, update, and teardown through the sequential camera runtime module.
-- Preserve third-person zoom continuity and the current oscillating cinematic behavior while keeping the controller as orchestration only.
-
 
 
 ## License
