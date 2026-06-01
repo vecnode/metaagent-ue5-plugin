@@ -10,6 +10,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Core/MetaAgent.h"
 #include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
+#include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "UI/HUD/MetaAgentHUD.h"
 #include "Systems/Runtime/MetaAgentGameInstance.h"
@@ -535,6 +536,7 @@ void AMetaAgentPlayerController::BeginPlay()
 	}
 
 	UpdateRecordingStatusHud();
+	ApplyGUIHelpPanelState();
 }
 
 void AMetaAgentPlayerController::SetupInputComponent()
@@ -551,6 +553,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		if (!InputFallback.bUtilityKeysBound)
 		{
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
+			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
 			InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMetaAgentPlayerController::HandleYPressed);
 			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCameraModePressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);

@@ -7,14 +7,12 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
-#include "GameFramework/PlayerController.h"
 #include "Engine/Engine.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "Systems/Runtime/MetaAgentGameInstance.h"
-#include "UI/HUD/MetaAgentHUD.h"
 #include "Core/MetaAgent.h"
 
 namespace
@@ -183,11 +181,6 @@ void AMetaAgentCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	{
 		UE_LOG(LogMetaAgent, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
 	}
-
-	// Keep debug-only key handling local to the character.
-	// Movement/look raw-key fallback is centralized in AMetaAgentPlayerController
-	// to avoid duplicate movement input application.
-	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentCharacter::PrintHelloWorld);
 }
 
 void AMetaAgentCharacter::Move(const FInputActionValue& Value)
@@ -262,20 +255,10 @@ void AMetaAgentCharacter::PrintHelloWorld()
 	UE_LOG(LogMetaAgent, Log, TEXT("Hello World!"));
 	UE_LOG(LogMetaAgent, Log, TEXT("%s"), *PositionText);
 
-	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+	if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
 	{
-		if (AMetaAgentHUD* MetaAgentHUD = PlayerController->GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(TEXT("Hello World!"), FColor::Green, 2.0f);
-			MetaAgentHUD->AddTransientMessage(PositionText, FColor::Yellow, 2.5f);
-
-			if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
-			{
-				const FString ServerStatus = GI->GetLocalHttpServerStatusText();
-				MetaAgentHUD->AddTransientMessage(ServerStatus, FColor::Cyan, 3.0f);
-				UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ServerStatus);
-			}
-		}
+		const FString ServerStatus = GI->GetLocalHttpServerStatusText();
+		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ServerStatus);
 	}
 
 }

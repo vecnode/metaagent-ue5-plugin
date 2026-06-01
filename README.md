@@ -2,10 +2,10 @@
 
 Under heavy development. 
 
-- UE5 plugin focused on possessing a placed MetaHuman and enabling movement at runtime.
+- UE5 plugin with several runtimes for humanoid agents.
 - Modules: MetaAgentPlugin (Runtime), MetaAgentPluginEditor (Editor).
 
-## What Works Now
+## Modules
 
 ### Module 1 : MetaAgentCharacterRuntime
 
@@ -145,18 +145,40 @@ Under heavy development.
 
 ### Module 3: MetaAgentGUIRuntime
 
-Lorem ipsum
+- Runtime GUI panel orchestration owned by a dedicated module
+- HUD help panel visibility toggle bound to keyboard (`H`)
+- Keyboard-function reference panel rendered when GUI help is active
+- Implemented in:
+	- `Systems/GUIRuntime/MetaAgentGUIRuntime.h`
+	- `Systems/GUIRuntime/MetaAgentGUIRuntime.cpp`
+	- `Systems/GUIRuntime/MetaAgentPlayerControllerGUI.cpp`
 
+<details>
+<summary>Module 3: 20 sequential runtime steps</summary>
 
+1. Keep `AMetaAgentPlayerController` as input owner for GUI toggle actions.
+2. Route GUI panel behavior through `FMetaAgentGUIRuntime` sequences.
+3. Keep `FMetaAgentGUIState` in the controller as runtime GUI state storage.
+4. Bind `H` key in controller utility input setup for help panel toggling.
+5. Handle `H` key press through a dedicated controller-to-runtime bridge.
+6. Initialize default keyboard-help lines on first GUI runtime application.
+7. Keep help panel lines cached in runtime GUI state for deterministic redraw.
+8. Apply GUI runtime state to HUD through explicit runtime apply sequence.
+9. Push canonical help lines from GUI runtime to HUD each apply cycle.
+10. Push help-panel visibility flag from GUI runtime to HUD each apply cycle.
+11. Toggle help-panel visibility state in runtime sequence on each `H` press.
+12. Emit runtime log entries when help panel visibility changes.
+13. Keep GUI toggle behavior free of transient keypress popup text.
+14. Render help panel title and key-function rows via HUD canvas drawing.
+15. Include `J`, `U`, and `Y` rows as reserved "not in flight yet" references in panel text.
+16. Include fallback movement and look controls (`W/A/S/D`, `Shift`, mouse, wheel).
+17. Keep help panel render path independent from status panel availability.
+18. Keep recording status integrated into the main help panel with a separator row.
+19. Preserve existing camera, autopilot, and recording runtime behavior unchanged.
+20. Keep GUI runtime extensible for future panel types beyond controls help.
 
-## Minimum Setup
+</details>
 
-- Startup GameMode: AMetaAgentGameMode (or derived BP).
-- Placed actor name: MAIN_CHARACTER.
-- Keep strict possession settings:
-	- bRequireExactPreferredPawnName=True
-	- bRequireUniquePreferredPawnName=True
-	- bAllowSpawnFallback=False
 
 
 ## License

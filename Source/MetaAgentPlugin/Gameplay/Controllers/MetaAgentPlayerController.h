@@ -388,6 +388,30 @@ struct FMetaAgentCinematicCameraState
 	TObjectPtr<ACameraActor> RuntimeCameraActor;
 };
 
+USTRUCT()
+struct FMetaAgentGUIState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
+	bool bHelpPanelVisible = false;
+
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
+	bool bShowTransientToggleMessage = true;
+
+	UPROPERTY(Transient)
+	bool bHelpPanelInitialized = false;
+
+	UPROPERTY(Transient)
+	TArray<FString> BaseHelpPanelLines;
+
+	UPROPERTY(Transient)
+	TArray<FString> HelpPanelLines;
+
+	UPROPERTY(Transient)
+	FString RecordingStatusLine = TEXT("Recording: OFF");
+};
+
 /**
  * Runtime player controller that owns input setup, camera zoom behavior,
  * possession diagnostics, and optional AI autopilot handoff.
@@ -454,6 +478,9 @@ protected:
 	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
+	/** Bound to H: toggles runtime controls help panel on/off. */
+	void HandleToggleHelpPanelPressed();
+
 	/** Enables cinematic orbit camera mode around the active character. */
 	void EnableCinematicCameraMode();
 
@@ -468,6 +495,9 @@ protected:
 
 	/** Updates runtime cinematic camera transform each tick while mode is active. */
 	void UpdateCinematicCamera(float DeltaTime);
+
+	/** Applies the runtime GUI help panel state to the HUD. */
+	void ApplyGUIHelpPanelState();
 
 	/** Enables AI autopilot over the currently possessed pawn. */
 	void EnableAutopilotForCurrentPawn();
@@ -580,6 +610,10 @@ protected:
 	/** Cinematic orbit camera tuning and runtime state. */
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic")
 	FMetaAgentCinematicCameraState CinematicCamera;
+
+	/** Runtime GUI panel visibility and keybind help lines. */
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
+	FMetaAgentGUIState GUI;
 
 };
 

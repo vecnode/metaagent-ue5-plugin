@@ -5,7 +5,6 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "UI/HUD/MetaAgentHUD.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
@@ -131,10 +130,6 @@ void FMetaAgentCameraRuntime::RunPlayableCameraModeCycleSequence(
 
 	if (CinematicCamera.bModeEnabled)
 	{
-		if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(TEXT("Exit Cinematic Camera (O) before cycling camera modes."), FColor::Yellow, 2.0f);
-		}
 		return;
 	}
 
@@ -691,10 +686,6 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 		CinematicCamera.OrbitSpeedScale,
 		CinematicCamera.TurnsPerDirection);
 
-	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Cinematic Camera: ON (O to exit)"), FColor::Cyan, 2.0f);
-	}
 }
 
 void FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(
@@ -743,10 +734,6 @@ void FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(
 
 	UE_LOG(LogMetaAgent, Log, TEXT("CinematicCamera: DISABLED. Restored normal camera."));
 
-	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Cinematic Camera: OFF"), FColor::Green, 2.0f);
-	}
 }
 
 void FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(

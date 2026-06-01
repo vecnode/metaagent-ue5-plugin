@@ -4,6 +4,16 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 
+void AMetaAgentHUD::SetHelpPanelVisible(const bool bVisible)
+{
+	bHelpPanelVisible = bVisible;
+}
+
+void AMetaAgentHUD::SetHelpPanelLines(const TArray<FString>& InLines)
+{
+	HelpPanelLines = InLines;
+}
+
 void AMetaAgentHUD::SetStatusLine(FName Key, const FString& Message, FColor Color)
 {
 	if (Key.IsNone())
@@ -92,38 +102,76 @@ void AMetaAgentHUD::DrawHUD()
 		}
 	}
 
-	if (StatusLines.Num() == 0)
+	if (StatusLines.Num() > 0)
+	{
+		const UFont* StatusFont = GEngine ? GEngine->GetSmallFont() : nullptr;
+		const float StatusScale = 1.0f;
+		const float PanelPadding = 8.0f;
+		const float PanelLineHeight = 20.0f;
+		const float PanelMinWidth = 320.0f;
+
+		float MaxTextWidth = 0.0f;
+		for (const FMetaAgentHUDStatusLine& Line : StatusLines)
+		{
+			float SizeX = 0.0f;
+			float SizeY = 0.0f;
+			Canvas->StrLen(StatusFont, Line.Text, SizeX, SizeY);
+			MaxTextWidth = FMath::Max(MaxTextWidth, SizeX * StatusScale);
+		}
+
+		const float PanelWidth = FMath::Max(PanelMinWidth, MaxTextWidth + (PanelPadding * 2.0f));
+		const float PanelHeight = (StatusLines.Num() * PanelLineHeight) + (PanelPadding * 2.0f);
+		const float PanelX = Canvas->ClipX - PanelWidth - 24.0f;
+		const float PanelY = 24.0f;
+
+		DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.35f), PanelX, PanelY, PanelWidth, PanelHeight);
+
+		float StatusY = PanelY + PanelPadding;
+		for (const FMetaAgentHUDStatusLine& Line : StatusLines)
+		{
+			DrawText(Line.Text, Line.Color, PanelX + PanelPadding, StatusY, const_cast<UFont*>(StatusFont), StatusScale, false);
+			StatusY += PanelLineHeight;
+		}
+	}
+
+	if (!bHelpPanelVisible || HelpPanelLines.Num() == 0)
 	{
 		return;
 	}
 
-	const UFont* StatusFont = GEngine ? GEngine->GetSmallFont() : nullptr;
-	const float StatusScale = 1.0f;
-	const float PanelPadding = 8.0f;
-	const float PanelLineHeight = 20.0f;
-	const float PanelMinWidth = 320.0f;
+	const UFont* HelpFont = GEngine ? GEngine->GetSmallFont() : nullptr;
+	const float HelpScale = 1.0f;
+	const float HelpPadding = 10.0f;
+	const float HelpLineHeight = 20.0f;
+	const FString HelpTitle = TEXT("MetaAgent Controls (H to Hide)");
 
-	float MaxTextWidth = 0.0f;
-	for (const FMetaAgentHUDStatusLine& Line : StatusLines)
+	float HelpMaxTextWidth = 0.0f;
+	float HelpTitleWidth = 0.0f;
+	float HelpTitleHeight = 0.0f;
+	Canvas->StrLen(HelpFont, HelpTitle, HelpTitleWidth, HelpTitleHeight);
+	HelpMaxTextWidth = HelpTitleWidth * HelpScale;
+
+	for (const FString& Line : HelpPanelLines)
 	{
-		float SizeX = 0.0f;
-		float SizeY = 0.0f;
-		Canvas->StrLen(StatusFont, Line.Text, SizeX, SizeY);
-		MaxTextWidth = FMath::Max(MaxTextWidth, SizeX * StatusScale);
+		float LineWidth = 0.0f;
+		float LineHeight = 0.0f;
+		Canvas->StrLen(HelpFont, Line, LineWidth, LineHeight);
+		HelpMaxTextWidth = FMath::Max(HelpMaxTextWidth, LineWidth * HelpScale);
 	}
 
-	const float PanelWidth = FMath::Max(PanelMinWidth, MaxTextWidth + (PanelPadding * 2.0f));
-	const float PanelHeight = (StatusLines.Num() * PanelLineHeight) + (PanelPadding * 2.0f);
-	const float PanelX = Canvas->ClipX - PanelWidth - 24.0f;
-	const float PanelY = 24.0f;
+	const float HelpPanelWidth = FMath::Max(420.0f, HelpMaxTextWidth + (HelpPadding * 2.0f));
+	const float HelpPanelHeight = ((HelpPanelLines.Num() + 1) * HelpLineHeight) + (HelpPadding * 2.0f);
+	const float HelpPanelX = 24.0f;
+	const float HelpPanelY = 24.0f;
 
-	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.35f), PanelX, PanelY, PanelWidth, PanelHeight);
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.52f), HelpPanelX, HelpPanelY, HelpPanelWidth, HelpPanelHeight);
+	DrawText(HelpTitle, FColor::Cyan, HelpPanelX + HelpPadding, HelpPanelY + HelpPadding, const_cast<UFont*>(HelpFont), HelpScale, false);
 
-	float StatusY = PanelY + PanelPadding;
-	for (const FMetaAgentHUDStatusLine& Line : StatusLines)
+	float HelpY = HelpPanelY + HelpPadding + HelpLineHeight;
+	for (const FString& Line : HelpPanelLines)
 	{
-		DrawText(Line.Text, Line.Color, PanelX + PanelPadding, StatusY, const_cast<UFont*>(StatusFont), StatusScale, false);
-		StatusY += PanelLineHeight;
+		DrawText(Line, FColor::White, HelpPanelX + HelpPadding, HelpY, const_cast<UFont*>(HelpFont), HelpScale, false);
+		HelpY += HelpLineHeight;
 	}
 }
 

@@ -3,7 +3,6 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "UI/HUD/MetaAgentHUD.h"
 #include "Gameplay/AI/MetaAgentWanderAIController.h"
 #include "AIController.h"
 #include "Engine/World.h"
@@ -81,11 +80,6 @@ void AMetaAgentPlayerController::EnableAutopilotForCurrentPawn()
 
 	UE_LOG(LogMetaAgent, Log, TEXT("Autopilot: ENABLED for pawn '%s'. Press J again to return to player control."), *GetNameSafe(ControlledPawn));
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("AI Control: ON (press J to return)"), FColor::Cyan, 2.5f);
-	}
-
 	EnableCinematicCameraMode();
 }
 
@@ -119,11 +113,6 @@ void AMetaAgentPlayerController::DisableAutopilotAndRepossess()
 	Autopilot.Pawn.Reset();
 
 	UE_LOG(LogMetaAgent, Log, TEXT("Autopilot: DISABLED. Player control restored."));
-
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("AI Control: OFF (player control restored)"), FColor::Green, 2.5f);
-	}
 
 	DisableCinematicCameraMode();
 }

@@ -3,7 +3,6 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "UI/HUD/MetaAgentHUD.h"
 #include "Systems/Runtime/MetaAgentGameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/GameModeBase.h"
@@ -99,10 +98,6 @@ void AMetaAgentPlayerController::StartAutopilotTakeRecording()
 	UE_LOG(LogMetaAgent, Log, TEXT("TakeRecorder: recording started for autopilot take."));
 	UpdateRecordingStatusHud();
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Take Recorder: ON (J to stop)"), FColor::Yellow, 2.5f);
-	}
 #else
 	UE_LOG(LogMetaAgent, Warning, TEXT("TakeRecorder: unavailable in non-editor builds."));
 #endif
@@ -156,10 +151,6 @@ void AMetaAgentPlayerController::HandleTakeRecorderFinished(ULevelSequence* Sequ
 
 	UE_LOG(LogMetaAgent, Log, TEXT("TakeRecorder: finished. Sequence='%s'"), *GetNameSafe(SequenceAsset));
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Take Recorder: saved (press U to render)"), FColor::Green, 3.0f);
-	}
 }
 
 #if WITH_EDITOR
@@ -195,10 +186,6 @@ void AMetaAgentPlayerController::SubmitLastRecordedTakeToRenderQueue()
 	if (!SequenceToRender)
 	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("MRQ: no recorded take available. Press J to record first."));
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(TEXT("No recorded take yet. Use J first."), FColor::Red, 2.5f);
-		}
 		return;
 	}
 
@@ -353,10 +340,6 @@ void AMetaAgentPlayerController::SubmitLastRecordedTakeToRenderQueue()
 		Recording.bRenderPngSequenceAlongsideMp4 ? TEXT("PNG") : TEXT("no PNG"));
 	UE_LOG(LogMetaAgent, Log, TEXT("MRQ: output directory is '%s'"), *OutputSetting->OutputDirectory.Path);
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Render started: MP4"), FColor::Cyan, 2.0f);
-	}
 }
 
 void AMetaAgentPlayerController::HandleRuntimeRenderFinished(FMoviePipelineOutputData Results)
@@ -371,44 +354,11 @@ void AMetaAgentPlayerController::HandleRuntimeRenderFinished(FMoviePipelineOutpu
 		Results.bSuccess ? TEXT("true") : TEXT("false"),
 		Results.ShotData.Num());
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(
-			Results.bSuccess ? TEXT("Render complete") : TEXT("Render failed"),
-			Results.bSuccess ? FColor::Green : FColor::Red,
-			3.0f);
-	}
 }
 
 void AMetaAgentPlayerController::UpdateRecordingStatusHud()
 {
-	AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>();
-	if (!MetaAgentHUD)
-	{
-		return;
-	}
-
-	MetaAgentHUD->SetStatusLine(
-		TEXT("RecordingStatus"),
-		FString::Printf(TEXT("Recording: %s"), Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF")),
-		Recording.bTakeRecordingActive ? FColor::Yellow : FColor::Silver);
-
-	FString LastTakeStatus = TEXT("Last Take: none");
-	FColor LastTakeColor = FColor::Silver;
-	if (ULevelSequence* LastTake = Recording.LastRecordedTake.Get())
-	{
-		FString TakeName = LastTake->GetName();
-		const int32 MaxTakeNameChars = 32;
-		if (TakeName.Len() > MaxTakeNameChars)
-		{
-			TakeName = TakeName.Left(MaxTakeNameChars - 3) + TEXT("...");
-		}
-
-		LastTakeStatus = FString::Printf(TEXT("Last Take: ready (%s)"), *TakeName);
-		LastTakeColor = FColor::Green;
-	}
-
-	MetaAgentHUD->SetStatusLine(TEXT("LastTakeStatus"), LastTakeStatus, LastTakeColor);
-	MetaAgentHUD->SetStatusLine(TEXT("RenderStatus"), Recording.RenderStatusText, Recording.RenderStatusColor);
+	GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s"), Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF"));
+	ApplyGUIHelpPanelState();
 }
 

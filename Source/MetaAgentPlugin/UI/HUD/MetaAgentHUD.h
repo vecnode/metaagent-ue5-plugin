@@ -53,11 +53,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void ClearStatusLine(FName Key);
 
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetHelpPanelVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetHelpPanelLines(const TArray<FString>& InLines);
+
 private:
 	UPROPERTY()
 	TArray<FMetaAgentHUDMessage> MessageQueue;
 
 	UPROPERTY()
 	TArray<FMetaAgentHUDStatusLine> StatusLines;
+
+	UPROPERTY()
+	bool bHelpPanelVisible = false;
+
+	UPROPERTY()
+	TArray<FString> HelpPanelLines;
 };
 
