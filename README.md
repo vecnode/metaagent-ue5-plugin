@@ -12,7 +12,9 @@ Under heavy development.
 - Character resolution and possession
 - Mesh and animation readiness
 - Deterministic fallback locomotion bootstrap
-- Implemented in `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h` and `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
+- Implemented in:
+	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
+	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
 
 <details>
 <summary>Module 1: 52 sequential runtime steps</summary>
@@ -78,7 +80,9 @@ Under heavy development.
 - Standard playable camera modes (`P`)
 - Runtime cinematic camera orchestration (`O`)
 - Third-person zoom and camera-state continuity
-- Implemented in `Systems/Camera/MetaAgentCameraRuntime.h` and `Systems/Camera/MetaAgentCameraRuntime.cpp`
+- Implemented in:
+	- `Systems/Camera/MetaAgentCameraRuntime.h`
+	- `Systems/Camera/MetaAgentCameraRuntime.cpp`
 
 <details>
 <summary>Module 2: 52 sequential runtime steps</summary>
