@@ -3,7 +3,7 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "Systems/Runtime/MetaAgentGameInstance.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/WorldSettings.h"

@@ -62,6 +62,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Networking|HTTP Server")
 	FString GetLocalHttpServerStatusText() const;
 
+	UFUNCTION(BlueprintCallable, Category="Networking|Runtime")
+	TArray<FString> GetNetworkingRuntimePanelLines() const;
+
 	UFUNCTION(BlueprintCallable, Category="Networking|Platform")
 	void SendEventToPlatform(const FString& EventName, const FString& Message, const FString& SourceOverride = TEXT(""));
 
@@ -82,6 +85,36 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category="Networking|Platform")
 	FString PlatformSessionId;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	bool bNetworkingRuntimeServerEnabled = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	bool bNetworkingRuntimeRouterBound = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	bool bNetworkingRuntimeListenersStarted = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	int32 NetworkingRuntimePort = 0;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastPlatformEvent = TEXT("none");
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastPlatformResult = TEXT("idle");
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastNotifyMessage = TEXT("none");
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastError = TEXT("none");
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastSendUtc = TEXT("n/a");
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Networking|Runtime")
+	FString NetworkingRuntimeLastReceiveUtc = TEXT("n/a");
 
 private:
 

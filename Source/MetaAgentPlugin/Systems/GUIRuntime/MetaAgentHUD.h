@@ -59,6 +59,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void SetHelpPanelLines(const TArray<FString>& InLines);
 
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetNetworkingPanelVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetNetworkingPanelLines(const TArray<FString>& InLines);
+
 private:
 	UPROPERTY()
 	TArray<FMetaAgentHUDMessage> MessageQueue;
@@ -71,5 +77,11 @@ private:
 
 	UPROPERTY()
 	TArray<FString> HelpPanelLines;
+
+	UPROPERTY()
+	bool bNetworkingPanelVisible = false;
+
+	UPROPERTY()
+	TArray<FString> NetworkingPanelLines;
 };
 

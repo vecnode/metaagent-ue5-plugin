@@ -3,6 +3,7 @@
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 
 void AMetaAgentHUD::SetHelpPanelVisible(const bool bVisible)
 {
@@ -12,6 +13,16 @@ void AMetaAgentHUD::SetHelpPanelVisible(const bool bVisible)
 void AMetaAgentHUD::SetHelpPanelLines(const TArray<FString>& InLines)
 {
 	HelpPanelLines = InLines;
+}
+
+void AMetaAgentHUD::SetNetworkingPanelVisible(const bool bVisible)
+{
+	bNetworkingPanelVisible = bVisible;
+}
+
+void AMetaAgentHUD::SetNetworkingPanelLines(const TArray<FString>& InLines)
+{
+	NetworkingPanelLines = InLines;
 }
 
 void AMetaAgentHUD::SetStatusLine(FName Key, const FString& Message, FColor Color)
@@ -172,6 +183,51 @@ void AMetaAgentHUD::DrawHUD()
 	{
 		DrawText(Line, FColor::White, HelpPanelX + HelpPadding, HelpY, const_cast<UFont*>(HelpFont), HelpScale, false);
 		HelpY += HelpLineHeight;
+	}
+
+	if (!bNetworkingPanelVisible)
+	{
+		return;
+	}
+
+	TArray<FString> EffectiveNetworkingLines = NetworkingPanelLines;
+	if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
+	{
+		EffectiveNetworkingLines = GI->GetNetworkingRuntimePanelLines();
+	}
+
+	if (EffectiveNetworkingLines.Num() == 0)
+	{
+		return;
+	}
+
+	const UFont* NetFont = GEngine ? GEngine->GetSmallFont() : nullptr;
+	const float NetScale = 1.0f;
+	const float NetPadding = 10.0f;
+	const float NetLineHeight = 20.0f;
+
+	float NetMaxTextWidth = 0.0f;
+	for (const FString& Line : EffectiveNetworkingLines)
+	{
+		float LineWidth = 0.0f;
+		float LineHeight = 0.0f;
+		Canvas->StrLen(NetFont, Line, LineWidth, LineHeight);
+		NetMaxTextWidth = FMath::Max(NetMaxTextWidth, LineWidth * NetScale);
+	}
+
+	const float NetPanelWidth = FMath::Max(420.0f, NetMaxTextWidth + (NetPadding * 2.0f));
+	const float NetPanelHeight = (EffectiveNetworkingLines.Num() * NetLineHeight) + (NetPadding * 2.0f);
+	const float NetPanelX = 24.0f;
+	const float NetPanelY = Canvas->ClipY - NetPanelHeight - 24.0f;
+
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), NetPanelX, NetPanelY, NetPanelWidth, NetPanelHeight);
+
+	float NetY = NetPanelY + NetPadding;
+	for (int32 Index = 0; Index < EffectiveNetworkingLines.Num(); ++Index)
+	{
+		const FColor LineColor = (Index == 0) ? FColor::Cyan : FColor::White;
+		DrawText(EffectiveNetworkingLines[Index], LineColor, NetPanelX + NetPadding, NetY, const_cast<UFont*>(NetFont), NetScale, false);
+		NetY += NetLineHeight;
 	}
 }
 

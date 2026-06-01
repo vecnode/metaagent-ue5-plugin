@@ -43,7 +43,7 @@ namespace
 
 			if (SecondUnderscore != INDEX_NONE && (SecondUnderscore + 1) < Out.Len())
 			{
-				Out.RightChopInline(SecondUnderscore + 1, false);
+				Out = Out.RightChop(SecondUnderscore + 1);
 			}
 		}
 
@@ -75,12 +75,12 @@ namespace
 				break;
 			}
 
-			Out.LeftInline(LastUnderscore, false);
+			Out = Out.Left(LastUnderscore);
 		}
 
 		if (Out.EndsWith(TEXT("_C")))
 		{
-			Out.LeftChopInline(2, false);
+			Out = Out.LeftChop(2);
 		}
 
 		return Out;

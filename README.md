@@ -179,7 +179,42 @@ Under heavy development.
 
 </details>
 
+### Module 4: MetaAgentNetworkingRuntime
 
+- Runtime networking orchestration through `UMetaAgentGameInstance`
+- Embedded HTTP server for editor, standalone, and packaged runtime builds
+- Runtime outbound platform event forwarding and inbound notify handling
+- Bottom-left Networking Runtime GUI panel shown when GUI (`H`) is active
+- Implemented in:
+	- `Systems/NetworkingRuntime/MetaAgentGameInstanceNetworking.cpp`
+	- `Systems/NetworkingRuntime/MetaAgentGameInstance.h`
+	- `Systems/NetworkingRuntime/MetaAgentGameInstance.cpp`
+
+<details>
+<summary>Module 4: 20 sequential runtime steps</summary>
+
+1. Keep `UMetaAgentGameInstance` as the runtime networking owner.
+2. Initialize NetworkingRuntime snapshot state during game instance startup.
+3. Start local HTTP server during runtime init when networking is enabled.
+4. Embed server behavior in editor, standalone, and packaged runtime builds.
+5. Bind `/health` endpoint for runtime health checks.
+6. Bind `/echo` endpoint for payload round-trip checks.
+7. Bind `/notify` endpoint for external notifications.
+8. Start listeners after routes are bound.
+9. Track router/listener state in runtime snapshot fields.
+10. Expose runtime server status through `GetLocalHttpServerStatusText`.
+11. Build platform forwarding URL from configured base and endpoint.
+12. Send outbound platform events with runtime metadata payload.
+13. Track last event name, send time, receive time, and result status.
+14. Track HTTP/network errors in runtime snapshot fields.
+15. Parse platform response payload for agent action/running state.
+16. Track latest notify message from `/notify` requests.
+17. Stop server and unbind routes during game instance shutdown.
+18. Expose formatted NetworkingRuntime panel lines to GUI runtime.
+19. Draw bottom-left networking rectangle only while GUI panel is active.
+20. Keep networking runtime extensible for future endpoint families.
+
+</details>
 
 ## License
 

@@ -13,7 +13,7 @@
 #include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
-#include "Systems/Runtime/MetaAgentGameInstance.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Gameplay/AI/MetaAgentWanderAIController.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"

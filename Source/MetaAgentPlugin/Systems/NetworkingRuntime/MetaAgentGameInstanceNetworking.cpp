@@ -1,8 +1,7 @@
 ﻿// Copyright (c) vecnode 2026. All Rights Reserved.
 
-#include "Systems/Runtime/MetaAgentGameInstance.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Core/MetaAgent.h"
-#include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Engine/World.h"
 #include "HttpModule.h"
 #include "HttpPath.h"
@@ -66,6 +65,17 @@ void UMetaAgentGameInstance::Init()
 {
 	Super::Init();
 
+	bNetworkingRuntimeServerEnabled = bEnableLocalHttpServer;
+	bNetworkingRuntimeRouterBound = false;
+	bNetworkingRuntimeListenersStarted = false;
+	NetworkingRuntimePort = LocalHttpServerPort;
+	NetworkingRuntimeLastPlatformEvent = TEXT("none");
+	NetworkingRuntimeLastPlatformResult = TEXT("idle");
+	NetworkingRuntimeLastNotifyMessage = TEXT("none");
+	NetworkingRuntimeLastError = TEXT("none");
+	NetworkingRuntimeLastSendUtc = TEXT("n/a");
+	NetworkingRuntimeLastReceiveUtc = TEXT("n/a");
+
 	if (!IsMetaAgentRuntimeActive())
 	{
 		UE_LOG(LogMetaAgent, Log, TEXT("MetaAgent runtime inactive. Skipping UMetaAgentGameInstance::Init logic."));
@@ -90,6 +100,8 @@ void UMetaAgentGameInstance::Shutdown()
 	}
 
 	StopLocalHttpServer();
+	bNetworkingRuntimeListenersStarted = false;
+	bNetworkingRuntimeRouterBound = false;
 	Super::Shutdown();
 }
 
@@ -116,9 +128,17 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 	const FString RequestUrl = BuildPlatformUrl();
 	if (RequestUrl.IsEmpty())
 	{
+		NetworkingRuntimeLastPlatformEvent = EventName;
+		NetworkingRuntimeLastPlatformResult = TEXT("invalid-url");
+		NetworkingRuntimeLastError = TEXT("Platform forwarding URL is empty.");
 		UE_LOG(LogMetaAgent, Warning, TEXT("Platform forwarding URL is empty. Configure PlatformBaseUrl/PlatformEventEndpoint."));
 		return;
 	}
+
+	NetworkingRuntimeLastPlatformEvent = EventName;
+	NetworkingRuntimeLastPlatformResult = TEXT("sending");
+	NetworkingRuntimeLastError = TEXT("none");
+	NetworkingRuntimeLastSendUtc = FDateTime::UtcNow().ToIso8601();
 
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
 	Payload->SetStringField(TEXT("source"), SourceOverride.IsEmpty() ? TEXT("unreal") : SourceOverride);
@@ -151,14 +171,21 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 	HttpRequest->OnProcessRequestComplete().BindLambda(
 		[this, EventName](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 		{
+			NetworkingRuntimeLastPlatformEvent = EventName;
+			NetworkingRuntimeLastReceiveUtc = FDateTime::UtcNow().ToIso8601();
+
 			if (!bWasSuccessful)
 			{
+				NetworkingRuntimeLastPlatformResult = TEXT("network-failure");
+				NetworkingRuntimeLastError = TEXT("Network failure while sending event.");
 				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' failed to send (network failure)."), *EventName);
 				return;
 			}
 
 			if (!Response.IsValid())
 			{
+				NetworkingRuntimeLastPlatformResult = TEXT("no-response");
+				NetworkingRuntimeLastError = TEXT("No HTTP response.");
 				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' received no HTTP response."), *EventName);
 				return;
 			}
@@ -166,6 +193,8 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 			const int32 StatusCode = Response->GetResponseCode();
 			if (StatusCode >= 200 && StatusCode < 300)
 			{
+				NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("ok-%d"), StatusCode);
+				NetworkingRuntimeLastError = TEXT("none");
 				UE_LOG(LogMetaAgent, Log, TEXT("Platform event '%s' acknowledged [%d]."), *EventName, StatusCode);
 
 				bool bAgentRunning = false;
@@ -179,35 +208,22 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 					ResponseJson->TryGetStringField(TEXT("agent_action"), AgentAction);
 				}
 
-				FString HudMessage;
 				if (!AgentAction.IsEmpty())
 				{
-					HudMessage = FString::Printf(
+					NetworkingRuntimeLastNotifyMessage = FString::Printf(
 						TEXT("Agent %s (%s)"),
 						*AgentAction.ToUpper(),
 						bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
 				}
 				else if (ResponseJson.IsValid())
 				{
-					HudMessage = FString::Printf(TEXT("Agent %s"), bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
-				}
-
-				if (!HudMessage.IsEmpty())
-				{
-					if (UWorld* World = GetWorld())
-					{
-						if (APlayerController* PC = World->GetFirstPlayerController())
-						{
-							if (AMetaAgentHUD* HUD = Cast<AMetaAgentHUD>(PC->GetHUD()))
-							{
-								HUD->AddTransientMessage(HudMessage, bAgentRunning ? FColor::Green : FColor::Yellow, 2.0f);
-							}
-						}
-					}
+					NetworkingRuntimeLastNotifyMessage = FString::Printf(TEXT("Agent %s"), bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
 				}
 			}
 			else
 			{
+				NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("http-%d"), StatusCode);
+				NetworkingRuntimeLastError = Response->GetContentAsString();
 				UE_LOG(LogMetaAgent, Warning,
 					TEXT("Platform event '%s' returned HTTP %d. Body: %s"),
 					*EventName,
@@ -218,8 +234,27 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 
 	if (!HttpRequest->ProcessRequest())
 	{
+		NetworkingRuntimeLastPlatformResult = TEXT("dispatch-failed");
+		NetworkingRuntimeLastError = TEXT("Failed to dispatch HTTP request.");
 		UE_LOG(LogMetaAgent, Warning, TEXT("Failed to dispatch platform event '%s' request."), *EventName);
 	}
+}
+
+TArray<FString> UMetaAgentGameInstance::GetNetworkingRuntimePanelLines() const
+{
+	TArray<FString> Lines;
+	Lines.Add(TEXT("Networking Runtime"));
+	Lines.Add(FString::Printf(TEXT("Server Enabled : %s"), bNetworkingRuntimeServerEnabled ? TEXT("true") : TEXT("false")));
+	Lines.Add(FString::Printf(TEXT("Port          : %d"), NetworkingRuntimePort));
+	Lines.Add(FString::Printf(TEXT("Router Bound  : %s"), bNetworkingRuntimeRouterBound ? TEXT("true") : TEXT("false")));
+	Lines.Add(FString::Printf(TEXT("Listeners     : %s"), bNetworkingRuntimeListenersStarted ? TEXT("started") : TEXT("stopped")));
+	Lines.Add(FString::Printf(TEXT("Last Event    : %s"), *NetworkingRuntimeLastPlatformEvent));
+	Lines.Add(FString::Printf(TEXT("Last Result   : %s"), *NetworkingRuntimeLastPlatformResult));
+	Lines.Add(FString::Printf(TEXT("Last Notify   : %s"), *NetworkingRuntimeLastNotifyMessage));
+	Lines.Add(FString::Printf(TEXT("Last Error    : %s"), *NetworkingRuntimeLastError));
+	Lines.Add(FString::Printf(TEXT("Last Send UTC : %s"), *NetworkingRuntimeLastSendUtc));
+	Lines.Add(FString::Printf(TEXT("Last Recv UTC : %s"), *NetworkingRuntimeLastReceiveUtc));
+	return Lines;
 }
 
 FString UMetaAgentGameInstance::GetLocalHttpServerStatusText() const
@@ -236,8 +271,14 @@ FString UMetaAgentGameInstance::GetLocalHttpServerStatusText() const
 
 void UMetaAgentGameInstance::StartLocalHttpServer()
 {
+	bNetworkingRuntimeServerEnabled = bEnableLocalHttpServer;
+	NetworkingRuntimePort = LocalHttpServerPort;
+	bNetworkingRuntimeListenersStarted = false;
+	bNetworkingRuntimeRouterBound = false;
+
 	if (!bEnableLocalHttpServer)
 	{
+		NetworkingRuntimeLastPlatformResult = TEXT("server-disabled");
 		UE_LOG(LogMetaAgent, Log, TEXT("HTTP server disabled by config."));
 		return;
 	}
@@ -251,9 +292,13 @@ void UMetaAgentGameInstance::StartLocalHttpServer()
 	LocalHttpRouter = HttpServerModule.GetHttpRouter(static_cast<uint32>(LocalHttpServerPort), true);
 	if (!LocalHttpRouter.IsValid())
 	{
+		NetworkingRuntimeLastPlatformResult = TEXT("bind-failed");
+		NetworkingRuntimeLastError = FString::Printf(TEXT("HTTP server failed to bind port %d."), LocalHttpServerPort);
 		UE_LOG(LogMetaAgent, Warning, TEXT("HTTP server failed to bind port %d."), LocalHttpServerPort);
 		return;
 	}
+
+	bNetworkingRuntimeRouterBound = true;
 
 	RouteHandles.Reset();
 
@@ -269,6 +314,9 @@ void UMetaAgentGameInstance::StartLocalHttpServer()
 	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/notify/"), EHttpServerRequestVerbs::VERB_POST, NotifyHandler);
 
 	HttpServerModule.StartAllListeners();
+	bNetworkingRuntimeListenersStarted = true;
+	NetworkingRuntimeLastPlatformResult = TEXT("server-running");
+	NetworkingRuntimeLastError = TEXT("none");
 	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server listening on port %d. Endpoints: /health, /echo, /notify"), LocalHttpServerPort);
 }
 
@@ -290,6 +338,8 @@ void UMetaAgentGameInstance::StopLocalHttpServer()
 	RouteHandles.Reset();
 
 	LocalHttpRouter.Reset();
+	bNetworkingRuntimeRouterBound = false;
+	bNetworkingRuntimeListenersStarted = false;
 	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server routes unbound."));
 }
 
@@ -358,16 +408,8 @@ bool UMetaAgentGameInstance::HandleNotifyRequest(const FHttpServerRequest& Reque
 		NotifyMessage = RawBody.IsEmpty() ? TEXT("(no message)") : RawBody;
 	}
 
-	if (UWorld* World = GetWorld())
-	{
-		if (APlayerController* PC = World->GetFirstPlayerController())
-		{
-			if (AMetaAgentHUD* HUD = Cast<AMetaAgentHUD>(PC->GetHUD()))
-			{
-				HUD->AddTransientMessage(NotifyMessage, FColor::Cyan, 3.0f);
-			}
-		}
-	}
+	NetworkingRuntimeLastNotifyMessage = NotifyMessage;
+	NetworkingRuntimeLastReceiveUtc = FDateTime::UtcNow().ToIso8601();
 
 	UE_LOG(LogMetaAgent, Log, TEXT("Platform notify received: %s"), *NotifyMessage);
 

@@ -12,7 +12,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
-#include "Systems/Runtime/MetaAgentGameInstance.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Core/MetaAgent.h"
 
 namespace

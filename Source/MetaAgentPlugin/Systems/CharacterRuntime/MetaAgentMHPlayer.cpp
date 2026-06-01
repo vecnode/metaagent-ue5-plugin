@@ -1,7 +1,7 @@
 ﻿// Copyright (c) vecnode 2026. All Rights Reserved.
 
 #include "Gameplay/Characters/MetaAgentMHPlayer.h"
-#include "Systems/Runtime/MetaAgentGameInstance.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Core/MetaAgent.h"
 #include "Components/SkeletalMeshComponent.h"
 

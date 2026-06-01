@@ -6,6 +6,7 @@
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
+#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 
 namespace
 {
@@ -52,6 +53,15 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 	{
 		MetaAgentHUD->SetHelpPanelLines(GUI.HelpPanelLines);
 		MetaAgentHUD->SetHelpPanelVisible(GUI.bHelpPanelVisible);
+
+		TArray<FString> NetworkingLines;
+		if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(&Controller))
+		{
+			NetworkingLines = GI->GetNetworkingRuntimePanelLines();
+		}
+
+		MetaAgentHUD->SetNetworkingPanelLines(NetworkingLines);
+		MetaAgentHUD->SetNetworkingPanelVisible(GUI.bHelpPanelVisible);
 	}
 }
 
