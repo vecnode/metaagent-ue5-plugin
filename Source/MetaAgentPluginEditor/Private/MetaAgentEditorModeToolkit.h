@@ -3,6 +3,11 @@
 #include "CoreMinimal.h"
 #include "Toolkits/BaseToolkit.h"
 
+template<typename OptionType>
+class SComboBox;
+
+class STextBlock;
+
 class FMetaAgentEditorModeToolkit : public FModeToolkit
 {
 public:
@@ -14,6 +19,13 @@ public:
 
 private:
 	FReply HandleHelloWorldClicked();
+	FReply HandleScanCharactersClicked();
+
+	void OnTargetSlotChanged(TSharedPtr<FString> NewValue, ESelectInfo::Type SelectInfo);
+	TSharedRef<SWidget> MakeTargetSlotOptionWidget(TSharedPtr<FString> InOption) const;
+	FText GetSelectedTargetSlotText() const;
 
 	TSharedPtr<SWidget> ToolkitWidget;
+	TArray<TSharedPtr<FString>> TargetSlotOptions;
+	TSharedPtr<FString> SelectedTargetSlot;
 };
