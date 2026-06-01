@@ -11,13 +11,13 @@ Under heavy development.
 
 - Character resolution and possession
 - Mesh and animation readiness
-- Deterministic fallback locomotion bootstrap
+- Deferred animation-class repair after bootstrap
 - Implemented in:
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
 
 <details>
-<summary>Module 1: 52 sequential runtime steps</summary>
+<summary>Module 1: 53 sequential runtime steps</summary>
 
 1. Validate controller and world
 2. Capture existing pawn
@@ -69,8 +69,9 @@ Under heavy development.
 48. Rebind mesh leader-pose followers
 49. Clamp movement speed guard
 50. Clamp movement acceleration guard
-51. Preload fallback locomotion assets
-52. Activate immediate crowd fallback locomotion
+51. Schedule deferred anim-class repair
+52. Re-scan recovery owner/world for non-fallback body AnimBP on next tick
+53. Replace temporary fallback AnimBP and reinitialize primary mesh anim instance when valid
 
 </details>
 
