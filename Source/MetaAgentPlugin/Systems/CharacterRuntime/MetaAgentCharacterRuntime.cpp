@@ -6,7 +6,6 @@
 #include "Core/MetaAgent.h"
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Animation/AnimInstance.h"
-#include "Animation/AnimationAsset.h"
 #include "Components/MeshComponent.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -17,33 +16,10 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/SpectatorPawn.h"
 #include "Engine/World.h"
+#include "TimerManager.h"
 
 namespace
 {
-	UAnimationAsset* GetEmergencyIdleAssetForBootstrap()
-	{
-		static UAnimationAsset* IdleAsset = nullptr;
-		if (!IdleAsset)
-		{
-			IdleAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
-				TEXT("/MetaAgentPlugin/Animations/Loco/MTN_N_Idle.MTN_N_Idle")));
-		}
-
-		return IdleAsset;
-	}
-
-	UAnimationAsset* GetEmergencyWalkAssetForBootstrap()
-	{
-		static UAnimationAsset* WalkAsset = nullptr;
-		if (!WalkAsset)
-		{
-			WalkAsset = Cast<UAnimationAsset>(StaticLoadObject(UAnimationAsset::StaticClass(), nullptr,
-				TEXT("/MetaAgentPlugin/Animations/Loco/MTN_N_Walk_InPlace.MTN_N_Walk_InPlace")));
-		}
-
-		return WalkAsset;
-	}
-
 	FString NormalizeNameForMatching(const FString& InName)
 	{
 		FString Out = InName;
@@ -191,13 +167,193 @@ namespace
 		bool bNeedsAnimRecovery = false;
 		bool bRecoveredFromWorldSearch = false;
 		bool bHasRecoverySource = false;
+		bool bNeedsFollowerRecovery = false;
 		bool bCanInitializeAnimBlueprint = false;
-		bool bUsingCrowdFallbackClass = false;
 		TArray<AActor*> AttachedActors;
 		TInlineComponentArray<UMeshComponent*> SourceMeshes;
 		TInlineComponentArray<USkeletalMeshComponent*> SkeletalMeshes;
 		TMap<const USceneComponent*, USceneComponent*> SourceToRecoveredSceneMap;
 	};
+
+	bool NeedsMetaHumanFollowerRecovery(const ACharacter* Character)
+	{
+		if (!Character)
+		{
+			return false;
+		}
+
+		TInlineComponentArray<UMeshComponent*> ExistingMeshes;
+		Character->GetComponents(ExistingMeshes);
+
+		bool bHasFaceLikeMesh = false;
+		bool bHasGroomLikeComponent = false;
+
+		for (const UMeshComponent* MeshComp : ExistingMeshes)
+		{
+			if (!MeshComp)
+			{
+				continue;
+			}
+
+			const FString CompName = MeshComp->GetName();
+			const FString ClassName = MeshComp->GetClass() ? MeshComp->GetClass()->GetName() : FString();
+
+			if (CompName.Contains(TEXT("Face"), ESearchCase::IgnoreCase))
+			{
+				bHasFaceLikeMesh = true;
+			}
+
+			if (CompName.Contains(TEXT("Hair"), ESearchCase::IgnoreCase)
+				|| CompName.Contains(TEXT("Brow"), ESearchCase::IgnoreCase)
+				|| CompName.Contains(TEXT("Lash"), ESearchCase::IgnoreCase)
+				|| CompName.Contains(TEXT("Beard"), ESearchCase::IgnoreCase)
+				|| CompName.Contains(TEXT("Mustache"), ESearchCase::IgnoreCase)
+				|| ClassName.Contains(TEXT("Groom"), ESearchCase::IgnoreCase))
+			{
+				bHasGroomLikeComponent = true;
+			}
+		}
+
+		return !(bHasFaceLikeMesh && bHasGroomLikeComponent);
+	}
+
+	bool IsLikelyUnarmedFallbackAnimClass(const UClass* AnimClass)
+	{
+		if (!AnimClass)
+		{
+			return false;
+		}
+
+		const FString ClassName = AnimClass->GetName();
+		const FString ClassPath = AnimClass->GetPathName();
+		return ClassName.Contains(TEXT("UNARMED"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("/UNARMED/"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("ABP_UNARMED"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("ABP_Unarmed"), ESearchCase::IgnoreCase);
+	}
+
+	UClass* ResolvePreferredRuntimeAnimClassFromActor(AActor* SourceActor, const USkeleton* TargetSkeleton)
+	{
+		if (!SourceActor || !TargetSkeleton)
+		{
+			return nullptr;
+		}
+
+		TInlineComponentArray<USkeletalMeshComponent*> CandidateMeshes;
+		SourceActor->GetComponents(CandidateMeshes);
+		for (USkeletalMeshComponent* CandidateMesh : CandidateMeshes)
+		{
+			if (!CandidateMesh || !CandidateMesh->GetSkeletalMeshAsset())
+			{
+				continue;
+			}
+
+			const USkeleton* CandidateSkeleton = CandidateMesh->GetSkeletalMeshAsset()->GetSkeleton();
+			if (!CandidateSkeleton || CandidateSkeleton != TargetSkeleton)
+			{
+				continue;
+			}
+
+			if (UClass* CandidateAnimClass = CandidateMesh->GetAnimClass())
+			{
+				if (!IsLikelyUnarmedFallbackAnimClass(CandidateAnimClass))
+				{
+					return CandidateAnimClass;
+				}
+			}
+
+			if (UAnimInstance* CandidateAnimInstance = CandidateMesh->GetAnimInstance())
+			{
+				if (UClass* CandidateAnimInstanceClass = CandidateAnimInstance->GetClass())
+				{
+					if (!IsLikelyUnarmedFallbackAnimClass(CandidateAnimInstanceClass))
+					{
+						return CandidateAnimInstanceClass;
+					}
+				}
+			}
+		}
+
+		return nullptr;
+	}
+
+	void Step53_ScheduleDeferredAnimClassRepair(FBootstrapSequenceContext& Context)
+	{
+		if (!Context.Character || !Context.PrimaryMesh || !Context.PrimaryMesh->GetSkeletalMeshAsset())
+		{
+			return;
+		}
+
+		UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass();
+		if (!CurrentAnimClass || !IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+		{
+			return;
+		}
+
+		USkeletalMeshComponent* PrimaryMesh = Context.PrimaryMesh;
+		TWeakObjectPtr<ACharacter> WeakCharacter = Context.Character;
+		TWeakObjectPtr<AActor> WeakRecoveryOwner = Context.RecoveryOwner;
+
+		Context.Character->GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([WeakCharacter, PrimaryMesh, WeakRecoveryOwner]()
+		{
+			ACharacter* Character = WeakCharacter.Get();
+			if (!Character || !PrimaryMesh || !PrimaryMesh->GetSkeletalMeshAsset())
+			{
+				return;
+			}
+
+			UClass* ExistingAnimClass = PrimaryMesh->GetAnimClass();
+			if (!ExistingAnimClass || !IsLikelyUnarmedFallbackAnimClass(ExistingAnimClass))
+			{
+				return;
+			}
+
+			const USkeleton* TargetSkeleton = PrimaryMesh->GetSkeletalMeshAsset()->GetSkeleton();
+			if (!TargetSkeleton)
+			{
+				return;
+			}
+
+			UClass* ReplacementAnimClass = nullptr;
+			if (AActor* RecoveryOwner = WeakRecoveryOwner.Get())
+			{
+				ReplacementAnimClass = ResolvePreferredRuntimeAnimClassFromActor(RecoveryOwner, TargetSkeleton);
+			}
+
+			if (!ReplacementAnimClass)
+			{
+				if (UWorld* World = Character->GetWorld())
+				{
+					for (TActorIterator<AActor> It(World); It; ++It)
+					{
+						AActor* CandidateActor = *It;
+						if (!CandidateActor || CandidateActor == Character)
+						{
+							continue;
+						}
+
+						ReplacementAnimClass = ResolvePreferredRuntimeAnimClassFromActor(CandidateActor, TargetSkeleton);
+						if (ReplacementAnimClass)
+						{
+							break;
+						}
+					}
+				}
+			}
+
+			if (ReplacementAnimClass)
+			{
+				PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+				PrimaryMesh->SetAnimInstanceClass(ReplacementAnimClass);
+				PrimaryMesh->InitAnim(true);
+				UE_LOG(LogMetaAgent, Warning,
+					TEXT("BodyRecovery: Deferred anim repair replaced fallback '%s' with '%s' on primary mesh '%s'."),
+					*GetNameSafe(ExistingAnimClass),
+					*GetNameSafe(ReplacementAnimClass),
+					*GetNameSafe(PrimaryMesh));
+			}
+		}));
+	}
 
 	void Step01_ValidateControllerAndWorld(FPlacedPawnSequenceContext& Context)
 	{
@@ -467,12 +623,13 @@ namespace
 
 	void Step21_DetermineRecoveryNeed(FBootstrapSequenceContext& Context)
 	{
+		Context.bNeedsFollowerRecovery = NeedsMetaHumanFollowerRecovery(Context.Character);
 		Context.bHasRecoverySource = !(Context.bNeedsMeshRecovery || Context.bNeedsAnimRecovery);
 	}
 
 	void Step22_SearchAttachedRecoveryMesh(FBootstrapSequenceContext& Context)
 	{
-		if (Context.bHasRecoverySource || !Context.Character)
+		if ((Context.bHasRecoverySource && !Context.bNeedsFollowerRecovery) || !Context.Character)
 		{
 			return;
 		}
@@ -502,10 +659,12 @@ namespace
 
 	void Step23_SearchWorldRecoveryMesh(FBootstrapSequenceContext& Context)
 	{
-		if (Context.bHasRecoverySource || !Context.Character || !Context.Character->GetWorld())
+		if ((Context.bHasRecoverySource && !Context.bNeedsFollowerRecovery) || !Context.Character || !Context.Character->GetWorld())
 		{
 			return;
 		}
+
+		AActor* FollowerOnlySourceActor = nullptr;
 
 		for (TActorIterator<AActor> It(Context.Character->GetWorld()); It; ++It)
 		{
@@ -524,6 +683,16 @@ namespace
 				continue;
 			}
 
+			if (!FollowerOnlySourceActor)
+			{
+				TInlineComponentArray<UMeshComponent*> CandidateAnyMeshes;
+				CandidateActor->GetComponents(CandidateAnyMeshes);
+				if (CandidateAnyMeshes.Num() > 0)
+				{
+					FollowerOnlySourceActor = CandidateActor;
+				}
+			}
+
 			TInlineComponentArray<USkeletalMeshComponent*> CandidateMeshes;
 			CandidateActor->GetComponents(CandidateMeshes);
 			for (USkeletalMeshComponent* CandidateMesh : CandidateMeshes)
@@ -537,6 +706,13 @@ namespace
 					return;
 				}
 			}
+		}
+
+		if (Context.bNeedsFollowerRecovery && FollowerOnlySourceActor)
+		{
+			Context.RecoveryOwner = FollowerOnlySourceActor;
+			Context.bRecoveredFromWorldSearch = true;
+			Context.bHasRecoverySource = true;
 		}
 	}
 
@@ -555,9 +731,17 @@ namespace
 
 	void Step25_ApplyRecoveredAnimClassDirectly(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.bHasRecoverySource || !Context.RecoveryMesh || !Context.PrimaryMesh || Context.PrimaryMesh->GetAnimClass())
+		if (!Context.bHasRecoverySource || !Context.RecoveryMesh || !Context.PrimaryMesh)
 		{
 			return;
+		}
+
+		if (UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass())
+		{
+			if (!IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+			{
+				return;
+			}
 		}
 
 		if (Context.RecoveryMesh->GetAnimClass())
@@ -622,9 +806,17 @@ namespace
 
 	void Step29_TryRecoveryOwnerAnimClass(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.RecoveryMesh || !Context.PrimaryMesh || Context.PrimaryMesh->GetAnimClass())
+		if (!Context.RecoveryMesh || !Context.PrimaryMesh)
 		{
 			return;
+		}
+
+		if (UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass())
+		{
+			if (!IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+			{
+				return;
+			}
 		}
 
 		Context.PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
@@ -636,9 +828,17 @@ namespace
 
 	void Step30_TryRecoveryOwnerAnimInstanceClass(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.RecoveryMesh || !Context.PrimaryMesh || Context.PrimaryMesh->GetAnimClass())
+		if (!Context.RecoveryMesh || !Context.PrimaryMesh)
 		{
 			return;
+		}
+
+		if (UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass())
+		{
+			if (!IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+			{
+				return;
+			}
 		}
 
 		if (UAnimInstance* RecoveryAnimInstance = Context.RecoveryMesh->GetAnimInstance())
@@ -649,9 +849,17 @@ namespace
 
 	void Step31_TryRecoveryOwnerCDOMatchingMesh(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.RecoveryOwner || !Context.PrimaryMesh || Context.PrimaryMesh->GetAnimClass())
+		if (!Context.RecoveryOwner || !Context.PrimaryMesh)
 		{
 			return;
+		}
+
+		if (UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass())
+		{
+			if (!IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+			{
+				return;
+			}
 		}
 
 		if (AActor* RecoveryCDO = Cast<AActor>(Context.RecoveryOwner->GetClass()->GetDefaultObject()))
@@ -705,9 +913,17 @@ namespace
 
 	void Step33_TryWorldSkeletonMatchedAnimClass(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.PrimaryMesh || Context.PrimaryMesh->GetAnimClass() || !Context.PrimaryMesh->GetSkeletalMeshAsset())
+		if (!Context.Character || !Context.PrimaryMesh || !Context.PrimaryMesh->GetSkeletalMeshAsset())
 		{
 			return;
+		}
+
+		if (UClass* CurrentAnimClass = Context.PrimaryMesh->GetAnimClass())
+		{
+			if (!IsLikelyUnarmedFallbackAnimClass(CurrentAnimClass))
+			{
+				return;
+			}
 		}
 
 		const USkeleton* PrimarySkeleton = Context.PrimaryMesh->GetSkeletalMeshAsset()->GetSkeleton();
@@ -763,9 +979,13 @@ namespace
 
 		static const TCHAR* FallbackAnimClassPaths[] =
 		{
+			// Prefer project/plugin unarmed locomotion first to avoid crowd-specific emergency fallback.
+			TEXT("/Game/ABP_UNARMED.ABP_UNARMED_C"),
+			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_UNARMED.ABP_UNARMED_C"),
+			TEXT("/Game/ThirdPerson/Animations/ABP_UNARMED.ABP_UNARMED_C"),
+			TEXT("/MetaAgentPlugin/External/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"),
 			TEXT("/MetaAgentPlugin/External/CitySampleCrowd/Character/Male/Rig/m_tal_nrw_animbp.m_tal_nrw_animbp_C"),
 			TEXT("/MetaAgentPlugin/External/CitySampleCrowd/Character/Female/Rig/f_tal_nrw_animbp.f_tal_nrw_animbp_C"),
-			TEXT("/MetaAgentPlugin/External/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C")
 		};
 
 		for (const TCHAR* AnimClassPath : FallbackAnimClassPaths)
@@ -833,14 +1053,14 @@ namespace
 
 	void Step38_DuplicateMissingFollowerComponents(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.RecoveryMesh)
+		if (!Context.Character || !Context.RecoveryOwner)
 		{
 			return;
 		}
 
 		for (UMeshComponent* SourceMeshComp : Context.SourceMeshes)
 		{
-			if (!SourceMeshComp || SourceMeshComp == Context.RecoveryMesh)
+			if (!SourceMeshComp || (Context.RecoveryMesh && SourceMeshComp == Context.RecoveryMesh))
 			{
 				continue;
 			}
@@ -881,14 +1101,14 @@ namespace
 
 	void Step39_RecordRecoveredSceneMap(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.RecoveryMesh)
+		if (!Context.Character || !Context.RecoveryOwner)
 		{
 			return;
 		}
 
 		for (UMeshComponent* SourceMeshComp : Context.SourceMeshes)
 		{
-			if (!SourceMeshComp || SourceMeshComp == Context.RecoveryMesh)
+			if (!SourceMeshComp || (Context.RecoveryMesh && SourceMeshComp == Context.RecoveryMesh))
 			{
 				continue;
 			}
@@ -912,14 +1132,14 @@ namespace
 
 	void Step40_RestoreFollowerAttachments(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.PrimaryMesh || !Context.RecoveryMesh)
+		if (!Context.Character || !Context.PrimaryMesh || !Context.RecoveryOwner)
 		{
 			return;
 		}
 
 		for (UMeshComponent* SourceMeshComp : Context.SourceMeshes)
 		{
-			if (!SourceMeshComp || SourceMeshComp == Context.RecoveryMesh)
+			if (!SourceMeshComp || (Context.RecoveryMesh && SourceMeshComp == Context.RecoveryMesh))
 			{
 				continue;
 			}
@@ -938,7 +1158,7 @@ namespace
 					const USceneComponent* SourceParent = SourceScene->GetAttachParent();
 					USceneComponent* TargetParent = nullptr;
 
-					if (SourceParent == Context.RecoveryMesh)
+					if (Context.RecoveryMesh && SourceParent == Context.RecoveryMesh)
 					{
 						TargetParent = Context.PrimaryMesh;
 					}
@@ -966,14 +1186,14 @@ namespace
 
 	void Step41_RestoreFollowerRelativeTransforms(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.RecoveryMesh)
+		if (!Context.Character || !Context.RecoveryOwner)
 		{
 			return;
 		}
 
 		for (UMeshComponent* SourceMeshComp : Context.SourceMeshes)
 		{
-			if (!SourceMeshComp || SourceMeshComp == Context.RecoveryMesh)
+			if (!SourceMeshComp || (Context.RecoveryMesh && SourceMeshComp == Context.RecoveryMesh))
 			{
 				continue;
 			}
@@ -997,14 +1217,14 @@ namespace
 
 	void Step42_RebuildFollowerLeaderPoseLinks(FBootstrapSequenceContext& Context)
 	{
-		if (!Context.Character || !Context.PrimaryMesh || !Context.RecoveryMesh)
+		if (!Context.Character || !Context.PrimaryMesh || !Context.RecoveryOwner)
 		{
 			return;
 		}
 
 		for (UMeshComponent* SourceMeshComp : Context.SourceMeshes)
 		{
-			if (!SourceMeshComp || SourceMeshComp == Context.RecoveryMesh)
+			if (!SourceMeshComp || (Context.RecoveryMesh && SourceMeshComp == Context.RecoveryMesh))
 			{
 				continue;
 			}
@@ -1021,7 +1241,7 @@ namespace
 					if (USkinnedMeshComponent* SourceLeader = SourceSkinned->LeaderPoseComponent.Get())
 					{
 						USkinnedMeshComponent* TargetLeader = nullptr;
-						if (SourceLeader == Context.RecoveryMesh)
+						if (Context.RecoveryMesh && SourceLeader == Context.RecoveryMesh)
 						{
 							TargetLeader = Context.PrimaryMesh;
 						}
@@ -1186,52 +1406,6 @@ namespace
 		}
 	}
 
-	void Step51_PreloadFallbackLocomotionAssets(FBootstrapSequenceContext& Context)
-	{
-		if (!Context.Character)
-		{
-			return;
-		}
-
-		if (USkeletalMeshComponent* PossessedPrimaryMesh = Context.Character->GetMesh())
-		{
-			if (PossessedPrimaryMesh->GetAnimClass())
-			{
-				Context.bUsingCrowdFallbackClass =
-					PossessedPrimaryMesh->GetAnimClass()->GetName().Contains(TEXT("tal_nrw_animbp"), ESearchCase::IgnoreCase);
-				if (Context.bUsingCrowdFallbackClass)
-				{
-					GetEmergencyIdleAssetForBootstrap();
-					GetEmergencyWalkAssetForBootstrap();
-				}
-			}
-		}
-	}
-
-	void Step52_ActivateImmediateCrowdFallbackLocomotion(FBootstrapSequenceContext& Context)
-	{
-		if (!Context.Character || !Context.PrimaryMesh || !Context.MovementDiagnostics || !Context.bUsingCrowdFallbackClass)
-		{
-			return;
-		}
-
-		UAnimationAsset* IdleAsset = GetEmergencyIdleAssetForBootstrap();
-		Context.MovementDiagnostics->bAutoFallbackActivated = true;
-		Context.MovementDiagnostics->MovingWithoutPoseChangeSeconds = Context.MovementDiagnostics->AutoFallbackStallSeconds;
-
-		if (IdleAsset)
-		{
-			if (Context.PrimaryMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode)
-			{
-				Context.PrimaryMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-			}
-			Context.PrimaryMesh->PlayAnimation(IdleAsset, true);
-		}
-
-		UE_LOG(LogMetaAgent, Warning,
-			TEXT("AnimFallback: '%s' crowd AnimBP path hardened; emergency single-node fallback activated immediately on possess."),
-			*GetNameSafe(Context.Character));
-	}
 }
 
 void FMetaAgentCharacterRuntime::RunPlacedPawnPossessionSequence(
@@ -1317,6 +1491,5 @@ void FMetaAgentCharacterRuntime::RunPossessedCharacterBootstrapSequence(
 	Step48_RebindMeshLeaderPoseFollowers(Context);
 	Step49_ClampMovementSpeedGuard(Context);
 	Step50_ClampMovementAccelerationGuard(Context);
-	Step51_PreloadFallbackLocomotionAssets(Context);
-	Step52_ActivateImmediateCrowdFallbackLocomotion(Context);
+	Step53_ScheduleDeferredAnimClassRepair(Context);
 }

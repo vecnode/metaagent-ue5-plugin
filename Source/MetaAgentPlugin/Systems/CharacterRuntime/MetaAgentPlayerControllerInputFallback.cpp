@@ -11,6 +11,7 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 {
 	if (!ControlledPawn
 		|| !InputFallback.bEnableKeyboardMovement
+		|| InputFallback.bAddedAnyMappingContext
 		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
 		return;

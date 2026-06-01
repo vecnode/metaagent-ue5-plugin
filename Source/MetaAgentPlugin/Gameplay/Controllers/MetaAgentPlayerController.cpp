@@ -111,6 +111,21 @@ namespace
 		return RunAsset;
 	}
 
+	bool IsLikelyUnarmedFallbackAnimClass(const UClass* AnimClass)
+	{
+		if (!AnimClass)
+		{
+			return false;
+		}
+
+		const FString ClassName = AnimClass->GetName();
+		const FString ClassPath = AnimClass->GetPathName();
+		return ClassName.Contains(TEXT("UNARMED"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("/UNARMED/"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("ABP_UNARMED"), ESearchCase::IgnoreCase)
+			|| ClassPath.Contains(TEXT("ABP_Unarmed"), ESearchCase::IgnoreCase);
+	}
+
 	UInputMappingContext* ResolveMappingContextWithFallback(
 		const TSoftObjectPtr<UInputMappingContext>& SoftReference,
 		const TCHAR* LegacyPath,
@@ -259,27 +274,31 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 			UClass* ActiveAnimClass = PrimaryMesh->GetAnimClass();
 			const bool bUsingCrowdFallbackClass =
 				ActiveAnimClass && ActiveAnimClass->GetName().Contains(TEXT("tal_nrw_animbp"), ESearchCase::IgnoreCase);
+			const bool bUsingUnarmedFallbackClass = IsLikelyUnarmedFallbackAnimClass(ActiveAnimClass);
+			const bool bUsingKnownStaticRiskFallbackClass = bUsingCrowdFallbackClass || bUsingUnarmedFallbackClass;
 			const float Speed2D = ControlledCharacter->GetVelocity().Size2D();
 
 			if (!MovementDiagnostics.bAutoFallbackActivated
 				&& MovementDiagnostics.bPreferAnimBlueprintLocomotion
 				&& MovementDiagnostics.bEnableAutoFallbackOnAnimStall
-				&& bUsingCrowdFallbackClass)
+				&& bUsingKnownStaticRiskFallbackClass)
 			{
 				if (PrimaryMesh->GetAnimationMode() == EAnimationMode::AnimationBlueprint
 					&& PrimaryMesh->GetAnimInstance()
 					&& Speed2D >= MovementDiagnostics.AutoFallbackMinSpeed)
 				{
-					// Crowd fallback AnimBP can stay visually static for this recovered MetaHuman setup.
+					// Some fallback AnimBPs can stay visually static on recovered MetaHuman body meshes.
 					// If movement is sustained in AnimBlueprint mode, trigger emergency fallback.
 					MovementDiagnostics.MovingWithoutPoseChangeSeconds += DeltaTime;
 
 					if (MovementDiagnostics.MovingWithoutPoseChangeSeconds >= MovementDiagnostics.AutoFallbackStallSeconds)
 					{
 						MovementDiagnostics.bAutoFallbackActivated = true;
+						const TCHAR* FallbackLabel = bUsingCrowdFallbackClass ? TEXT("crowd") : TEXT("unarmed");
 						UE_LOG(LogMetaAgent, Warning,
-							TEXT("AnimFallback: '%s' detected sustained movement with crowd AnimBP (Speed2D=%.2f, Duration=%.2fs). Activating emergency single-node fallback."),
+							TEXT("AnimFallback: '%s' detected sustained movement with %s fallback AnimBP (Speed2D=%.2f, Duration=%.2fs). Activating emergency single-node fallback."),
 							*GetNameSafe(ControlledCharacter),
+							FallbackLabel,
 							Speed2D,
 							MovementDiagnostics.MovingWithoutPoseChangeSeconds);
 					}
@@ -295,9 +314,9 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 				MovementDiagnostics.bEnableEmergencySingleNodeLocomotion
 				|| MovementDiagnostics.bAutoFallbackActivated;
 
-			// If the crowd fallback AnimBP is present but still visually static on this pawn,
+			// If a known fallback AnimBP is present but still visually static on this pawn,
 			// force a deterministic idle/walk single-node animation from the same content set.
-			if (bUseEmergencyFallback && bUsingCrowdFallbackClass)
+			if (bUseEmergencyFallback && bUsingKnownStaticRiskFallbackClass)
 			{
 				UAnimationAsset* IdleAsset = GetEmergencyIdleAsset();
 				UAnimationAsset* WalkAsset = GetEmergencyWalkAsset();

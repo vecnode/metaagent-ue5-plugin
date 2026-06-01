@@ -109,7 +109,7 @@ struct FMetaAgentInputFallbackState
 	float MouseSensitivity = 0.05f;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="1.0", ClampMax="1200.0"))
-	float WalkSpeed = 60.0f;
+	float WalkSpeed = 350.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="1.0", ClampMax="2400.0"))
 	float SprintSpeed = 600.0f;
