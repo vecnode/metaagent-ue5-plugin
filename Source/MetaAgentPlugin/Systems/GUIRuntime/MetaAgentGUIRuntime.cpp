@@ -23,8 +23,8 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("P       : Cycle playable camera modes"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("J       : Not in flight yet (reserved)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("U       : Not in flight yet (reserved)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle HiRes frame capture"));
+		GUI.BaseHelpPanelLines.Add(TEXT("U       : Show capture output status"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Y       : Not in flight yet (reserved)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
@@ -68,6 +68,9 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 
 		MetaAgentHUD->SetNetworkingPanelLines(NetworkingLines);
 		MetaAgentHUD->SetNetworkingPanelVisible(GUI.bHelpPanelVisible);
+
+		MetaAgentHUD->SetRecordingPanelLines(Controller.BuildRecordingRuntimePanelLines());
+		MetaAgentHUD->SetRecordingPanelVisible(GUI.bHelpPanelVisible);
 	}
 }
 

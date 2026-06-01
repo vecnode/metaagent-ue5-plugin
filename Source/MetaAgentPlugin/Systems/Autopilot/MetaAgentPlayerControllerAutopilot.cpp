@@ -30,13 +30,11 @@ void AMetaAgentPlayerController::HandleToggleAutopilotPressed()
 
 	if (Autopilot.bEnabled)
 	{
-		StopAutopilotTakeRecording();
 		DisableAutopilotAndRepossess();
 	}
 	else
 	{
 		EnableAutopilotForCurrentPawn();
-		StartAutopilotTakeRecording();
 	}
 }
 

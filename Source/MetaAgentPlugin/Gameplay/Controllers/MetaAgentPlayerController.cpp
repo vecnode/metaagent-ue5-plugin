@@ -1,5 +1,4 @@
-﻿// Based on Unreal Engine template code.
-// Project-specific implementation and modifications Copyright (c) vecnode, 2026.
+﻿// Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
@@ -496,6 +495,8 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 			}
 		}
 	}
+
+	UpdateRuntimeFrameCapture(DeltaTime);
 }
 
 void AMetaAgentPlayerController::BeginPlay()
@@ -556,7 +557,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
 			InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMetaAgentPlayerController::HandleYPressed);
 			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCameraModePressed);
-			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
+			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputFallback.bUtilityKeysBound = true;

@@ -25,6 +25,16 @@ void AMetaAgentHUD::SetNetworkingPanelLines(const TArray<FString>& InLines)
 	NetworkingPanelLines = InLines;
 }
 
+void AMetaAgentHUD::SetRecordingPanelVisible(const bool bVisible)
+{
+	bRecordingPanelVisible = bVisible;
+}
+
+void AMetaAgentHUD::SetRecordingPanelLines(const TArray<FString>& InLines)
+{
+	RecordingPanelLines = InLines;
+}
+
 void AMetaAgentHUD::SetStatusLine(FName Key, const FString& Message, FColor Color)
 {
 	if (Key.IsNone())
@@ -229,6 +239,41 @@ void AMetaAgentHUD::DrawHUD()
 		const FColor LineColor = (Index == 0) ? FColor::Cyan : FColor::White;
 		DrawText(EffectiveNetworkingLines[Index], LineColor, NetPanelX + NetPadding, NetY, const_cast<UFont*>(NetFont), NetScale, false);
 		NetY += NetLineHeight;
+	}
+
+	if (!bRecordingPanelVisible || RecordingPanelLines.Num() == 0)
+	{
+		return;
+	}
+
+	const UFont* RecFont = GEngine ? GEngine->GetSmallFont() : nullptr;
+	const float RecScale = 1.0f;
+	const float RecPadding = 10.0f;
+	const float RecLineHeight = 20.0f;
+
+	float RecMaxTextWidth = 0.0f;
+	for (const FString& Line : RecordingPanelLines)
+	{
+		float LineWidth = 0.0f;
+		float LineHeight = 0.0f;
+		Canvas->StrLen(RecFont, Line, LineWidth, LineHeight);
+		RecMaxTextWidth = FMath::Max(RecMaxTextWidth, LineWidth * RecScale);
+	}
+
+	const float RecPanelWidth = FMath::Max(420.0f, RecMaxTextWidth + (RecPadding * 2.0f));
+	const float RecPanelHeight = (RecordingPanelLines.Num() * RecLineHeight) + (RecPadding * 2.0f);
+	const float RecPanelX = 24.0f;
+	const float DesiredRecPanelY = NetPanelY + NetPanelHeight + 12.0f;
+	const float RecPanelY = FMath::Min(DesiredRecPanelY, Canvas->ClipY - RecPanelHeight - 24.0f);
+
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), RecPanelX, RecPanelY, RecPanelWidth, RecPanelHeight);
+
+	float RecY = RecPanelY + RecPadding;
+	for (int32 Index = 0; Index < RecordingPanelLines.Num(); ++Index)
+	{
+		const FColor LineColor = (Index == 0) ? FColor::Green : FColor::White;
+		DrawText(RecordingPanelLines[Index], LineColor, RecPanelX + RecPadding, RecY, const_cast<UFont*>(RecFont), RecScale, false);
+		RecY += RecLineHeight;
 	}
 }
 

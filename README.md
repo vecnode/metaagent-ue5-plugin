@@ -216,6 +216,37 @@ Under heavy development.
 
 </details>
 
+
+### Module 5: MetaAgentRecordingRuntime
+
+- Simple runtime recording based on direct HiRes frame capture (no Take Recorder dependency)
+- `J` toggles capture start/stop and writes PNG frames directly to disk
+- Frames are captured from the active player camera at fixed FPS
+- Output directory is created under `Saved/Renders/HiResFrames_YYYYMMDD_HHMMSS`
+- `U` reports output/capture status (frames are already saved on disk)
+- Recording panel shows runtime capture state, resolution, frame count, and output path
+
+<details>
+<summary>Module 5: 12 sequential runtime steps</summary>
+
+1. Press `J` to start frame capture.
+2. Initialize a new output folder in `Saved/Renders`.
+3. Mark runtime recording active and reset counters.
+4. Tick capture accumulator every frame.
+5. Capture at configured fixed FPS (default 15 FPS).
+6. For each capture step, request a HiRes screenshot using configured resolution.
+7. Save frames as sequential PNG files (`frame_000000.png`, ...).
+8. Update recording runtime panel line values continuously.
+9. Press `J` again to stop capture.
+10. Keep all captured frames in the output directory.
+11. Press `U` to report save/status summary for the last capture session.
+12. Use output frames directly for post-processing or external encoding.
+
+</details>
+
+
+
+
 ## License
 
 Licensed under the [MIT License](./LICENSE).

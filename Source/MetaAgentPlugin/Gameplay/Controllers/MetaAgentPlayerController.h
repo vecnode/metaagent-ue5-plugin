@@ -265,15 +265,6 @@ struct FMetaAgentRecordingState
 	bool bTakeRecordingActive = false;
 
 	UPROPERTY(Transient)
-	TWeakObjectPtr<ULevelSequence> LastRecordedTake;
-
-#if WITH_EDITOR
-	bool bForcedTakeRecordToSpawnable = false;
-
-	bool bPreviousTakeRecordToPossessable = false;
-#endif
-
-	UPROPERTY(Transient)
 	bool bRenderInProgress = false;
 
 	UPROPERTY(Transient)
@@ -287,6 +278,33 @@ struct FMetaAgentRecordingState
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording")
 	bool bRenderPngSequenceAlongsideMp4 = true;
+
+	UPROPERTY(Transient)
+	bool bRecordingUsesTakeRecorder = false;
+
+	UPROPERTY(Transient)
+	bool bRuntimeFrameCaptureActive = false;
+
+	UPROPERTY(Transient)
+	float RuntimeCaptureAccumulatedSeconds = 0.0f;
+
+	UPROPERTY(Transient)
+	int32 RuntimeCapturedFrameCount = 0;
+
+	UPROPERTY(Transient)
+	int32 RuntimeCaptureFrameIndex = 0;
+
+	UPROPERTY(Transient)
+	FString RuntimeCaptureOutputDirectory;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="1.0", ClampMax="60.0"))
+	float RuntimeCaptureFps = 15.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="128", ClampMax="7680"))
+	int32 RuntimeCaptureWidth = 3840;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="128", ClampMax="4320"))
+	int32 RuntimeCaptureHeight = 2160;
 };
 
 UENUM()
@@ -475,6 +493,9 @@ protected:
 	/** Submits the most recently recorded autopilot take to Movie Render Queue. */
 	void HandleRenderRecordedTakePressed();
 
+	/** Toggles recording on/off using the runtime recording backend. */
+	void HandleToggleRecordingPressed();
+
 	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
@@ -505,22 +526,20 @@ protected:
 	/** Disables AI autopilot and repossesses the last autopilot pawn. */
 	void DisableAutopilotAndRepossess();
 
-	/** Starts recording the autopilot movement + cinematic camera take. */
+	/** Starts high-resolution frame capture to disk. */
 	void StartAutopilotTakeRecording();
 
-	/** Stops an in-progress autopilot take recording. */
+	/** Stops an in-progress high-resolution frame capture. */
 	void StopAutopilotTakeRecording();
 
-#if WITH_EDITOR
-	/** Restores the editor's prior Take Recorder possessable/spawnable preference after our forced capture mode. */
-	void RestoreTakeRecorderRecordToPossessableSetting();
-#endif
-
-	/** Enqueues a render for the last finished take using runtime MRQ. */
+	/** Reports status for captured frame output (legacy U action path). */
 	void SubmitLastRecordedTakeToRenderQueue();
 
 	/** Pushes current recording/take/render state into the persistent HUD status panel. */
 	void UpdateRecordingStatusHud();
+
+	/** Updates standalone/shipping frame capture recording at a fixed rate while active. */
+	void UpdateRuntimeFrameCapture(float DeltaTime);
 
 	/** Applies the active camera mode to the currently possessed pawn. */
 	void ApplyCameraModeToPawn(APawn* InPawn);
@@ -537,10 +556,6 @@ protected:
 	/** Enables the generated third-person camera mode. */
 	void EnableThirdPersonCameraMode();
 
-	/** Receives the final recorded take sequence from Take Recorder. */
-	UFUNCTION()
-	void HandleTakeRecorderFinished(ULevelSequence* SequenceAsset);
-
 	/** Receives completion callback for runtime MRQ renders. */
 	UFUNCTION()
 	void HandleRuntimeRenderFinished(FMoviePipelineOutputData Results);
@@ -550,6 +565,9 @@ public:
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
 	void ToggleCinematicCameraMode();
+
+	/** Builds lines for the dedicated recording runtime GUI panel. */
+	TArray<FString> BuildRecordingRuntimePanelLines() const;
 
 protected:
 
