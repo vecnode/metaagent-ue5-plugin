@@ -218,7 +218,8 @@ void AMetaAgentHUD::DrawHUD()
 	const float NetPanelWidth = FMath::Max(420.0f, NetMaxTextWidth + (NetPadding * 2.0f));
 	const float NetPanelHeight = (EffectiveNetworkingLines.Num() * NetLineHeight) + (NetPadding * 2.0f);
 	const float NetPanelX = 24.0f;
-	const float NetPanelY = Canvas->ClipY - NetPanelHeight - 24.0f;
+	const float DesiredNetPanelY = HelpPanelY + HelpPanelHeight + 12.0f;
+	const float NetPanelY = FMath::Min(DesiredNetPanelY, Canvas->ClipY - NetPanelHeight - 24.0f);
 
 	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), NetPanelX, NetPanelY, NetPanelWidth, NetPanelHeight);
 

@@ -59,6 +59,12 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 		{
 			NetworkingLines = GI->GetNetworkingRuntimePanelLines();
 		}
+		else
+		{
+			NetworkingLines.Add(TEXT("Networking Runtime"));
+			NetworkingLines.Add(TEXT("GameInstance : MetaAgentGameInstance NOT active"));
+			NetworkingLines.Add(TEXT("Check Maps & Modes > Game Instance Class"));
+		}
 
 		MetaAgentHUD->SetNetworkingPanelLines(NetworkingLines);
 		MetaAgentHUD->SetNetworkingPanelVisible(GUI.bHelpPanelVisible);
