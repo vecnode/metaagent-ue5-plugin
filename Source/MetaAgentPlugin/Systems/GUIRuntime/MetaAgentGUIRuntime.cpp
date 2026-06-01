@@ -5,7 +5,7 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "UI/HUD/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentHUD.h"
 
 namespace
 {

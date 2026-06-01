@@ -1,6 +1,6 @@
 ﻿// Copyright (c) vecnode 2026. All Rights Reserved.
 
-#include "UI/HUD/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 

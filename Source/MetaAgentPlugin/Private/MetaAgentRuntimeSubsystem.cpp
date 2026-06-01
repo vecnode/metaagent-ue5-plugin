@@ -24,7 +24,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "TimerManager.h"
-#include "UI/HUD/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentHUD.h"
 
 namespace
 {

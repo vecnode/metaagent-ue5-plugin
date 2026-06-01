@@ -2,7 +2,7 @@
 
 #include "Systems/Runtime/MetaAgentGameInstance.h"
 #include "Core/MetaAgent.h"
-#include "UI/HUD/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Engine/World.h"
 #include "HttpModule.h"
 #include "HttpPath.h"

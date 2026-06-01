@@ -2,7 +2,7 @@
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
 #include "Gameplay/Modes/MetaAgentGameMode.h"
-#include "UI/HUD/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Gameplay/Characters/MetaAgentMHPlayer.h"
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
