@@ -19,6 +19,7 @@ public class MetaAgentPluginEditor : ModuleRules
 			{
 				"CoreUObject",
 				"Engine",
+				"EditorFramework",
 				"Slate",
 				"SlateCore",
 				"PropertyEditor",
