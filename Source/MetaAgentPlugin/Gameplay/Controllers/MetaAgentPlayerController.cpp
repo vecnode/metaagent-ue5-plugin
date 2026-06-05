@@ -163,29 +163,28 @@ namespace
 	}
 }
 
-void AMetaAgentPlayerController::HandleToggleCameraModePressed()
-{
-	FMetaAgentCameraRuntime::RunPlayableCameraModeCycleSequence(*this, GetPawn(), CameraMode, CameraZoom, CinematicCamera);
-}
-
 void AMetaAgentPlayerController::EnableFirstPersonCameraMode()
 {
-	FMetaAgentCameraRuntime::RunEnableSpecificCameraModeSequence(*this, GetPawn(), CameraMode, CameraZoom, EMetaAgentCameraMode::FirstPerson);
+	// Environment-only viewer mode: no-op
+	UE_LOG(LogMetaAgent, Log, TEXT("EnableFirstPersonCameraMode: environment viewer mode (no-op)."));
 }
 
 void AMetaAgentPlayerController::EnableCloseOverShoulderCameraMode()
 {
-	FMetaAgentCameraRuntime::RunEnableSpecificCameraModeSequence(*this, GetPawn(), CameraMode, CameraZoom, EMetaAgentCameraMode::CloseOverShoulder);
+	// Environment-only viewer mode: no-op
+	UE_LOG(LogMetaAgent, Log, TEXT("EnableCloseOverShoulderCameraMode: environment viewer mode (no-op)."));
 }
 
 void AMetaAgentPlayerController::EnableSideCinematicCloseCameraMode()
 {
-	FMetaAgentCameraRuntime::RunEnableSpecificCameraModeSequence(*this, GetPawn(), CameraMode, CameraZoom, EMetaAgentCameraMode::SideCinematicClose);
+	// Environment-only viewer mode: no-op
+	UE_LOG(LogMetaAgent, Log, TEXT("EnableSideCinematicCloseCameraMode: environment viewer mode (no-op)."));
 }
 
 void AMetaAgentPlayerController::EnableThirdPersonCameraMode()
 {
-	FMetaAgentCameraRuntime::RunEnableSpecificCameraModeSequence(*this, GetPawn(), CameraMode, CameraZoom, EMetaAgentCameraMode::ThirdPerson);
+	// Environment-only viewer mode: no-op
+	UE_LOG(LogMetaAgent, Log, TEXT("EnableThirdPersonCameraMode: environment viewer mode (no-op)."));
 }
 
 void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
@@ -496,7 +495,8 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		}
 	}
 
-	if (ControlledPawn && !CinematicCamera.bModeEnabled && CameraMode.ActiveMode == EMetaAgentCameraMode::ThirdPerson)
+	// Environment-only viewer mode: always apply zoom
+	if (ControlledPawn && !CinematicCamera.bModeEnabled)
 	{
 		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
 	}
@@ -575,7 +575,6 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
 			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
 			InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMetaAgentPlayerController::HandleYPressed);
-			InputComponent->BindKey(EKeys::L, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCameraModePressed);
 			InputComponent->BindKey(EKeys::I, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);

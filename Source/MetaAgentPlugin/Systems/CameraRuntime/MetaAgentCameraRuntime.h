@@ -19,61 +19,31 @@ struct FMetaAgentCinematicCameraState;
 
 struct FMetaAgentCameraRuntime
 {
-	static void RunPlayableCameraModeCycleSequence(
-		AMetaAgentPlayerController& Controller,
-		APawn* Pawn,
-		FMetaAgentCameraModeState& CameraMode,
-		FMetaAgentCameraZoomState& CameraZoom,
-		const FMetaAgentCinematicCameraState& CinematicCamera);
+	// Environment-only camera control: simplified for viewer mode without character dependencies
 
-	static void RunApplyCameraModeSequence(
+	static void RunEnvironmentZoomSequence(
 		AMetaAgentPlayerController& Controller,
-		APawn* Pawn,
-		FMetaAgentCameraModeState& CameraMode,
-		FMetaAgentCameraZoomState& CameraZoom);
-
-	static void RunEnableSpecificCameraModeSequence(
-		AMetaAgentPlayerController& Controller,
-		APawn* Pawn,
-		FMetaAgentCameraModeState& CameraMode,
-		FMetaAgentCameraZoomState& CameraZoom,
-		EMetaAgentCameraMode TargetMode);
-
-	static void RunThirdPersonZoomSequence(
-		AMetaAgentPlayerController& Controller,
-		APawn* Pawn,
 		float DeltaTime,
-		FMetaAgentCameraModeState& CameraMode,
 		FMetaAgentCameraZoomState& CameraZoom);
 
 	static void RunToggleCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
-		FMetaAgentCinematicCameraState& CinematicCamera,
-		const FMetaAgentAutopilotState& Autopilot);
+		FMetaAgentCinematicCameraState& CinematicCamera);
 
 	static void RunEnableCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
 		FMetaAgentCinematicCameraState& CinematicCamera,
-		const FMetaAgentAutopilotState& Autopilot);
+		FVector TargetFocusLocation);
 
 	static void RunDisableCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
-		FMetaAgentCinematicCameraState& CinematicCamera,
-		const FMetaAgentAutopilotState& Autopilot);
+		FMetaAgentCinematicCameraState& CinematicCamera);
 
 	static void RunUpdateCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
 		float DeltaTime,
 		FMetaAgentCinematicCameraState& CinematicCamera,
-		const FMetaAgentAutopilotState& Autopilot);
-
-	static AActor* ResolveCinematicTargetActor(
-		AMetaAgentPlayerController& Controller,
-		const FMetaAgentAutopilotState& Autopilot);
-
-	static FVector ResolveCinematicFocusLocation(
-		AActor* TargetActor,
-		const FMetaAgentCinematicCameraState& CinematicCamera);
+		FVector TargetFocusLocation);
 
 	static const TCHAR* GetCinematicStyleLabel(EMetaAgentCinematicCameraStyle Style);
 };

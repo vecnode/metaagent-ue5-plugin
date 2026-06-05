@@ -4,19 +4,23 @@
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 
+// Environment-only viewing: no character-specific camera setup needed
 void AMetaAgentPlayerController::ApplyCameraModeToPawn(APawn* InPawn)
 {
-	FMetaAgentCameraRuntime::RunApplyCameraModeSequence(*this, InPawn, CameraMode, CameraZoom);
+	// Simplified for environment-only mode: no-op
+	UE_LOG(LogTemp, Log, TEXT("ApplyCameraModeToPawn: environment viewer mode (no pawn camera setup)."));
 }
 
 void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
 {
-	FMetaAgentCameraRuntime::RunApplyCameraModeSequence(*this, InPawn, CameraMode, CameraZoom);
+	// Simplified for environment-only mode: no-op
+	UE_LOG(LogTemp, Log, TEXT("ConfigureCameraForPawn: environment viewer mode (no pawn camera setup)."));
 }
 
 void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, float DeltaTime)
 {
-	FMetaAgentCameraRuntime::RunThirdPersonZoomSequence(*this, ControlledPawn, DeltaTime, CameraMode, CameraZoom);
+	// Generic zoom for free camera (not pawn-specific)
+	FMetaAgentCameraRuntime::RunEnvironmentZoomSequence(*this, DeltaTime, CameraZoom);
 }
 
 void AMetaAgentPlayerController::HandleToggleCinematicCameraPressed()
@@ -26,30 +30,37 @@ void AMetaAgentPlayerController::HandleToggleCinematicCameraPressed()
 
 void AMetaAgentPlayerController::ToggleCinematicCameraMode()
 {
-	FMetaAgentCameraRuntime::RunToggleCinematicCameraSequence(*this, CinematicCamera, Autopilot);
+	// Default focus at scene origin, environment-only mode
+	FMetaAgentCameraRuntime::RunToggleCinematicCameraSequence(*this, CinematicCamera);
 }
 
 AActor* AMetaAgentPlayerController::ResolveCinematicTargetActor() const
 {
-	return FMetaAgentCameraRuntime::ResolveCinematicTargetActor(*const_cast<AMetaAgentPlayerController*>(this), Autopilot);
+	// For environment-only mode, return null (focus uses default origin)
+	return nullptr;
 }
 
 FVector AMetaAgentPlayerController::ResolveCinematicFocusLocation(AActor* TargetActor) const
 {
-	return FMetaAgentCameraRuntime::ResolveCinematicFocusLocation(TargetActor, CinematicCamera);
+	// For environment-only mode, return origin focus location
+	return FVector(0.0f, 0.0f, 100.0f);
 }
 
 void AMetaAgentPlayerController::EnableCinematicCameraMode()
 {
-	FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(*this, CinematicCamera, Autopilot);
+	// Default focus at scene origin
+	const FVector DefaultFocusLocation = FVector(0.0f, 0.0f, 100.0f);
+	FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(*this, CinematicCamera, DefaultFocusLocation);
 }
 
 void AMetaAgentPlayerController::DisableCinematicCameraMode()
 {
-	FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(*this, CinematicCamera, Autopilot);
+	FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(*this, CinematicCamera);
 }
 
 void AMetaAgentPlayerController::UpdateCinematicCamera(float DeltaTime)
 {
-	FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(*this, DeltaTime, CinematicCamera, Autopilot);
+	// Default focus at scene origin
+	const FVector DefaultFocusLocation = FVector(0.0f, 0.0f, 100.0f);
+	FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(*this, DeltaTime, CinematicCamera, DefaultFocusLocation);
 }

@@ -20,7 +20,6 @@ namespace
 		GUI.BaseHelpPanelLines.Reset();
 		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Toggle this controls panel"));
-		GUI.BaseHelpPanelLines.Add(TEXT("L       : Cycle playable camera modes"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
@@ -31,7 +30,7 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Shift   : Sprint modifier (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Mouse   : Look input (input fallback)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Wheel   : Third-person zoom (when in third-person mode)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("Wheel   : Zoom (camera distance)"));
 		GUI.bHelpPanelInitialized = true;
 	}
 

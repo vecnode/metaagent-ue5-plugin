@@ -19,10 +19,8 @@ class USkeletalMeshComponent;
 UENUM()
 enum class EMetaAgentCameraMode : uint8
 {
-	ThirdPerson,
-	CloseOverShoulder,
-	SideCinematicClose,
-	FirstPerson
+	// Environment-only viewer mode
+	FreeLook = 0
 };
 
 USTRUCT()
@@ -51,47 +49,9 @@ struct FMetaAgentCameraModeState
 {
 	GENERATED_BODY()
 
+	// Simplified for environment-only viewing: single free-look mode
 	UPROPERTY(EditAnywhere, Category = "Camera|Mode")
-	EMetaAgentCameraMode ActiveMode = EMetaAgentCameraMode::ThirdPerson;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="1500.0"))
-	float ThirdPersonArmLength = 400.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="600.0"))
-	float CloseOverShoulderArmLength = 165.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-200.0", ClampMax="300.0"))
-	float CloseOverShoulderHeightOffset = 58.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-120.0", ClampMax="120.0"))
-	float CloseOverShoulderLateralOffset = 18.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="600.0"))
-	float SideCinematicCloseArmLength = 118.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-200.0", ClampMax="300.0"))
-	float SideCinematicCloseHeightOffset = 66.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-120.0", ClampMax="120.0"))
-	float SideCinematicCloseLateralOffset = 46.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="0.0", ClampMax="200.0"))
-	float FirstPersonEyeHeightOffset = 12.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-60.0", ClampMax="120.0"))
-	float FirstPersonForwardOffset = 16.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode", meta=(ClampMin="-60.0", ClampMax="80.0"))
-	float FirstPersonVerticalOffset = 2.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Mode")
-	bool bPreferHeadSocketForFirstPerson = true;
-
-	UPROPERTY(Transient)
-	float LastThirdPersonArmLength = 400.0f;
-
-	UPROPERTY(Transient)
-	FName PreferredFirstPersonSocket = NAME_None;
+	EMetaAgentCameraMode ActiveMode = EMetaAgentCameraMode::FreeLook;
 };
 
 USTRUCT()
@@ -486,9 +446,6 @@ protected:
 
 	/** Shows a quick HUD debug message when Y is pressed. */
 	void HandleYPressed();
-
-	/** Toggles between the generated third-person and first-person camera modes. */
-	void HandleToggleCameraModePressed();
 
 	/** Toggles player possession between manual control and runtime AI autopilot. */
 	void HandleToggleAutopilotPressed();
