@@ -28,25 +28,9 @@ protected:
 	virtual void BeginPlay() override;
 	void EnsureAutoNavMeshBounds();
 
-	/** Optional class filter for placed pawns to possess first. */
+	/** Default player pawn blueprint class to spawn and possess. */
 	UPROPERTY(EditDefaultsOnly, Config, Category = "Player")
-	TSoftClassPtr<APawn> PreferredPlacedPawnClass;
-
-	/** Optional actor name/label from the World Outliner to pick first (for example: MAIN_CHARACTER). */
-	UPROPERTY(EditDefaultsOnly, Config, Category = "Player")
-	FString PreferredPlacedPawnName = TEXT("MAIN_CHARACTER");
-
-	/** If true and PreferredPlacedPawnName is set, possession requires a name match. */
-	UPROPERTY(EditDefaultsOnly, Config, Category = "Player")
-	bool bRequireExactPreferredPawnName = true;
-
-	/** If true, multiple pawns matching PreferredPlacedPawnName are treated as a startup error. */
-	UPROPERTY(EditDefaultsOnly, Config, Category = "Player")
-	bool bRequireUniquePreferredPawnName = true;
-
-	/** If false, no pawn is spawned when a placed pawn cannot be found. */
-	UPROPERTY(EditDefaultsOnly, Config, Category = "Player")
-	bool bAllowSpawnFallback = false;
+	TSoftClassPtr<APawn> DefaultPlayerPawnClass = TSoftClassPtr<APawn>(FSoftObjectPath(TEXT("/MetaAgentPlugin/BP_MH_PlayerChar.BP_MH_PlayerChar_C")));
 
 	/** If true, spawn a large NavMeshBoundsVolume automatically at runtime. */
 	UPROPERTY(EditDefaultsOnly, Config, Category = "Navigation")

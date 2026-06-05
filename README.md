@@ -9,69 +9,20 @@ Under heavy development.
 
 ### Module 1 : MetaAgentCharacterRuntime
 
-- Character resolution and possession
-- Mesh and animation readiness
-- Deferred animation-class repair after bootstrap
+- Default pawn spawn and possession via game mode
+- Blueprint-owned camera/mesh/animation setup
+- Minimal runtime bootstrap (no recovery pipeline)
 - Implemented in:
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
 
 <details>
-<summary>Module 1: 53 sequential runtime steps</summary>
+<summary>Module 1: simplified runtime flow</summary>
 
-1. Validate controller and world
-2. Capture existing pawn
-3. Keep existing non-spectator pawn
-4. Load preferred placed pawn class
-5. Initialize selection slots
-6. Scan placed pawns
-7. Resolve strict name mode
-8. Resolve unique named match
-9. Handle ambiguous named match
-10. Find matching non-pawn actor
-11. Log missing strict-name actor mismatch
-12. Log missing strict-name pawn
-13. Decide spawn fallback for missing strict name
-14. Possess selected placed pawn
-15. Log selected placed pawn
-16. Decide spawn fallback for no selection
-17. Log no-selection error
-18. Finalize possession sequence
-19. Validate character
-20. Validate primary mesh
-21. Determine recovery need
-22. Search attached recovery mesh
-23. Search world recovery mesh
-24. Apply recovered skeletal mesh
-25. Apply recovered anim class directly
-26. Apply recovered transform and visibility
-27. Log recovery source
-28. Apply runtime orientation offset
-29. Try recovery owner anim class
-30. Try recovery owner anim instance class
-31. Try recovery owner CDO matching mesh
-32. Try possessed character CDO anim class
-33. Try world skeleton-matched anim class
-34. Try plugin-local fallback anim classes
-35. Initialize resolved anim blueprint
-36. Log anim resolution status
-37. Gather source meshes for follower recovery
-38. Duplicate missing follower components
-39. Record recovered scene map
-40. Restore follower attachments
-41. Restore follower relative transforms
-42. Rebuild follower leader-pose links
-43. Gather skeletal meshes
-44. Resolve driving body mesh
-45. Force driving mesh tick settings
-46. Force no collision on meshes
-47. Disable mesh overlap events
-48. Rebind mesh leader-pose followers
-49. Clamp movement speed guard
-50. Clamp movement acceleration guard
-51. Schedule deferred anim-class repair
-52. Re-scan recovery owner/world for non-fallback body AnimBP on next tick
-53. Replace temporary fallback AnimBP and reinitialize primary mesh anim instance when valid
+1. Resolve `DefaultPlayerPawnClass` from `MetaAgentGameMode` config.
+2. Spawn and possess the default pawn through standard `AGameModeBase::RestartPlayer`.
+3. Keep CharacterRuntime bootstrap minimal (no mesh/anim recovery pipeline).
+4. Let `BP_MH_PlayerChar` own camera, mesh, and animation setup directly.
 
 </details>
 

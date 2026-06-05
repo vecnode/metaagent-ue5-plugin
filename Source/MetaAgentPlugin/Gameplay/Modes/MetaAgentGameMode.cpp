@@ -5,13 +5,11 @@
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Gameplay/Characters/MetaAgentMHPlayer.h"
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
-#include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "Core/MetaAgent.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
-#include "GameFramework/SpectatorPawn.h"
 #include "Engine/World.h"
 #include "NavigationSystem.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
@@ -22,53 +20,73 @@ namespace
 
 AMetaAgentGameMode::AMetaAgentGameMode()
 {
-	// Keep a native pawn as spawn fallback; placed actors are preferred (see RestartPlayer).
+	// Keep a native pawn fallback in case the configured Blueprint class fails to load.
 	DefaultPawnClass = AMetaAgentMHPlayer::StaticClass();
+	if (UClass* LoadedDefaultPawnClass = DefaultPlayerPawnClass.LoadSynchronous())
+	{
+		DefaultPawnClass = LoadedDefaultPawnClass;
+	}
+	else
+	{
+		UE_LOG(LogMetaAgent, Warning,
+			TEXT("MetaAgentGameMode: Failed to load DefaultPlayerPawnClass '%s'. Falling back to '%s'."),
+			*DefaultPlayerPawnClass.ToString(),
+			*GetNameSafe(DefaultPawnClass));
+	}
+
 	PlayerControllerClass = AMetaAgentPlayerController::StaticClass();
 	HUDClass = AMetaAgentHUD::StaticClass();
 }
 
 void AMetaAgentGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
-	if (!IsMetaAgentRuntimeActive())
-	{
-		return;
-	}
-
-	// Always attempt possession logic for players when PIE starts.
-	RestartPlayer(NewPlayer);
+	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
 }
 
 void AMetaAgentGameMode::RestartPlayer(AController* NewPlayer)
 {
-	if (!IsMetaAgentRuntimeActive())
-	{
-		return;
-	}
-
-	if (!NewPlayer)
-	{
-		return;
-	}
-
-	FMetaAgentPlacedPawnSelectionConfig SelectionConfig;
-	SelectionConfig.PreferredPlacedPawnClass = PreferredPlacedPawnClass;
-	SelectionConfig.PreferredPlacedPawnName = PreferredPlacedPawnName;
-	SelectionConfig.bRequireExactPreferredPawnName = bRequireExactPreferredPawnName;
-	SelectionConfig.bRequireUniquePreferredPawnName = bRequireUniquePreferredPawnName;
-	SelectionConfig.bAllowSpawnFallback = bAllowSpawnFallback;
-
-	bool bShouldSpawnFallback = false;
-	FMetaAgentCharacterRuntime::RunPlacedPawnPossessionSequence(
-		NewPlayer,
-		GetWorld(),
-		SelectionConfig,
-		bShouldSpawnFallback);
-
-	if (bShouldSpawnFallback)
+	if (!NewPlayer || !GetWorld())
 	{
 		Super::RestartPlayer(NewPlayer);
+		return;
 	}
+
+	APawn* PawnToSpawn = nullptr;
+
+	// Try to find an already-placed player pawn in the level (prefer BP_MH_PlayerChar)
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		APawn* CandidatePawn = *It;
+		if (!CandidatePawn || CandidatePawn->IsPlayerControlled())
+		{
+			continue;
+		}
+
+		// Prefer the one with the expected label
+		if (CandidatePawn->GetActorLabel().Contains(TEXT("MA_PlayerStartPawn")))
+		{
+			PawnToSpawn = CandidatePawn;
+			break;
+		}
+
+		// Fall back to any BP_MH_PlayerChar instance
+		if (PawnToSpawn == nullptr && CandidatePawn->IsA<APawn>())
+		{
+			if (CandidatePawn->GetClass()->GetName().Contains(TEXT("BP_MH_PlayerChar")))
+			{
+				PawnToSpawn = CandidatePawn;
+			}
+		}
+	}
+
+	if (PawnToSpawn)
+	{
+		NewPlayer->Possess(PawnToSpawn);
+		return;
+	}
+
+	// If no placed pawn found, spawn the default
+	Super::RestartPlayer(NewPlayer);
 }
 
 void AMetaAgentGameMode::BeginPlay()
