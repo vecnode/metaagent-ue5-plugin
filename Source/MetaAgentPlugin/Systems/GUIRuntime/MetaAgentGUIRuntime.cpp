@@ -22,6 +22,8 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Toggle this controls panel"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
+		GUI.BaseHelpPanelLines.Add(TEXT("K       : Load ONNX model path"));
+		GUI.BaseHelpPanelLines.Add(TEXT("P       : Generate ONNX image"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle HiRes frame capture"));
 		GUI.BaseHelpPanelLines.Add(TEXT("U       : Show capture output status"));
@@ -71,6 +73,9 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 
 		MetaAgentHUD->SetRecordingPanelLines(Controller.BuildRecordingRuntimePanelLines());
 		MetaAgentHUD->SetRecordingPanelVisible(GUI.bHelpPanelVisible);
+
+		MetaAgentHUD->SetONNXPanelLines(Controller.BuildONNXRuntimePanelLines());
+		MetaAgentHUD->SetONNXPanelVisible(GUI.bHelpPanelVisible);
 	}
 }
 

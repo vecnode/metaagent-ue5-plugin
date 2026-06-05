@@ -556,6 +556,7 @@ void AMetaAgentPlayerController::BeginPlay()
 	}
 
 	UpdateRecordingStatusHud();
+	UpdateONNXStatusHud();
 	ApplyGUIHelpPanelState();
 }
 
@@ -579,6 +580,8 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
+			InputComponent->BindKey(EKeys::K, IE_Pressed, this, &AMetaAgentPlayerController::HandleLoadONNXPipelinePressed);
+			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleGenerateONNXImagePressed);
 			InputFallback.bUtilityKeysBound = true;
 		}
 	}

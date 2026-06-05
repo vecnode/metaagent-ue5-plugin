@@ -71,6 +71,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void SetRecordingPanelLines(const TArray<FString>& InLines);
 
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetONNXPanelVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void SetONNXPanelLines(const TArray<FString>& InLines);
+
 private:
 	UPROPERTY()
 	TArray<FMetaAgentHUDMessage> MessageQueue;
@@ -95,5 +101,11 @@ private:
 
 	UPROPERTY()
 	TArray<FString> RecordingPanelLines;
+
+	UPROPERTY()
+	bool bONNXPanelVisible = false;
+
+	UPROPERTY()
+	TArray<FString> ONNXPanelLines;
 };
 

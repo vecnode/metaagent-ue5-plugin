@@ -201,6 +201,36 @@ Under heavy development.
 
 </details>
 
+### Module 7: MetaAgentONNXRuntime
+
+- Runtime Stable Diffusion ONNX pipeline loading and image generation through Unreal NNE beta runtime APIs
+- `K` loads the Stable Diffusion pipeline from the configured model root path
+- `P` tokenizes prompts, runs text encoder + UNet + VAE inference, and writes an output image to `Saved/Renders/ONNXRuntime`
+- Supports desktop/local absolute paths through `ONNX.ModelRootPath` on `AMetaAgentPlayerController`
+- Uses NNE CPU runtime selection with ORT-preferred runtime auto-fallback
+- Supports prompt, negative prompt, resolution, step count, CFG scale, and seed values from `AMetaAgentPlayerController`
+- Implemented in:
+	- `Systems/ONNXRuntime/MetaAgentONNXRuntime.h`
+	- `Systems/ONNXRuntime/MetaAgentONNXRuntime.cpp`
+	- `Systems/ONNXRuntime/MetaAgentPlayerControllerONNX.cpp`
+
+<details>
+<summary>Module 7: 12 sequential runtime steps</summary>
+
+1. Set `ONNX.ModelRootPath` to a local Stable Diffusion ONNX folder containing `text_encoder`, `unet`, `vae_decoder`, `scheduler`, and `tokenizer` assets.
+2. Press `K` to run the ONNX pipeline load sequence.
+3. Runtime resolves the configured path, validates the directory, and verifies the Stable Diffusion manifest/files required by the pipeline.
+4. Runtime locates the `text_encoder`, `unet`, and `vae_decoder` ONNX models and resolves the available NNE CPU runtime with ORT preferred.
+5. Runtime loads tokenizer vocabulary and merge data, initializes byte-pair encoding state, and prepares prompt tokenization support.
+6. Runtime creates transient `UNNEModelData`, CPU models, and CPU model instances for the text encoder, UNet, and VAE decoder.
+7. Runtime caches the loaded pipeline state on the player controller, marks Module 7 as `Loaded`, and updates the HUD/ONNX panel status lines.
+8. Press `P` to run the image generation sequence using the configured prompt, negative prompt, resolution, step count, CFG scale, and seed.
+9. Runtime sanitizes the target resolution to Stable Diffusion-compatible dimensions, tokenizes prompt and negative prompt text, and runs text encoder inference for both embedding sets.
+10. Runtime seeds latent noise, builds inference timesteps, runs UNet denoising for each step, applies classifier-free guidance, and updates latents through the DDIM-style scheduler step.
+11. Runtime scales the final latents, runs VAE decoder inference, converts decoded RGB float output into image bytes, and saves `Saved/Renders/ONNXRuntime/onnx_YYYYMMDD_HHMMSS.png`.
+12. Runtime stores the output image path, returns Module 7 to `Loaded`, and refreshes ONNX status/panel lines with the final result or error state.
+
+</details>
 
 
 ## License

@@ -87,9 +87,6 @@ void FMetaAgentCameraRuntime::RunEnvironmentZoomSequence(
 
 	// Clamp zoom distance to bounds
 	CameraZoom.DesiredDistance = FMath::Clamp(CameraZoom.DesiredDistance, CameraZoom.MinDistance, CameraZoom.MaxDistance);
-
-	UE_LOG(LogMetaAgent, Log, TEXT("EnvironmentZoom: DesiredDistance=%.2f (min=%.2f, max=%.2f)"), 
-		CameraZoom.DesiredDistance, CameraZoom.MinDistance, CameraZoom.MaxDistance);
 }
 
 void FMetaAgentCameraRuntime::RunToggleCinematicCameraSequence(
