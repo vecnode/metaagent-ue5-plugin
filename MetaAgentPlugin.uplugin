@@ -43,10 +43,6 @@
       "Enabled": true
     },
     {
-      "Name": "NNERuntimeORT",
-      "Enabled": true
-    },
-    {
       "Name": "Takes",
       "Enabled": true,
       "TargetAllowList": [

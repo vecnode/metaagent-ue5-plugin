@@ -35,16 +35,6 @@ void AMetaAgentHUD::SetRecordingPanelLines(const TArray<FString>& InLines)
 	RecordingPanelLines = InLines;
 }
 
-void AMetaAgentHUD::SetONNXPanelVisible(const bool bVisible)
-{
-	bONNXPanelVisible = bVisible;
-}
-
-void AMetaAgentHUD::SetONNXPanelLines(const TArray<FString>& InLines)
-{
-	ONNXPanelLines = InLines;
-}
-
 void AMetaAgentHUD::SetStatusLine(FName Key, const FString& Message, FColor Color)
 {
 	if (Key.IsNone())
@@ -284,41 +274,6 @@ void AMetaAgentHUD::DrawHUD()
 		const FColor LineColor = (Index == 0) ? FColor::Green : FColor::White;
 		DrawText(RecordingPanelLines[Index], LineColor, RecPanelX + RecPadding, RecY, const_cast<UFont*>(RecFont), RecScale, false);
 		RecY += RecLineHeight;
-	}
-
-	if (!bONNXPanelVisible || ONNXPanelLines.Num() == 0)
-	{
-		return;
-	}
-
-	const UFont* ONNXFont = GEngine ? GEngine->GetSmallFont() : nullptr;
-	const float ONNXScale = 1.0f;
-	const float ONNXPadding = 10.0f;
-	const float ONNXLineHeight = 20.0f;
-
-	float ONNXMaxTextWidth = 0.0f;
-	for (const FString& Line : ONNXPanelLines)
-	{
-		float LineWidth = 0.0f;
-		float LineHeight = 0.0f;
-		Canvas->StrLen(ONNXFont, Line, LineWidth, LineHeight);
-		ONNXMaxTextWidth = FMath::Max(ONNXMaxTextWidth, LineWidth * ONNXScale);
-	}
-
-	const float ONNXPanelWidth = FMath::Max(420.0f, ONNXMaxTextWidth + (ONNXPadding * 2.0f));
-	const float ONNXPanelHeight = (ONNXPanelLines.Num() * ONNXLineHeight) + (ONNXPadding * 2.0f);
-	const float ONNXPanelX = 24.0f;
-	const float DesiredONNXPanelY = RecPanelY + RecPanelHeight + 12.0f;
-	const float ONNXPanelY = FMath::Min(DesiredONNXPanelY, Canvas->ClipY - ONNXPanelHeight - 24.0f);
-
-	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), ONNXPanelX, ONNXPanelY, ONNXPanelWidth, ONNXPanelHeight);
-
-	float ONNXY = ONNXPanelY + ONNXPadding;
-	for (int32 Index = 0; Index < ONNXPanelLines.Num(); ++Index)
-	{
-		const FColor LineColor = (Index == 0) ? FColor::Yellow : FColor::White;
-		DrawText(ONNXPanelLines[Index], LineColor, ONNXPanelX + ONNXPadding, ONNXY, const_cast<UFont*>(ONNXFont), ONNXScale, false);
-		ONNXY += ONNXLineHeight;
 	}
 }
 

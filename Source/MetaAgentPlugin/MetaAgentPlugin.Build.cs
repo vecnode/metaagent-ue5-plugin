@@ -39,8 +39,7 @@ public class MetaAgentPlugin : ModuleRules
 				"MovieRenderPipelineRenderPasses",
 				"MovieRenderPipelineMP4Encoder",
 				"DeveloperSettings",
-				"ImageWrapper",
-				"NNE"
+				"ImageWrapper"
 			}
 		);
 

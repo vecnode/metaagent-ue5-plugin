@@ -271,61 +271,6 @@ struct FMetaAgentRecordingState
 };
 
 UENUM()
-enum class EMetaAgentONNXRuntimeState : uint8
-{
-	Ready = 0,
-	Loading,
-	Loaded,
-	Generating,
-	Error
-};
-
-USTRUCT()
-struct FMetaAgentONNXState
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	FString ModelRootPath = TEXT("%USERPROFILE%/Desktop/sd1-4");
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	FString Prompt = TEXT("a cinematic portrait, highly detailed, volumetric light");
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	FString NegativePrompt = TEXT("blurry, low quality, distorted");
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	FString PreferredRuntimeName = TEXT("NNERuntimeORTCpu");
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime", meta=(ClampMin="64", ClampMax="2048"))
-	int32 TargetWidth = 512;
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime", meta=(ClampMin="64", ClampMax="2048"))
-	int32 TargetHeight = 512;
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime", meta=(ClampMin="1", ClampMax="100"))
-	int32 StepCount = 20;
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime", meta=(ClampMin="1.0", ClampMax="30.0"))
-	float CFGScale = 7.5f;
-
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	int32 Seed = 1337;
-
-	UPROPERTY(Transient)
-	EMetaAgentONNXRuntimeState RuntimeState = EMetaAgentONNXRuntimeState::Ready;
-
-	UPROPERTY(Transient)
-	FString LastStatus = TEXT("ONNX runtime idle");
-
-	UPROPERTY(Transient)
-	FString LastOutputImagePath;
-
-	UPROPERTY(Transient)
-	FString LastLoadedModelPath;
-};
-
-UENUM()
 enum class EMetaAgentCinematicCameraStyle : uint8
 {
 	OscillatingHold
@@ -499,8 +444,11 @@ protected:
 	/** Requests application quit when Escape is pressed. */
 	void HandleEscapePressed();
 
-	/** Shows a quick HUD debug message when Y is pressed. */
-	void HandleYPressed();
+	/** Bound to H: sends a COMMS HTTP request with command 'start audio'. */
+	void HandleStartAudioPressed();
+
+	/** Bound to G: sends a COMMS HTTP request with command 'start image'. */
+	void HandleStartImagePressed();
 
 	/** Toggles player possession between manual control and runtime AI autopilot. */
 	void HandleToggleAutopilotPressed();
@@ -514,14 +462,8 @@ protected:
 	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
-	/** Bound to H: toggles runtime controls help panel on/off. */
+	/** Bound to F1: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
-
-	/** Bound to K: loads ONNX model(s) from the configured root path. */
-	void HandleLoadONNXPipelinePressed();
-
-	/** Bound to P: generates an image through ONNX runtime inference. */
-	void HandleGenerateONNXImagePressed();
 
 	/** Enables cinematic orbit camera mode around the active character. */
 	void EnableCinematicCameraMode();
@@ -559,9 +501,6 @@ protected:
 	/** Pushes current recording/take/render state into the persistent HUD status panel. */
 	void UpdateRecordingStatusHud();
 
-	/** Pushes ONNX runtime load/generation status into the persistent HUD status panel. */
-	void UpdateONNXStatusHud();
-
 	/** Updates standalone/shipping frame capture recording at a fixed rate while active. */
 	void UpdateRuntimeFrameCapture(float DeltaTime);
 
@@ -592,13 +531,6 @@ public:
 
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
-
-	/** Builds lines for the dedicated ONNX runtime GUI panel. */
-	TArray<FString> BuildONNXRuntimePanelLines() const;
-
-	/** Blueprint entry point to assign ONNX model folder path at runtime. */
-	UFUNCTION(BlueprintCallable, Category = "ONNX|Runtime")
-	void SetONNXModelRootPath(const FString& InModelRootPath);
 
 protected:
 
@@ -663,10 +595,6 @@ protected:
 	/** Runtime GUI panel visibility and keybind help lines. */
 	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
 	FMetaAgentGUIState GUI;
-
-	/** ONNX runtime configuration and latest state snapshot. */
-	UPROPERTY(EditAnywhere, Category = "ONNX|Runtime")
-	FMetaAgentONNXState ONNX;
 
 };
 

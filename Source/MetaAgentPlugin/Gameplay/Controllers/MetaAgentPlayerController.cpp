@@ -556,7 +556,6 @@ void AMetaAgentPlayerController::BeginPlay()
 	}
 
 	UpdateRecordingStatusHud();
-	UpdateONNXStatusHud();
 	ApplyGUIHelpPanelState();
 }
 
@@ -574,14 +573,13 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		if (!InputFallback.bUtilityKeysBound)
 		{
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
-			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
-			InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMetaAgentPlayerController::HandleYPressed);
+			InputComponent->BindKey(EKeys::F1, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
+			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartAudioPressed);
+			InputComponent->BindKey(EKeys::G, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartImagePressed);
 			InputComponent->BindKey(EKeys::I, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
-			InputComponent->BindKey(EKeys::K, IE_Pressed, this, &AMetaAgentPlayerController::HandleLoadONNXPipelinePressed);
-			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleGenerateONNXImagePressed);
 			InputFallback.bUtilityKeysBound = true;
 		}
 	}
@@ -664,19 +662,49 @@ void AMetaAgentPlayerController::HandleEscapePressed()
 	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, false);
 }
 
-void AMetaAgentPlayerController::HandleYPressed()
+void AMetaAgentPlayerController::HandleStartAudioPressed()
 {
 	if (!IsLocalPlayerController())
 	{
 		return;
 	}
 
-	UE_LOG(LogMetaAgent, Log, TEXT("Y pressed: requesting platform agent toggle."));
+	UE_LOG(LogMetaAgent, Log, TEXT("H pressed: sending COMMS start audio request to platform."));
 
 	if (UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
 	{
 		const FString SourceLabel = GIsEditor ? TEXT("unreal-editor") : TEXT("unreal-standalone");
-		GI->SendEventToPlatform(TEXT("key_pressed"), TEXT("toggle_agent"), SourceLabel);
+		GI->SendEventToPlatform(TEXT("key_pressed"), TEXT("start audio"), SourceLabel);
+
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("COMMS: sent 'start audio'"), FColor::Cyan, 2.0f);
+		}
+
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleStartImagePressed()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	UE_LOG(LogMetaAgent, Log, TEXT("G pressed: sending COMMS start image request to platform."));
+
+	if (UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
+	{
+		const FString SourceLabel = GIsEditor ? TEXT("unreal-editor") : TEXT("unreal-standalone");
+		GI->SendEventToPlatform(TEXT("key_pressed"), TEXT("start image"), SourceLabel);
+
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("COMMS: sent 'start image'"), FColor::Cyan, 2.0f);
+		}
+
+		ApplyGUIHelpPanelState();
 	}
 }
 

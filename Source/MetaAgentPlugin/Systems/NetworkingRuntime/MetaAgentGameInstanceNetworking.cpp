@@ -244,6 +244,8 @@ TArray<FString> UMetaAgentGameInstance::GetNetworkingRuntimePanelLines() const
 {
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Networking Runtime"));
+	Lines.Add(TEXT("--------------------------------"));
+	Lines.Add(TEXT("COMMS (H/G)   : start audio / start image"));
 	Lines.Add(FString::Printf(TEXT("Server Enabled : %s"), bNetworkingRuntimeServerEnabled ? TEXT("true") : TEXT("false")));
 	Lines.Add(FString::Printf(TEXT("Port          : %d"), NetworkingRuntimePort));
 	Lines.Add(FString::Printf(TEXT("Router Bound  : %s"), bNetworkingRuntimeRouterBound ? TEXT("true") : TEXT("false")));
