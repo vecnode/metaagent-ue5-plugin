@@ -19,7 +19,8 @@ namespace
 
 		GUI.BaseHelpPanelLines.Reset();
 		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
-		GUI.BaseHelpPanelLines.Add(TEXT("F1      : Toggle this controls panel"));
+		GUI.BaseHelpPanelLines.Add(TEXT("Q       : Toggle this controls panel"));
+		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load/update static sdxl_latest.png preview"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
