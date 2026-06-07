@@ -18,6 +18,7 @@ flowchart TD
 	E[NetworkingRuntime]
 	F[RecordingRuntime]
 	G[AIRuntime]
+	H[ParticleRuntime]
 
 	A --> B
 	A --> C
@@ -25,8 +26,56 @@ flowchart TD
 	A --> E
 	A --> F
 	A --> G
+	A --> H
 ```
 
+<details>
+<summary>Architecture</summary>
+
+```mermaid
+flowchart TB
+    subgraph Settings
+        PS[UMetaAgentPluginSettings]
+        MA[AMetaAgentMainActor]
+    end
+
+    subgraph Global
+        G[GMetaAgentRuntimeActive]
+    end
+
+    subgraph Game
+        GM[AMetaAgentGameMode]
+        PC[AMetaAgentPlayerController]
+        HUD[AMetaAgentHUD]
+        GI[UMetaAgentGameInstance]
+    end
+
+    subgraph Runtimes
+        CR[FMetaAgentCameraRuntime]
+        CHR[FMetaAgentCharacterRuntime]
+        GR[FMetaAgentGUIRuntime]
+        AR[AIRuntime partials]
+        RR[RecordingRuntime partials]
+        PR[UMetaAgentParticleRuntime]
+    end
+
+    PS --> G
+    MA --> G
+    G --> GM
+    G --> PC
+    G --> GI
+    GM --> PC
+    PC --> CR
+    PC --> CHR
+    PC --> GR
+    PC --> AR
+    PC --> RR
+    PC --> PR
+    PC --> HUD
+    GR --> GI
+    PR -->|Niagara callback| PC
+```
+</details>
 
 
 ## Modules
@@ -222,6 +271,51 @@ flowchart TD
 8. AI moves to location, then waits random interval.
 9. Loop repeats for continuous roaming.
 10. Press `I` again to unpossess AI, destroy it, and restore player possession.
+
+</details>
+
+
+### Module 7: MetaAgentParticleRuntime
+
+- Tracks Niagara components in the active world (default name filter: `NIAGARA`).
+- Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
+- `V` plays a square pattern choreography: particles form a grid square, hold briefly, then return to their snapshotted baseline positions.
+- Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
+- Help panel (`Q`) shows capture status and live pattern state/phase.
+- Implemented in:
+	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h`
+	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h`
+	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
+
+#### Pattern architecture
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Forming: V pressed (snapshot baseline + build square grid)
+    Forming --> Holding: phase reaches 1
+    Holding --> Returning: hold timer elapsed
+    Returning --> Idle: phase returns to 0
+```
+
+<details>
+<summary>Module 7: 14 sequential runtime steps</summary>
+
+1. Runtime discovers tracked Niagara components (for example `NIAGARAFX` on `BP_NiagaraBridge`).
+2. Direct capture reads particle `Position` attributes into `UMetaAgentParticleRuntime` snapshot cache.
+3. Help panel reports `Particle Capture: TRUE (Count=N)` once data is available.
+4. Player presses `V` to start the square pattern sequence.
+5. Runtime snapshots current world positions as immutable baseline poses for this run.
+6. Runtime builds a square grid target per particle index (columns ~ `sqrt(N)`, spacing configurable).
+7. State machine enters `Forming` and advances smoothed phase `0 -> 1`.
+8. Each tick while active, runtime lerps baseline -> pattern and writes positions into Niagara buffers.
+9. GPU emitters: readback -> modify CPU float buffer -> `PushCPUBuffersToGPU`.
+10. State transitions to `Holding` at phase `1` for a short pause.
+11. State transitions to `Returning` and drives phase `1 -> 0` (pattern -> baseline).
+12. On completion, state returns to `Idle` and normal capture resumes.
+13. GUI shows `Pattern State` and `Pattern Phase` while the sequence runs.
+14. `StartParticleSquarePattern()` is also exposed for Blueprint/automation callers.
 
 </details>
 
