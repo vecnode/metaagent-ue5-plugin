@@ -130,10 +130,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Steering")
 	TArray<FVector> GetSuggestedSteeringDirections() const { return LatestSnapshot.SuggestedSteeringDirections; }
 
+	/** Returns currently tracked Niagara components (name-filtered discovery list). */
+	TArray<UNiagaraComponent*> GetTrackedNiagaraComponents() const;
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
 	void BuildComponentSnapshot();
 	void RebuildSuggestedSteeringDirections();
+	void CaptureParticlesDirectly();
+	void EnsureNiagaraComponentReadable(UNiagaraComponent* NiagaraComponent);
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UWorld> CachedWorld;
@@ -153,4 +158,17 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
 	FString NameFilter = TEXT("NIAGARA");
+
+	/** When true, reads particle positions directly from Niagara simulation buffers (CPU + GPU readback). */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
+	bool bEnableDirectParticleCapture = true;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta = (ClampMin = "1"))
+	int32 DirectCaptureEveryNFrames = 2;
+
+	int32 DirectCaptureFrameCounter = 0;
+	bool bLoggedDirectCaptureSuccess = false;
+	bool bLoggedDirectCaptureMiss = false;
+
+	TSet<TWeakObjectPtr<UNiagaraComponent>> ReadableNiagaraComponents;
 };

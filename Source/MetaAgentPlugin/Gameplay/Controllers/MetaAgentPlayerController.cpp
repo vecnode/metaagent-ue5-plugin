@@ -12,6 +12,9 @@
 #include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentNiagaraExportHandler.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Gameplay/AI/MetaAgentWanderAIController.h"
@@ -225,11 +228,25 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		UpdateCinematicCamera(DeltaTime);
 	}
 
-	ParticleCallbackRebindFrameCounter++;
-	if (ParticleCallbackRebindFrameCounter >= FMath::Max(1, ParticleCallbackRebindEveryNFrames))
+	if (ParticleRuntime)
 	{
-		ParticleCallbackRebindFrameCounter = 0;
+		ParticleRuntime->TickRuntime(DeltaTime);
+	}
+
+	const bool bAggressiveRebindWindow = ParticleCallbackStartupFrameCounter < FMath::Max(0, ParticleCallbackAggressiveRebindFrames);
+	if (bAggressiveRebindWindow)
+	{
+		ParticleCallbackStartupFrameCounter++;
 		EnsureParticleExportCallbackBindings(false);
+	}
+	else
+	{
+		ParticleCallbackRebindFrameCounter++;
+		if (ParticleCallbackRebindFrameCounter >= FMath::Max(1, ParticleCallbackRebindEveryNFrames))
+		{
+			ParticleCallbackRebindFrameCounter = 0;
+			EnsureParticleExportCallbackBindings(false);
+		}
 	}
 
 	APawn* ControlledPawn = GetPawn();
@@ -242,11 +259,6 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 	ApplyFallbackLookInput();
 	LogMovementAnimationDiagnostics(ControlledPawn);
 	UpdateMovementProbe(ControlledPawn, DeltaTime);
-
-	if (ParticleRuntime)
-	{
-		ParticleRuntime->TickRuntime(DeltaTime);
-	}
 
 	if (ACharacter* ControlledCharacter = Cast<ACharacter>(ControlledPawn))
 	{
@@ -513,6 +525,15 @@ void AMetaAgentPlayerController::BeginPlay()
 			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleRuntime->BuildStatusText());
 		}
 
+		ParticleExportHandler = NewObject<UMetaAgentNiagaraExportHandler>(this, TEXT("MetaAgentNiagaraExportHandler"));
+		if (ParticleExportHandler)
+		{
+			ParticleExportHandler->Initialize(this);
+		}
+
+		ParticleCallbackStartupFrameCounter = 0;
+		ParticleCallbackRebindFrameCounter = 0;
+		NiagaraExportBoundComponents.Reset();
 		EnsureParticleExportCallbackBindings(true);
 	}
 
@@ -882,62 +903,84 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 	}
 }
 
-void AMetaAgentPlayerController::ReceiveParticleData_Implementation(
-	const TArray<FBasicParticleData>& Data,
-	UNiagaraSystem* NiagaraSystem,
-	const FVector& SimulationPositionOffset)
-{
-	TArray<FVector> ParticlePositions;
-	ParticlePositions.Reserve(Data.Num());
-
-	for (const FBasicParticleData& ParticleData : Data)
-	{
-		ParticlePositions.Add(ParticleData.Position + SimulationPositionOffset);
-	}
-
-	const FName SourceSystemName = NiagaraSystem ? NiagaraSystem->GetFName() : NAME_None;
-	SubmitNiagaraParticlePositions(ParticlePositions, SourceSystemName, NAME_None);
-}
-
 void AMetaAgentPlayerController::EnsureParticleExportCallbackBindings(const bool bLogBindings)
 {
-	UWorld* World = GetWorld();
-	if (!World)
+	if (!ParticleExportHandler)
+	{
+		ParticleExportHandler = NewObject<UMetaAgentNiagaraExportHandler>(this, TEXT("MetaAgentNiagaraExportHandler"));
+		if (ParticleExportHandler)
+		{
+			ParticleExportHandler->Initialize(this);
+		}
+	}
+
+	if (!ParticleExportHandler || NiagaraExportUserVariableName.IsNone())
+	{
+		if (bLogBindings)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: export handler or User.Export parameter name is missing."));
+		}
+		return;
+	}
+
+	if (!ParticleRuntime)
+	{
+		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
+		if (ParticleRuntime)
+		{
+			ParticleRuntime->InitializeRuntime(this);
+		}
+	}
+
+	if (!ParticleRuntime)
 	{
 		return;
 	}
 
-	int32 BoundComponentCount = 0;
+	ParticleRuntime->DiscoverNiagaraComponents(false);
 
-	for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
+	const TArray<UNiagaraComponent*> TrackedComponents = ParticleRuntime->GetTrackedNiagaraComponents();
+	int32 BoundComponentCount = 0;
+	int32 ReinitializedComponentCount = 0;
+
+	for (UNiagaraComponent* NiagaraComponent : TrackedComponents)
 	{
-		AActor* Actor = *ActorIt;
-		if (!Actor)
+		if (!NiagaraComponent)
 		{
 			continue;
 		}
 
-		TArray<UNiagaraComponent*> NiagaraComponents;
-		Actor->GetComponents<UNiagaraComponent>(NiagaraComponents);
-
-		for (UNiagaraComponent* NiagaraComponent : NiagaraComponents)
+		const bool bNeedsReinitialize = !NiagaraExportBoundComponents.Contains(NiagaraComponent);
+		NiagaraComponent->SetVariableObject(NiagaraExportUserVariableName, ParticleExportHandler);
+		if (bNeedsReinitialize)
 		{
-			if (!NiagaraComponent)
-			{
-				continue;
-			}
+			NiagaraComponent->ReinitializeSystem();
+			NiagaraExportBoundComponents.Add(NiagaraComponent);
+			ReinitializedComponentCount++;
+		}
 
-			NiagaraComponent->SetVariableObject(ParticleCallbackUserVariableName, this);
-			BoundComponentCount++;
+		BoundComponentCount++;
+
+		if (bLogBindings)
+		{
+			const AActor* OwnerActor = NiagaraComponent->GetOwner();
+			const UNiagaraSystem* AssetSystem = NiagaraComponent->GetAsset();
+			UE_LOG(LogMetaAgent, Log,
+				TEXT("ParticleRuntime: bound C++ handler '%s' on component '%s' actor='%s' system='%s' active=%s"),
+				*NiagaraExportUserVariableName.ToString(),
+				*NiagaraComponent->GetName(),
+				OwnerActor ? *OwnerActor->GetActorNameOrLabel() : TEXT("None"),
+				AssetSystem ? *AssetSystem->GetName() : TEXT("None"),
+				NiagaraComponent->IsActive() ? TEXT("true") : TEXT("false"));
 		}
 	}
 
 	if (bLogBindings)
 	{
 		UE_LOG(LogMetaAgent, Log,
-			TEXT("ParticleRuntime: bound callback handler '%s' on %d Niagara component(s)."),
-			*ParticleCallbackUserVariableName.ToString(),
-			BoundComponentCount);
+			TEXT("ParticleRuntime: C++ export handler bound on %d tracked Niagara component(s), reinitialized %d."),
+			BoundComponentCount,
+			ReinitializedComponentCount);
 	}
 }
 

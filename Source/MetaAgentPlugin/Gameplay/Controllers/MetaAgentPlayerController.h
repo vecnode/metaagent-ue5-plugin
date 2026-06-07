@@ -6,7 +6,6 @@
 #include "CoreMinimal.h"
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
-#include "NiagaraDataInterfaceExport.h"
 #include "UObject/SoftObjectPtr.h"
 #include "MetaAgentPlayerController.generated.h"
 
@@ -16,7 +15,9 @@ class UStaticMeshComponent;
 class UTexture2D;
 class UUserWidget;
 class USkeletalMeshComponent;
+class UNiagaraComponent;
 class UMetaAgentParticleRuntime;
+class UMetaAgentNiagaraExportHandler;
 
 UENUM()
 enum class EMetaAgentCameraMode : uint8
@@ -388,7 +389,7 @@ struct FMetaAgentGUIState
  * possession diagnostics, and optional AI autopilot handoff.
  */
 UCLASS()
-class AMetaAgentPlayerController : public APlayerController, public INiagaraParticleCallbackHandler
+class AMetaAgentPlayerController : public APlayerController
 {
 	GENERATED_BODY()
 	
@@ -506,7 +507,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
 	void ToggleCinematicCameraMode();
 
-	/** Blueprint bridge for Niagara particle export data callbacks. */
+	/** C++ entry point for Niagara particle export data forwarded by the export handler. */
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void SubmitNiagaraParticlePositions(
 		const TArray<FVector>& ParticlePositions,
@@ -528,12 +529,6 @@ public:
 	/** Returns per-particle suggested steering direction vectors. */
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Steering")
 	TArray<FVector> GetParticleSteeringDirections() const;
-
-	/** Niagara export callback entry point implemented in C++ to reduce Blueprint dependency. */
-	virtual void ReceiveParticleData_Implementation(
-		const TArray<FBasicParticleData>& Data,
-		UNiagaraSystem* NiagaraSystem,
-		const FVector& SimulationPositionOffset) override;
 
 	/** True when exported particle data is currently available in runtime cache. */
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
@@ -635,16 +630,29 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UMetaAgentParticleRuntime> ParticleRuntime;
 
-	/** Niagara user variable name used for callback handler binding. */
+	/** Niagara user object parameter bound to the C++ export handler (BP_NIAGARA_1 uses User.Export particle data). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
-	FName ParticleCallbackUserVariableName = TEXT("User.ParticleCallbackHandler");
+	FName NiagaraExportUserVariableName = TEXT("User.Export particle data");
 
-	/** Rebind callback handler object every N frames to survive component/system resets. */
+	/** Rebind every frame for this many ticks after startup to win over level blueprint BeginPlay. */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta=(ClampMin="0", ClampMax="600"))
+	int32 ParticleCallbackAggressiveRebindFrames = 120;
+
+	/** Rebind callback handler object every N frames after the aggressive startup window. */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta=(ClampMin="1", ClampMax="600"))
-	int32 ParticleCallbackRebindEveryNFrames = 30;
+	int32 ParticleCallbackRebindEveryNFrames = 5;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMetaAgentNiagaraExportHandler> ParticleExportHandler;
 
 	UPROPERTY(Transient)
 	int32 ParticleCallbackRebindFrameCounter = 0;
+
+	UPROPERTY(Transient)
+	int32 ParticleCallbackStartupFrameCounter = 0;
+
+	UPROPERTY(Transient)
+	TSet<TWeakObjectPtr<UNiagaraComponent>> NiagaraExportBoundComponents;
 
 };
 

@@ -22,6 +22,8 @@ public class MetaAgentPlugin : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"Niagara",
+				"RenderCore",
+				"RHI",
 				"EngineSettings",
 				"InputCore",
 				"EnhancedInput",
