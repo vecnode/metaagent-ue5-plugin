@@ -52,6 +52,13 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 {
 	InitializeDefaultHelpPanelLines(GUI);
 	RebuildDisplayHelpLines(GUI);
+	GUI.HelpPanelLines.Add(FString::Printf(
+		TEXT("Particle Callback Seen: %s"),
+		Controller.HasReceivedParticleCallback() ? TEXT("TRUE") : TEXT("FALSE")));
+	GUI.HelpPanelLines.Add(FString::Printf(
+		TEXT("Particle Capture: %s (Count=%d)"),
+		Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
+		Controller.GetCapturedParticleCount()));
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
 	{

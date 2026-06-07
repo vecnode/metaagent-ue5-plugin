@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
+#include "NiagaraDataInterfaceExport.h"
 #include "UObject/SoftObjectPtr.h"
 #include "MetaAgentPlayerController.generated.h"
 
@@ -15,6 +16,7 @@ class UStaticMeshComponent;
 class UTexture2D;
 class UUserWidget;
 class USkeletalMeshComponent;
+class UMetaAgentParticleRuntime;
 
 UENUM()
 enum class EMetaAgentCameraMode : uint8
@@ -386,7 +388,7 @@ struct FMetaAgentGUIState
  * possession diagnostics, and optional AI autopilot handoff.
  */
 UCLASS()
-class AMetaAgentPlayerController : public APlayerController
+class AMetaAgentPlayerController : public APlayerController, public INiagaraParticleCallbackHandler
 {
 	GENERATED_BODY()
 	
@@ -504,6 +506,47 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
 	void ToggleCinematicCameraMode();
 
+	/** Blueprint bridge for Niagara particle export data callbacks. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
+	void SubmitNiagaraParticlePositions(
+		const TArray<FVector>& ParticlePositions,
+		FName SourceActorName = NAME_None,
+		FName SourceComponentName = NAME_None);
+
+	/** Manual debug trigger to rescan and print particle runtime status. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
+	void RefreshParticleRuntimeTracking();
+
+	/** Sets a global steering target used to build per-particle direction vectors. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Steering")
+	void SetParticleSteeringTarget(FVector TargetLocation, float Strength = 1.0f);
+
+	/** Clears steering target and generated direction vectors. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Steering")
+	void ClearParticleSteeringTarget();
+
+	/** Returns per-particle suggested steering direction vectors. */
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Steering")
+	TArray<FVector> GetParticleSteeringDirections() const;
+
+	/** Niagara export callback entry point implemented in C++ to reduce Blueprint dependency. */
+	virtual void ReceiveParticleData_Implementation(
+		const TArray<FBasicParticleData>& Data,
+		UNiagaraSystem* NiagaraSystem,
+		const FVector& SimulationPositionOffset) override;
+
+	/** True when exported particle data is currently available in runtime cache. */
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
+	bool IsParticleCaptureActive() const;
+
+	/** Number of particles currently cached from Niagara export callbacks. */
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
+	int32 GetCapturedParticleCount() const;
+
+	/** True once at least one Niagara export callback reached runtime. */
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
+	bool HasReceivedParticleCallback() const;
+
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
 
@@ -532,6 +575,9 @@ protected:
 
 	/** Tracks a short movement telemetry window while input is active. */
 	void UpdateMovementProbe(APawn* ControlledPawn, float DeltaTime);
+
+	/** Ensures discovered Niagara components route export callback events to this controller. */
+	void EnsureParticleExportCallbackBindings(bool bLogBindings = false);
 
 	/** Camera zoom configuration and current zoom target. */
 	UPROPERTY(EditAnywhere, Category = "Camera|Zoom")
@@ -584,6 +630,21 @@ protected:
 	/** Keep a strong reference so the loaded runtime texture stays alive. */
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> LatestPngPreviewTexture;
+
+	/** Runtime Niagara tracking and particle export cache. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMetaAgentParticleRuntime> ParticleRuntime;
+
+	/** Niagara user variable name used for callback handler binding. */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
+	FName ParticleCallbackUserVariableName = TEXT("User.ParticleCallbackHandler");
+
+	/** Rebind callback handler object every N frames to survive component/system resets. */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta=(ClampMin="1", ClampMax="600"))
+	int32 ParticleCallbackRebindEveryNFrames = 30;
+
+	UPROPERTY(Transient)
+	int32 ParticleCallbackRebindFrameCounter = 0;
 
 };
 

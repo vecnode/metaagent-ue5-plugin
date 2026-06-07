@@ -11,6 +11,7 @@
 #include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 #include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Gameplay/AI/MetaAgentWanderAIController.h"
@@ -34,6 +35,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimationAsset.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 #include "EngineUtils.h"
 #include "ImageUtils.h"
 #include "InputCoreTypes.h"
@@ -222,6 +225,13 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		UpdateCinematicCamera(DeltaTime);
 	}
 
+	ParticleCallbackRebindFrameCounter++;
+	if (ParticleCallbackRebindFrameCounter >= FMath::Max(1, ParticleCallbackRebindEveryNFrames))
+	{
+		ParticleCallbackRebindFrameCounter = 0;
+		EnsureParticleExportCallbackBindings(false);
+	}
+
 	APawn* ControlledPawn = GetPawn();
 	if (!ControlledPawn && !CinematicCamera.bModeEnabled)
 	{
@@ -232,6 +242,11 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 	ApplyFallbackLookInput();
 	LogMovementAnimationDiagnostics(ControlledPawn);
 	UpdateMovementProbe(ControlledPawn, DeltaTime);
+
+	if (ParticleRuntime)
+	{
+		ParticleRuntime->TickRuntime(DeltaTime);
+	}
 
 	if (ACharacter* ControlledCharacter = Cast<ACharacter>(ControlledPawn))
 	{
@@ -487,6 +502,18 @@ void AMetaAgentPlayerController::BeginPlay()
 		bShowMouseCursor = false;
 		SetIgnoreLookInput(false);
 		SetIgnoreMoveInput(false);
+	}
+
+	if (IsLocalPlayerController())
+	{
+		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
+		if (ParticleRuntime)
+		{
+			ParticleRuntime->InitializeRuntime(this);
+			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleRuntime->BuildStatusText());
+		}
+
+		EnsureParticleExportCallbackBindings(true);
 	}
 
 	// only spawn touch controls on local player controllers
@@ -841,6 +868,189 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 	{
 		MetaAgentHUD->AddTransientMessage(TEXT("Loaded sdxl_latest.png onto scene plane 'Plane'"), FColor::Green, 2.5f);
 	}
+
+	if (ParticleRuntime)
+	{
+		ParticleRuntime->DiscoverNiagaraComponents(false);
+		const FString ParticleStatus = ParticleRuntime->BuildStatusText();
+		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleStatus);
+
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(ParticleStatus, FColor::Cyan, 3.0f);
+		}
+	}
+}
+
+void AMetaAgentPlayerController::ReceiveParticleData_Implementation(
+	const TArray<FBasicParticleData>& Data,
+	UNiagaraSystem* NiagaraSystem,
+	const FVector& SimulationPositionOffset)
+{
+	TArray<FVector> ParticlePositions;
+	ParticlePositions.Reserve(Data.Num());
+
+	for (const FBasicParticleData& ParticleData : Data)
+	{
+		ParticlePositions.Add(ParticleData.Position + SimulationPositionOffset);
+	}
+
+	const FName SourceSystemName = NiagaraSystem ? NiagaraSystem->GetFName() : NAME_None;
+	SubmitNiagaraParticlePositions(ParticlePositions, SourceSystemName, NAME_None);
+}
+
+void AMetaAgentPlayerController::EnsureParticleExportCallbackBindings(const bool bLogBindings)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	int32 BoundComponentCount = 0;
+
+	for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
+	{
+		AActor* Actor = *ActorIt;
+		if (!Actor)
+		{
+			continue;
+		}
+
+		TArray<UNiagaraComponent*> NiagaraComponents;
+		Actor->GetComponents<UNiagaraComponent>(NiagaraComponents);
+
+		for (UNiagaraComponent* NiagaraComponent : NiagaraComponents)
+		{
+			if (!NiagaraComponent)
+			{
+				continue;
+			}
+
+			NiagaraComponent->SetVariableObject(ParticleCallbackUserVariableName, this);
+			BoundComponentCount++;
+		}
+	}
+
+	if (bLogBindings)
+	{
+		UE_LOG(LogMetaAgent, Log,
+			TEXT("ParticleRuntime: bound callback handler '%s' on %d Niagara component(s)."),
+			*ParticleCallbackUserVariableName.ToString(),
+			BoundComponentCount);
+	}
+}
+
+void AMetaAgentPlayerController::SubmitNiagaraParticlePositions(
+	const TArray<FVector>& ParticlePositions,
+	const FName SourceActorName,
+	const FName SourceComponentName)
+{
+	if (!ParticleRuntime)
+	{
+		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
+		if (ParticleRuntime)
+		{
+			ParticleRuntime->InitializeRuntime(this);
+		}
+	}
+
+	if (!ParticleRuntime)
+	{
+		return;
+	}
+
+	ParticleRuntime->SubmitExportedParticlePositions(ParticlePositions, SourceActorName, SourceComponentName);
+
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::RefreshParticleRuntimeTracking()
+{
+	if (!ParticleRuntime)
+	{
+		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
+		if (ParticleRuntime)
+		{
+			ParticleRuntime->InitializeRuntime(this);
+		}
+	}
+
+	if (!ParticleRuntime)
+	{
+		return;
+	}
+
+	ParticleRuntime->DiscoverNiagaraComponents(true);
+	const FString ParticleStatus = ParticleRuntime->BuildStatusText();
+	UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleStatus);
+
+	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+	{
+		MetaAgentHUD->AddTransientMessage(ParticleStatus, FColor::Cyan, 3.0f);
+	}
+}
+
+void AMetaAgentPlayerController::SetParticleSteeringTarget(const FVector TargetLocation, const float Strength)
+{
+	if (!ParticleRuntime)
+	{
+		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
+		if (ParticleRuntime)
+		{
+			ParticleRuntime->InitializeRuntime(this);
+		}
+	}
+
+	if (!ParticleRuntime)
+	{
+		return;
+	}
+
+	ParticleRuntime->SetSteeringTarget(TargetLocation, Strength);
+}
+
+void AMetaAgentPlayerController::ClearParticleSteeringTarget()
+{
+	if (!ParticleRuntime)
+	{
+		return;
+	}
+
+	ParticleRuntime->ClearSteeringTarget();
+}
+
+TArray<FVector> AMetaAgentPlayerController::GetParticleSteeringDirections() const
+{
+	if (!ParticleRuntime)
+	{
+		return TArray<FVector>();
+	}
+
+	return ParticleRuntime->GetSuggestedSteeringDirections();
+}
+
+bool AMetaAgentPlayerController::IsParticleCaptureActive() const
+{
+	return ParticleRuntime && ParticleRuntime->HasKnownParticleData();
+}
+
+int32 AMetaAgentPlayerController::GetCapturedParticleCount() const
+{
+	if (!ParticleRuntime)
+	{
+		return 0;
+	}
+
+	return ParticleRuntime->GetKnownParticleCount();
+}
+
+bool AMetaAgentPlayerController::HasReceivedParticleCallback() const
+{
+	return ParticleRuntime && ParticleRuntime->HasReceivedAnyCallback();
 }
 
 bool AMetaAgentPlayerController::ShouldUseTouchControls() const
