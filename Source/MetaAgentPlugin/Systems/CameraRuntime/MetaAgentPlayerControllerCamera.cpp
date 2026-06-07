@@ -11,12 +11,6 @@ void AMetaAgentPlayerController::ApplyCameraModeToPawn(APawn* InPawn)
 	UE_LOG(LogTemp, Log, TEXT("ApplyCameraModeToPawn: environment viewer mode (no pawn camera setup)."));
 }
 
-void AMetaAgentPlayerController::ConfigureCameraForPawn(APawn* InPawn)
-{
-	// Simplified for environment-only mode: no-op
-	UE_LOG(LogTemp, Log, TEXT("ConfigureCameraForPawn: environment viewer mode (no pawn camera setup)."));
-}
-
 void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, float DeltaTime)
 {
 	// Generic zoom for free camera (not pawn-specific)

@@ -34,25 +34,9 @@ public class MetaAgentPlugin : ModuleRules
 				"JsonUtilities",
 				"UMG",
 				"Slate",
-				"LevelSequence",
-				"MovieRenderPipelineCore",
-				"MovieRenderPipelineRenderPasses",
-				"MovieRenderPipelineMP4Encoder",
 				"DeveloperSettings",
 				"ImageWrapper"
 			}
 		);
-
-		if (Target.bBuildEditor)
-		{
-			PublicDependencyModuleNames.AddRange(
-				new string[]
-				{
-					"TakeRecorder",
-					"TakesCore",
-					"TakeRecorderSources"
-				}
-			);
-		}
 	}
 }

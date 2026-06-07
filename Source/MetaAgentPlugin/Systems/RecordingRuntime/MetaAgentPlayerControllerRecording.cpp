@@ -3,28 +3,12 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
-#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
-#include "Engine/World.h"
-#include "GameFramework/GameModeBase.h"
-#include "GameFramework/WorldSettings.h"
 #include "HAL/PlatformFileManager.h"
-#include "LevelSequence.h"
 #include "Misc/Paths.h"
-#include "MovieScene.h"
-#include "MoviePipelineDeferredPasses.h"
-#include "MoviePipelineExecutor.h"
-#include "MoviePipelineGameOverrideSetting.h"
-#include "MoviePipelineImageSequenceOutput.h"
-#include "MoviePipelineOutputSetting.h"
-#include "MoviePipelinePrimaryConfig.h"
-#include "MoviePipelineQueueEngineSubsystem.h"
-#include "MoviePipelineSetting.h"
-#include "UnrealClient.h"
-#include "UObject/UnrealType.h"
 
-void AMetaAgentPlayerController::HandleRenderRecordedTakePressed()
+void AMetaAgentPlayerController::HandleReportRecordingStatusPressed()
 {
-	SubmitLastRecordedTakeToRenderQueue();
+	ReportRuntimeCaptureStatus();
 }
 
 void AMetaAgentPlayerController::HandleToggleRecordingPressed()
@@ -52,7 +36,6 @@ void AMetaAgentPlayerController::StartAutopilotTakeRecording()
 	}
 
 	Recording.bTakeRecordingActive = false;
-	Recording.bRecordingUsesTakeRecorder = false;
 	Recording.bRuntimeFrameCaptureActive = false;
 	Recording.RuntimeCaptureAccumulatedSeconds = 0.0f;
 	Recording.RuntimeCapturedFrameCount = 0;
@@ -71,7 +54,6 @@ void AMetaAgentPlayerController::StartAutopilotTakeRecording()
 	}
 
 	Recording.bTakeRecordingActive = true;
-	Recording.bRecordingUsesTakeRecorder = false;
 	Recording.bRuntimeFrameCaptureActive = true;
 	Recording.RenderStatusText = FString::Printf(
 		TEXT("HiRes frame capture active (%dx%d @ %0.0f FPS)"),
@@ -110,12 +92,11 @@ void AMetaAgentPlayerController::StopAutopilotTakeRecording()
 	}
 
 	Recording.bTakeRecordingActive = false;
-	Recording.bRecordingUsesTakeRecorder = false;
 	UE_LOG(LogMetaAgent, Log, TEXT("RecordingRuntime: stop requested."));
 	UpdateRecordingStatusHud();
 }
 
-void AMetaAgentPlayerController::SubmitLastRecordedTakeToRenderQueue()
+void AMetaAgentPlayerController::ReportRuntimeCaptureStatus()
 {
 	if (!IsLocalPlayerController())
 	{
@@ -146,32 +127,10 @@ void AMetaAgentPlayerController::SubmitLastRecordedTakeToRenderQueue()
 	return;
 }
 
-void AMetaAgentPlayerController::HandleRuntimeRenderFinished(FMoviePipelineOutputData Results)
-{
-	Recording.bRenderInProgress = false;
-	Recording.RenderStatusText = Results.bSuccess ? TEXT("Rendering: complete") : TEXT("Rendering: failed");
-	Recording.RenderStatusColor = Results.bSuccess ? FColor::Green : FColor::Red;
-	UpdateRecordingStatusHud();
-
-	UE_LOG(LogMetaAgent, Log,
-		TEXT("MRQ: render finished success=%s shots=%d"),
-		Results.bSuccess ? TEXT("true") : TEXT("false"),
-		Results.ShotData.Num());
-
-}
-
 void AMetaAgentPlayerController::UpdateRecordingStatusHud()
 {
-	const TCHAR* BackendLabel = TEXT("HiResFrameCapture");
 	const TCHAR* RecordingState = Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF");
-	if (Recording.bRenderInProgress)
-	{
-		GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s (%s) | %s"), RecordingState, BackendLabel, *Recording.RenderStatusText);
-	}
-	else
-	{
-		GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s (%s)"), RecordingState, BackendLabel);
-	}
+	GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s (HiResFrameCapture) | %s"), RecordingState, *Recording.RenderStatusText);
 	ApplyGUIHelpPanelState();
 }
 
@@ -211,7 +170,7 @@ TArray<FString> AMetaAgentPlayerController::BuildRecordingRuntimePanelLines() co
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Recording Runtime"));
 	Lines.Add(FString::Printf(TEXT("State         : %s"), Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF")));
-	Lines.Add(FString::Printf(TEXT("Backend       : %s"), Recording.bRecordingUsesTakeRecorder ? TEXT("TakeRecorder") : TEXT("FrameCapture")));
+	Lines.Add(TEXT("Backend       : HiResFrameCapture"));
 	Lines.Add(FString::Printf(TEXT("Resolution    : %dx%d"), Recording.RuntimeCaptureWidth, Recording.RuntimeCaptureHeight));
 	Lines.Add(FString::Printf(TEXT("Frames        : %d"), Recording.RuntimeCapturedFrameCount));
 	Lines.Add(FString::Printf(TEXT("Render        : %s"), *Recording.RenderStatusText));

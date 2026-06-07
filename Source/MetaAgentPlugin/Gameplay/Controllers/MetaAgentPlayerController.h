@@ -6,13 +6,13 @@
 #include "CoreMinimal.h"
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
-#include "MovieRenderPipelineDataTypes.h"
 #include "UObject/SoftObjectPtr.h"
 #include "MetaAgentPlayerController.generated.h"
 
 class AAIController;
 class UInputMappingContext;
-class ULevelSequence;
+class UStaticMeshComponent;
+class UTexture2D;
 class UUserWidget;
 class USkeletalMeshComponent;
 
@@ -228,22 +228,10 @@ struct FMetaAgentRecordingState
 	bool bTakeRecordingActive = false;
 
 	UPROPERTY(Transient)
-	bool bRenderInProgress = false;
-
-	UPROPERTY(Transient)
-	FString RenderStatusText = TEXT("Rendering: idle");
+	FString RenderStatusText = TEXT("Capture: idle");
 
 	UPROPERTY(Transient)
 	FColor RenderStatusColor = FColor::Silver;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording")
-	bool bRenderAt4K = false;
-
-	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording")
-	bool bRenderPngSequenceAlongsideMp4 = true;
-
-	UPROPERTY(Transient)
-	bool bRecordingUsesTakeRecorder = false;
 
 	UPROPERTY(Transient)
 	bool bRuntimeFrameCaptureActive = false;
@@ -453,8 +441,8 @@ protected:
 	/** Toggles player possession between manual control and runtime AI autopilot. */
 	void HandleToggleAutopilotPressed();
 
-	/** Submits the most recently recorded autopilot take to Movie Render Queue. */
-	void HandleRenderRecordedTakePressed();
+	/** Reports output status for the current/last runtime capture session. */
+	void HandleReportRecordingStatusPressed();
 
 	/** Toggles recording on/off using the runtime recording backend. */
 	void HandleToggleRecordingPressed();
@@ -462,8 +450,11 @@ protected:
 	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
-	/** Bound to F1: toggles runtime controls help panel on/off. */
+	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
+
+	/** Bound to F: loads the latest PNG from disk and shows it in front of the camera. */
+	void HandleLoadLatestPngPreviewPressed();
 
 	/** Enables cinematic orbit camera mode around the active character. */
 	void EnableCinematicCameraMode();
@@ -495,8 +486,8 @@ protected:
 	/** Stops an in-progress high-resolution frame capture. */
 	void StopAutopilotTakeRecording();
 
-	/** Reports status for captured frame output (legacy U action path). */
-	void SubmitLastRecordedTakeToRenderQueue();
+	/** Reports status for captured frame output. */
+	void ReportRuntimeCaptureStatus();
 
 	/** Pushes current recording/take/render state into the persistent HUD status panel. */
 	void UpdateRecordingStatusHud();
@@ -506,22 +497,6 @@ protected:
 
 	/** Applies the active camera mode to the currently possessed pawn. */
 	void ApplyCameraModeToPawn(APawn* InPawn);
-
-	/** Enables the generated first-person camera mode. */
-	void EnableFirstPersonCameraMode();
-
-	/** Enables the generated close over-shoulder camera mode. */
-	void EnableCloseOverShoulderCameraMode();
-
-	/** Enables the generated tight side cinematic camera mode. */
-	void EnableSideCinematicCloseCameraMode();
-
-	/** Enables the generated third-person camera mode. */
-	void EnableThirdPersonCameraMode();
-
-	/** Receives completion callback for runtime MRQ renders. */
-	UFUNCTION()
-	void HandleRuntimeRenderFinished(FMoviePipelineOutputData Results);
 
 public:
 
@@ -536,12 +511,6 @@ protected:
 
 	/** Resets one-shot movement diagnostics after each possession change. */
 	void ResetMovementDiagnosticsState();
-
-	/**
-	 * Configures spring arm/camera after possession.
-	 * Keep camera defaults centralized here for easier camera behavior iteration.
-	 */
-	void ConfigureCameraForPawn(APawn* InPawn);
 
 	/**
 	 * Applies mouse-wheel camera zoom with clamping and interpolation.
@@ -584,7 +553,7 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "AI|Autopilot")
 	FMetaAgentAutopilotState Autopilot;
 
-	/** Take Recorder and Movie Render Queue state. */
+	/** Runtime frame-capture recording state. */
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording")
 	FMetaAgentRecordingState Recording;
 
@@ -595,6 +564,26 @@ protected:
 	/** Runtime GUI panel visibility and keybind help lines. */
 	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
 	FMetaAgentGUIState GUI;
+
+	/** Actor name used to locate the reusable preview plane in the current level. */
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview")
+	FName ExistingPreviewPlaneActorName = TEXT("Plane");
+
+	/** Optional mesh component name used to locate a specific preview mesh in a Blueprint actor. */
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview")
+	FName ExistingPreviewPlaneComponentName = TEXT("Plane");
+
+	/** Brightness multiplier applied to preview material tint so the image reads clearly in-scene. */
+	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview", meta = (ClampMin = "0.1", UIMin = "0.1", UIMax = "8.0"))
+	float PreviewPlaneBrightness = 3.5f;
+
+	/** Cached scene mesh that receives sdxl_latest.png at runtime. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UStaticMeshComponent> ExistingPreviewPlaneMesh;
+
+	/** Keep a strong reference so the loaded runtime texture stays alive. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> LatestPngPreviewTexture;
 
 };
 

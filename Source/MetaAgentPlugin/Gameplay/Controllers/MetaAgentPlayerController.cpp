@@ -16,39 +16,31 @@
 #include "Gameplay/AI/MetaAgentWanderAIController.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/MeshComponent.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/StaticMeshActor.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimationAsset.h"
 #include "EngineUtils.h"
+#include "ImageUtils.h"
 #include "InputCoreTypes.h"
 #include "Kismet/KismetSystemLibrary.h"
-#include "LevelSequence.h"
-#include "MoviePipelineGameOverrideSetting.h"
 #include "Misc/Paths.h"
-#include "MovieScene.h"
-#include "MoviePipelineOutputSetting.h"
-#include "MoviePipelinePrimaryConfig.h"
-#include "MoviePipelineQueueEngineSubsystem.h"
-#include "MoviePipelineExecutor.h"
-#include "MoviePipelineSetting.h"
-#include "MoviePipelineDeferredPasses.h"
-#include "MoviePipelineImageSequenceOutput.h"
 #include "UObject/UnrealType.h"
 #include "Widgets/Input/SVirtualJoystick.h"
-
-#if WITH_EDITOR
-#include "Recorder/TakeRecorderSubsystem.h"
-#include "TakeRecorderSettings.h"
-#endif
 
 namespace
 {
@@ -63,7 +55,6 @@ namespace
 
 		return IdleAsset;
 	}
-
 	UAnimationAsset* GetEmergencyWalkAsset()
 	{
 		static UAnimationAsset* WalkAsset = nullptr;
@@ -161,30 +152,6 @@ namespace
 
 		return nullptr;
 	}
-}
-
-void AMetaAgentPlayerController::EnableFirstPersonCameraMode()
-{
-	// Environment-only viewer mode: no-op
-	UE_LOG(LogMetaAgent, Log, TEXT("EnableFirstPersonCameraMode: environment viewer mode (no-op)."));
-}
-
-void AMetaAgentPlayerController::EnableCloseOverShoulderCameraMode()
-{
-	// Environment-only viewer mode: no-op
-	UE_LOG(LogMetaAgent, Log, TEXT("EnableCloseOverShoulderCameraMode: environment viewer mode (no-op)."));
-}
-
-void AMetaAgentPlayerController::EnableSideCinematicCloseCameraMode()
-{
-	// Environment-only viewer mode: no-op
-	UE_LOG(LogMetaAgent, Log, TEXT("EnableSideCinematicCloseCameraMode: environment viewer mode (no-op)."));
-}
-
-void AMetaAgentPlayerController::EnableThirdPersonCameraMode()
-{
-	// Environment-only viewer mode: no-op
-	UE_LOG(LogMetaAgent, Log, TEXT("EnableThirdPersonCameraMode: environment viewer mode (no-op)."));
 }
 
 void AMetaAgentPlayerController::OnPossess(APawn* InPawn)
@@ -501,20 +468,6 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
 	}
 
-	if (Recording.bRenderInProgress && GEngine)
-	{
-		if (UMoviePipelineQueueEngineSubsystem* RenderSubsystem = GEngine->GetEngineSubsystem<UMoviePipelineQueueEngineSubsystem>())
-		{
-			if (UMoviePipelineExecutorBase* ActiveExecutor = RenderSubsystem->GetActiveExecutor())
-			{
-				const float RenderProgress = FMath::Clamp(ActiveExecutor->GetStatusProgress(), 0.0f, 1.0f);
-				Recording.RenderStatusText = FString::Printf(TEXT("Rendering: %.0f%%"), RenderProgress * 100.0f);
-				Recording.RenderStatusColor = FColor::Yellow;
-				UpdateRecordingStatusHud();
-			}
-		}
-	}
-
 	UpdateRuntimeFrameCapture(DeltaTime);
 }
 
@@ -573,12 +526,13 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		if (!InputFallback.bUtilityKeysBound)
 		{
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
-			InputComponent->BindKey(EKeys::F1, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
+			InputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
+			InputComponent->BindKey(EKeys::F, IE_Pressed, this, &AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed);
 			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartAudioPressed);
 			InputComponent->BindKey(EKeys::G, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartImagePressed);
 			InputComponent->BindKey(EKeys::I, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
-			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleRenderRecordedTakePressed);
+			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputFallback.bUtilityKeysBound = true;
 		}
@@ -705,6 +659,187 @@ void AMetaAgentPlayerController::HandleStartImagePressed()
 		}
 
 		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	FString DesktopDir;
+	const FString UserProfileDir = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+	if (!UserProfileDir.IsEmpty())
+	{
+		DesktopDir = FPaths::Combine(UserProfileDir, TEXT("Desktop"));
+	}
+
+	if (DesktopDir.IsEmpty() || !FPaths::DirectoryExists(DesktopDir))
+	{
+		const FString OneDriveDir = FPlatformMisc::GetEnvironmentVariable(TEXT("OneDrive"));
+		if (!OneDriveDir.IsEmpty())
+		{
+			const FString OneDriveDesktopDir = FPaths::Combine(OneDriveDir, TEXT("Desktop"));
+			if (FPaths::DirectoryExists(OneDriveDesktopDir))
+			{
+				DesktopDir = OneDriveDesktopDir;
+			}
+		}
+	}
+
+	if (DesktopDir.IsEmpty())
+	{
+		DesktopDir = FPaths::ProjectDir();
+	}
+
+	const FString PngPath = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(DesktopDir, TEXT("github/agent-sequencer-app/output/sdxl_latest.png")));
+	if (!FPaths::FileExists(PngPath))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: file not found '%s'"), *PngPath);
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("Preview PNG not found: sdxl_latest.png"), FColor::Yellow, 2.5f);
+		}
+		return;
+	}
+
+	UTexture2D* ImportedTexture = FImageUtils::ImportFileAsTexture2D(PngPath);
+	if (!ImportedTexture)
+	{
+		UE_LOG(LogMetaAgent, Error, TEXT("F pressed: failed to import png '%s'"), *PngPath);
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("Failed to import sdxl_latest.png"), FColor::Red, 2.5f);
+		}
+		return;
+	}
+
+	LatestPngPreviewTexture = ImportedTexture;
+	ImportedTexture->SRGB = true;
+	ImportedTexture->UpdateResource();
+
+	UStaticMeshComponent* PreviewMesh = ExistingPreviewPlaneMesh.Get();
+	if (!PreviewMesh)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			auto NameMatches = [](const FString& CandidateName, const FString& WantedName) -> bool
+			{
+				if (CandidateName.Equals(WantedName, ESearchCase::IgnoreCase))
+				{
+					return true;
+				}
+
+				// Unreal may suffix duplicated actor names (e.g. Plane_2), so accept prefix match.
+				const FString Prefix = WantedName + TEXT("_");
+				return CandidateName.StartsWith(Prefix, ESearchCase::IgnoreCase);
+			};
+
+			const FString WantedActorName = ExistingPreviewPlaneActorName.ToString();
+			const FString WantedComponentName = ExistingPreviewPlaneComponentName.ToString();
+
+			for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+			{
+				AStaticMeshActor* CandidateActor = *It;
+				if (!CandidateActor)
+				{
+					continue;
+				}
+
+				UStaticMeshComponent* CandidateMesh = CandidateActor->GetStaticMeshComponent();
+				if (!CandidateMesh)
+				{
+					continue;
+				}
+
+				const bool bActorNameMatches =
+					NameMatches(CandidateActor->GetActorNameOrLabel(), WantedActorName) ||
+					NameMatches(CandidateActor->GetName(), WantedActorName);
+
+				const bool bComponentNameMatches =
+					NameMatches(CandidateMesh->GetName(), WantedComponentName);
+
+				if (bActorNameMatches || bComponentNameMatches)
+				{
+					PreviewMesh = CandidateMesh;
+					break;
+				}
+
+				if (PreviewMesh)
+				{
+					break;
+				}
+			}
+		}
+
+		ExistingPreviewPlaneMesh = PreviewMesh;
+	}
+
+	if (!PreviewMesh)
+	{
+		UE_LOG(LogMetaAgent, Warning,
+			TEXT("F pressed: no reusable preview plane found. Expected actor name '%s' or component name '%s'."),
+			*ExistingPreviewPlaneActorName.ToString(),
+			*ExistingPreviewPlaneComponentName.ToString());
+
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(TEXT("No preview plane named 'Plane' found"), FColor::Yellow, 3.0f);
+		}
+		return;
+	}
+
+	UMaterialInterface* BasePreviewMaterial = LoadObject<UMaterialInterface>(
+		nullptr,
+		TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+	if (!BasePreviewMaterial)
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: failed loading Widget3D pass-through material for png preview."));
+		return;
+	}
+
+	UMaterialInstanceDynamic* PreviewMID = Cast<UMaterialInstanceDynamic>(PreviewMesh->GetMaterial(0));
+	if (!PreviewMID)
+	{
+		PreviewMID = UMaterialInstanceDynamic::Create(BasePreviewMaterial, this);
+		if (PreviewMID)
+		{
+			const int32 MaterialSlots = PreviewMesh->GetNumMaterials();
+			for (int32 SlotIndex = 0; SlotIndex < MaterialSlots; ++SlotIndex)
+			{
+				PreviewMesh->SetMaterial(SlotIndex, PreviewMID);
+			}
+		}
+	}
+
+	if (!PreviewMID)
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: failed creating dynamic material for preview plane."));
+		return;
+	}
+
+	PreviewMID->SetTextureParameterValue(TEXT("SlateUI"), ImportedTexture);
+	PreviewMID->SetTextureParameterValue(TEXT("SpriteTexture"), ImportedTexture);
+	PreviewMID->SetTextureParameterValue(TEXT("Texture"), ImportedTexture);
+	const FLinearColor PreviewTint(PreviewPlaneBrightness, PreviewPlaneBrightness, PreviewPlaneBrightness, 1.0f);
+	PreviewMID->SetVectorParameterValue(TEXT("TintColorAndOpacity"), PreviewTint);
+	PreviewMID->SetVectorParameterValue(TEXT("ColorAndOpacity"), PreviewTint);
+	PreviewMID->SetVectorParameterValue(TEXT("TintColor"), PreviewTint);
+	PreviewMID->SetScalarParameterValue(TEXT("OpacityFromTexture"), 1.0f);
+	PreviewMID->SetScalarParameterValue(TEXT("EmissiveScale"), PreviewPlaneBrightness);
+	PreviewMID->SetScalarParameterValue(TEXT("Brightness"), PreviewPlaneBrightness);
+
+	PreviewMesh->SetHiddenInGame(false);
+	PreviewMesh->SetCastShadow(false);
+	PreviewMesh->MarkRenderStateDirty();
+
+	UE_LOG(LogMetaAgent, Log, TEXT("F pressed: loaded '%s' onto reusable scene preview plane."), *PngPath);
+	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+	{
+		MetaAgentHUD->AddTransientMessage(TEXT("Loaded sdxl_latest.png onto scene plane 'Plane'"), FColor::Green, 2.5f);
 	}
 }
 
