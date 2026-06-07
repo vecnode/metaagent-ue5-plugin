@@ -582,6 +582,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
+			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternPressed);
 			InputFallback.bUtilityKeysBound = true;
 		}
 	}

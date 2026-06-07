@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 
@@ -91,6 +92,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void DiscoverNiagaraComponents(bool bLogSummary = false);
 
+	/** Forces an immediate direct particle capture pass (used before pattern start). */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
+	void ForceCaptureParticles();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void SubmitExportedParticlePositions(
 		const TArray<FVector>& ParticlePositions,
@@ -133,12 +138,35 @@ public:
 	/** Returns currently tracked Niagara components (name-filtered discovery list). */
 	TArray<UNiagaraComponent*> GetTrackedNiagaraComponents() const;
 
+	/** Starts square pattern choreography if particle capture data is available. Returns false when busy or no particles. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool StartSquarePattern();
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	bool IsPatternActive() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	EMetaAgentParticlePatternState GetPatternState() const { return PatternRuntime.State; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	float GetPatternPhase() const { return PatternRuntime.Phase; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString GetPatternStateDisplayName() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString BuildPatternStatusText() const;
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
 	void BuildComponentSnapshot();
 	void RebuildSuggestedSteeringDirections();
 	void CaptureParticlesDirectly();
 	void EnsureNiagaraComponentReadable(UNiagaraComponent* NiagaraComponent);
+	void TickPatternRuntime(float DeltaTimeSeconds);
+	void BuildSquarePatternTargets();
+	void ApplyPatternActuation();
+	void ResetPatternRuntime();
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UWorld> CachedWorld;
@@ -171,4 +199,21 @@ private:
 	bool bLoggedDirectCaptureMiss = false;
 
 	TSet<TWeakObjectPtr<UNiagaraComponent>> ReadableNiagaraComponents;
+
+	UPROPERTY(Transient)
+	FMetaAgentParticlePatternRuntime PatternRuntime;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
+	float PatternFormDurationSeconds = 1.5f;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0"))
+	float PatternHoldDurationSeconds = 0.5f;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
+	float PatternReturnDurationSeconds = 1.5f;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "1.0"))
+	float PatternGridSpacingCm = 12.0f;
+
+	bool bLoggedPatternStart = false;
 };

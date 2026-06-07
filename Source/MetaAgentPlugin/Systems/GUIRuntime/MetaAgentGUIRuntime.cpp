@@ -31,6 +31,9 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Send HTTP 'start audio'"));
 		GUI.BaseHelpPanelLines.Add(TEXT("G       : Send HTTP 'start image'"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
+		GUI.BaseHelpPanelLines.Add(TEXT("PARTICLES"));
+		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play square pattern (form -> hold -> return)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Shift   : Sprint modifier (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Mouse   : Look input (input fallback)"));
@@ -59,6 +62,7 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 		TEXT("Particle Capture: %s (Count=%d)"),
 		Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
 		Controller.GetCapturedParticleCount()));
+	GUI.HelpPanelLines.Add(Controller.GetParticlePatternStatusText());
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
 	{

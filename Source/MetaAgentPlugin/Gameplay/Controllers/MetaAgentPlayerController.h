@@ -456,6 +456,9 @@ protected:
 	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
 
+	/** Bound to V: plays square particle pattern choreography. */
+	void HandleParticlePatternPressed();
+
 	/** Bound to F: loads the latest PNG from disk and shows it in front of the camera. */
 	void HandleLoadLatestPngPreviewPressed();
 
@@ -541,6 +544,13 @@ public:
 	/** True once at least one Niagara export callback reached runtime. */
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
 	bool HasReceivedParticleCallback() const;
+
+	/** Starts square particle pattern choreography when capture data is available. */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool StartParticleSquarePattern();
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString GetParticlePatternStatusText() const;
 
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
