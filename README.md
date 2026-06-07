@@ -5,6 +5,30 @@ Under heavy development.
 - UE5 plugin with several runtimes for humanoid agents.
 - Modules: MetaAgentPlugin (Runtime), MetaAgentPluginEditor (Editor).
 
+Objective: Allow an active agent to control the cinematic area. This plugin creates new levels and has default BPs to use. 
+
+## Flowchart
+
+```mermaid
+flowchart TD
+	A[MetaAgent]
+	B[CharacterRuntime]
+	C[CameraRuntime]
+	D[GUIRuntime]
+	E[NetworkingRuntime]
+	F[RecordingRuntime]
+	G[AIRuntime]
+
+	A --> B
+	A --> C
+	A --> D
+	A --> E
+	A --> F
+	A --> G
+```
+
+
+
 ## Modules
 
 ### Module 1 : MetaAgentCharacterRuntime
