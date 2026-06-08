@@ -82,6 +82,9 @@ flowchart TB
 
 ### Module 1 : MetaAgentCharacterRuntime
 
+<details>
+<summary>CharacterRuntime Graph</summary>
+
 - Default pawn spawn and possession via game mode
 - Blueprint-owned camera/mesh/animation setup
 - Minimal runtime bootstrap (no recovery pipeline)
@@ -128,6 +131,7 @@ flowchart TB
     BOOT --> PAWN
     BP -->|owns camera mesh animation| PAWN
 ```
+</details>
 
 <details>
 <summary>Module 1: simplified runtime flow</summary>
@@ -140,6 +144,9 @@ flowchart TB
 </details>
 
 ### Module 2: MetaAgentCameraRuntime (Environment Viewer)
+
+<details>
+<summary>CameraRuntime Graph</summary>
 
 - Environment-only camera system for pure scene exploration
 - Free-look with mouse and keyboard movement
@@ -208,6 +215,8 @@ flowchart TB
     DISABLE --> FREE
     DISABLE -->|restore view| PC
 ```
+</details>
+
 
 <details>
 <summary>Module 2: Simplified runtime steps (environment viewing only)</summary>
@@ -241,6 +250,9 @@ flowchart TB
 
 
 ### Module 3: MetaAgentGUIRuntime
+
+<details>
+<summary>GUIRuntime Graph</summary>
 
 - Runtime GUI panel orchestration owned by a dedicated module
 - HUD help panel visibility toggle bound to keyboard (`Q`)
@@ -299,6 +311,8 @@ flowchart TB
     GR --> STATUS
 ```
 
+</details>
+
 <details>
 <summary>Module 3: 20 sequential runtime steps</summary>
 
@@ -326,6 +340,9 @@ flowchart TB
 </details>
 
 ### Module 4: MetaAgentNetworkingRuntime
+
+<details>
+<summary>NetworkingRuntime Graph</summary>
 
 - Runtime networking orchestration through `UMetaAgentGameInstance`
 - Embedded HTTP server for editor, standalone, and packaged runtime builds
@@ -393,6 +410,8 @@ flowchart TB
     GR --> HUD
 ```
 
+</details>
+
 <details>
 <summary>Module 4: 20 sequential runtime steps</summary>
 
@@ -421,6 +440,9 @@ flowchart TB
 
 
 ### Module 5: MetaAgentRecordingRuntime
+
+<details>
+<summary>RecordingRuntime Graph</summary>
 
 - Runtime recording based on Unreal Engine Movie Scene Capture (FrameGrabber, no HiResShot loop)
 - `J` toggles viewport capture start/stop and writes an AVI video file directly to disk
@@ -492,6 +514,8 @@ flowchart TB
     PC -->|EndPlay| STOP
 ```
 
+</details>
+
 <details>
 <summary>Module 5: 12 sequential runtime steps</summary>
 
@@ -512,6 +536,9 @@ flowchart TB
 
 
 ### Module 6: MetaAgentAIRuntime
+
+<details>
+<summary>AIRuntime Graph</summary>
 
 - Runtime AI wander controller (`AMetaAgentWanderAIController`) builds and runs a behavior tree in code.
 - Autopilot toggle logic (`AMetaAgentPlayerController`) now lives in AIRuntime and hands possession to AI.
@@ -575,6 +602,7 @@ flowchart TB
     DISABLE -->|repossess| PC
     DISABLE --> AP
 ```
+</details>
 
 <details>
 <summary>Module 6: 10 sequential runtime steps</summary>
@@ -594,6 +622,9 @@ flowchart TB
 
 
 ### Module 7: MetaAgentParticleRuntime
+
+<details>
+<summary>ParticleRuntime Graph</summary>
 
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
@@ -648,6 +679,8 @@ flowchart LR
     GRID --> TGT
     TGT --> FSM[Forming / Holding / Returning]
 ```
+
+</details>
 
 <details>
 <summary>Module 7: sequential runtime steps</summary>
