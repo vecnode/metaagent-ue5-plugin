@@ -279,17 +279,21 @@ flowchart TB
 
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- `V` plays a square pattern choreography: particles form a grid square, hold briefly, then return to their snapshotted baseline positions.
+- `V` plays particle choreography: **Forming → Holding → Returning → Idle**.
+- **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **Sobel edge** sampling; fallback: **SquareGrid**).
+- `F` loads `sdxl_latest.png` onto the preview plane and provides texture + transform for image shapes.
 - Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
-- Help panel (`Q`) shows capture status, active preset/timings, and live pattern state with in-state elapsed/remaining time.
-- Timings are configured on `AMetaAgentPlayerController` → **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
-- `B` applies the **Slow** preset (3.0 / 1.5 / 3.0 s). `N` applies the **Dramatic** preset (4.0 / 2.0 / 5.0 s). Press `V` after choosing a preset.
-- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset Normal|Slow|Dramatic`, `.Status`.
+- Help panel (`Q`) shows capture status, preset/timings, active shape, and live pattern state.
+- Timings: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
+- Shape: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`).
+- `B` = Slow preset, `N` = Dramatic preset. Press `V` after choosing timings.
+- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Sobel|Fill`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`.
 - Implemented in:
-	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h`
-	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h`
-	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
+	- `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
 
 #### Pattern architecture
@@ -297,31 +301,48 @@ flowchart TB
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Forming: V (snapshot + grid)
+    Idle --> Forming: V (snapshot + shape targets)
     Forming --> Holding: elapsed >= FormDuration, phase 0→1
     Holding --> Returning: elapsed >= HoldDuration, phase = 1
     Returning --> Idle: elapsed >= ReturnDuration, phase 1→0
 
 ```
 
+#### Shape pipeline
+
+```mermaid
+flowchart LR
+    F[F key PNG] --> TEX[LatestPngPreviewTexture]
+    F --> PLANE[Preview plane transform]
+    V[V key] --> SNAP[Snapshot baselines]
+    SNAP --> BUILD[FMetaAgentParticleShapeBuilder]
+    TEX --> BUILD
+    PLANE --> BUILD
+    BUILD --> IMG[ImageSilhouette]
+    BUILD --> GRID[SquareGrid fallback]
+    IMG --> NN[Nearest-neighbor assign]
+    NN --> TGT[PatternWorldTargets]
+    GRID --> TGT
+    TGT --> FSM[Forming / Holding / Returning]
+```
+
 <details>
-<summary>Module 7: 14 sequential runtime steps</summary>
+<summary>Module 7: sequential runtime steps</summary>
 
 1. Runtime discovers tracked Niagara components (for example `NIAGARAFX` on `BP_NiagaraBridge`).
 2. Direct capture reads particle `Position` attributes into `UMetaAgentParticleRuntime` snapshot cache.
 3. Help panel reports `Particle Capture: TRUE (Count=N)` once data is available.
-4. Player optionally presses `B` (Slow) or `N` (Dramatic) to choose choreography timings, or edits Class Defaults / console vars.
-5. Player presses `V` to start the square pattern sequence.
-6. Runtime snapshots current world positions as immutable baseline poses for this run and freezes active timings for the run.
-7. Runtime builds a square grid target per particle index (columns ~ `sqrt(N)`, spacing configurable).
-8. State machine enters `Forming` and advances smoothed phase `0 -> 1` over `FormDurationSeconds`.
-9. Each tick while active, runtime lerps baseline -> pattern and writes positions into Niagara buffers.
-10. GPU emitters: readback -> modify CPU float buffer -> `PushCPUBuffersToGPU`.
-11. State transitions to `Holding` at phase `1` for `HoldDurationSeconds`.
-12. State transitions to `Returning` and drives phase `1 -> 0` over `ReturnDurationSeconds`.
+4. Player presses `F` to load `sdxl_latest.png` (preview plane + shape texture).
+5. Player optionally presses `B` / `N` for timing presets.
+6. Player presses `V` to start the pattern.
+7. Runtime snapshots baselines and freezes timings + shape config for the run.
+8. `FMetaAgentParticleShapeBuilder` builds `PatternWorldTargets` (image silhouette with nearest-neighbor assignment, or square grid fallback).
+9. State machine enters `Forming` and lerps baseline → targets (phase 0→1).
+10. GPU emitters: readback → modify CPU float buffer → `PushCPUBuffersToGPU`.
+11. `Holding` locks phase at 1 on the resolved shape.
+12. `Returning` drives phase 1→0 back to baseline.
 13. On completion, state returns to `Idle` and normal capture resumes.
-14. GUI shows preset/timings plus `Pattern State`, phase, and in-state elapsed/remaining while the sequence runs.
-15. `StartParticleSquarePattern()`, `ApplyParticlePatternPreset()`, and `SetParticlePatternTimings()` are exposed for Blueprint/automation callers.
+14. Blueprint API: `StartParticleSquarePattern()`, `SetParticlePatternShape()`, `ApplyParticlePatternPreset()`, `SetParticlePatternTimings()`.
 
 </details>
 
