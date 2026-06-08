@@ -281,11 +281,15 @@ flowchart TB
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
 - `V` plays a square pattern choreography: particles form a grid square, hold briefly, then return to their snapshotted baseline positions.
 - Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
-- Help panel (`Q`) shows capture status and live pattern state/phase.
+- Help panel (`Q`) shows capture status, active preset/timings, and live pattern state with in-state elapsed/remaining time.
+- Timings are configured on `AMetaAgentPlayerController` → **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
+- `B` applies the **Slow** preset (3.0 / 1.5 / 3.0 s). `N` applies the **Dramatic** preset (4.0 / 2.0 / 5.0 s). Press `V` after choosing a preset.
+- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset Normal|Slow|Dramatic`, `.Status`.
 - Implemented in:
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h`
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h`
+	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.cpp`
 	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
 
 #### Pattern architecture
@@ -293,10 +297,11 @@ flowchart TB
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Forming: V pressed (snapshot baseline + build square grid)
-    Forming --> Holding: phase reaches 1
-    Holding --> Returning: hold timer elapsed
-    Returning --> Idle: phase returns to 0
+    Idle --> Forming: V (snapshot + grid)
+    Forming --> Holding: elapsed >= FormDuration, phase 0→1
+    Holding --> Returning: elapsed >= HoldDuration, phase = 1
+    Returning --> Idle: elapsed >= ReturnDuration, phase 1→0
+
 ```
 
 <details>
@@ -305,17 +310,18 @@ stateDiagram-v2
 1. Runtime discovers tracked Niagara components (for example `NIAGARAFX` on `BP_NiagaraBridge`).
 2. Direct capture reads particle `Position` attributes into `UMetaAgentParticleRuntime` snapshot cache.
 3. Help panel reports `Particle Capture: TRUE (Count=N)` once data is available.
-4. Player presses `V` to start the square pattern sequence.
-5. Runtime snapshots current world positions as immutable baseline poses for this run.
-6. Runtime builds a square grid target per particle index (columns ~ `sqrt(N)`, spacing configurable).
-7. State machine enters `Forming` and advances smoothed phase `0 -> 1`.
-8. Each tick while active, runtime lerps baseline -> pattern and writes positions into Niagara buffers.
-9. GPU emitters: readback -> modify CPU float buffer -> `PushCPUBuffersToGPU`.
-10. State transitions to `Holding` at phase `1` for a short pause.
-11. State transitions to `Returning` and drives phase `1 -> 0` (pattern -> baseline).
-12. On completion, state returns to `Idle` and normal capture resumes.
-13. GUI shows `Pattern State` and `Pattern Phase` while the sequence runs.
-14. `StartParticleSquarePattern()` is also exposed for Blueprint/automation callers.
+4. Player optionally presses `B` (Slow) or `N` (Dramatic) to choose choreography timings, or edits Class Defaults / console vars.
+5. Player presses `V` to start the square pattern sequence.
+6. Runtime snapshots current world positions as immutable baseline poses for this run and freezes active timings for the run.
+7. Runtime builds a square grid target per particle index (columns ~ `sqrt(N)`, spacing configurable).
+8. State machine enters `Forming` and advances smoothed phase `0 -> 1` over `FormDurationSeconds`.
+9. Each tick while active, runtime lerps baseline -> pattern and writes positions into Niagara buffers.
+10. GPU emitters: readback -> modify CPU float buffer -> `PushCPUBuffersToGPU`.
+11. State transitions to `Holding` at phase `1` for `HoldDurationSeconds`.
+12. State transitions to `Returning` and drives phase `1 -> 0` over `ReturnDurationSeconds`.
+13. On completion, state returns to `Idle` and normal capture resumes.
+14. GUI shows preset/timings plus `Pattern State`, phase, and in-state elapsed/remaining while the sequence runs.
+15. `StartParticleSquarePattern()`, `ApplyParticlePatternPreset()`, and `SetParticlePatternTimings()` are exposed for Blueprint/automation callers.
 
 </details>
 
