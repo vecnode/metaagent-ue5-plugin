@@ -12,6 +12,7 @@
 #include "NiagaraTypes.h"
 #include "Core/MetaAgent.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeCache.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
@@ -31,6 +32,7 @@ namespace
 	{
 		switch (State)
 		{
+		case EMetaAgentParticlePatternState::Preparing: return TEXT("Preparing");
 		case EMetaAgentParticlePatternState::Forming: return TEXT("Forming");
 		case EMetaAgentParticlePatternState::Holding: return TEXT("Holding");
 		case EMetaAgentParticlePatternState::Returning: return TEXT("Returning");
@@ -316,6 +318,8 @@ void UMetaAgentParticleRuntime::TickRuntime(const float DeltaTimeSeconds)
 	LatestSnapshot.WorldTimeSeconds = CachedWorld->GetTimeSeconds();
 	LatestSnapshot.FrameCounter++;
 
+	FMetaAgentParticleShapeCache::Tick();
+
 	DiscoveryFrameCounter++;
 	const int32 DiscoveryInterval = FMath::Max(1, DiscoveryEveryNFrames);
 	if (DiscoveryFrameCounter >= DiscoveryInterval)
@@ -328,7 +332,8 @@ void UMetaAgentParticleRuntime::TickRuntime(const float DeltaTimeSeconds)
 
 	TickPatternRuntime(DeltaTimeSeconds);
 
-	if (PatternRuntime.State != EMetaAgentParticlePatternState::Idle)
+	if (PatternRuntime.State != EMetaAgentParticlePatternState::Idle
+		&& PatternRuntime.State != EMetaAgentParticlePatternState::Preparing)
 	{
 		ApplyPatternActuation();
 	}
@@ -649,6 +654,8 @@ bool UMetaAgentParticleRuntime::StartSquarePattern()
 		return false;
 	}
 
+	PatternRuntime.bAwaitingAsyncMask = false;
+
 	if (LatestSnapshot.ExportedParticlePositions.Num() <= 0)
 	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: cannot start square pattern without captured particle positions."));
@@ -665,6 +672,15 @@ bool UMetaAgentParticleRuntime::StartSquarePattern()
 
 	if (!BuildPatternTargets())
 	{
+		if (PatternRuntime.bAwaitingAsyncMask)
+		{
+			EnterPatternState(EMetaAgentParticlePatternState::Preparing);
+			PatternRuntime.Phase = 0.0f;
+			bLoggedPatternStart = false;
+			UE_LOG(LogMetaAgent, Log, TEXT("ParticleRuntime: pattern preparing image mask asynchronously."));
+			return true;
+		}
+
 		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: failed to build pattern targets."));
 		return false;
 	}
@@ -728,10 +744,20 @@ FString UMetaAgentParticleRuntime::BuildPatternShapeText() const
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
 	{
 		return FString::Printf(
-			TEXT("Pattern Shape: %s | Sampling=%s | ImageLoaded=%s"),
+			TEXT("Pattern Shape: %s | Sampling=%s | Res=%dpx | ImageLoaded=%s"),
 			*ShapeName,
 			*DisplayShape.GetImageSamplingDisplayName(),
+			DisplayShape.SampleResolution,
 			bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
+	}
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
+	{
+		return FString::Printf(
+			TEXT("Pattern Shape: %s | Preparing async mask @ %dpx | %s"),
+			*ShapeName,
+			DisplayShape.SampleResolution,
+			*PatternRuntime.ShapeDebugInfo);
 	}
 
 	return FString::Printf(
@@ -806,6 +832,8 @@ float UMetaAgentParticleRuntime::GetActiveStateDurationSeconds() const
 
 	switch (PatternRuntime.State)
 	{
+	case EMetaAgentParticlePatternState::Preparing:
+		return 60.0f;
 	case EMetaAgentParticlePatternState::Forming:
 		return FMath::Max(0.1f, Timings.FormDurationSeconds);
 	case EMetaAgentParticlePatternState::Holding:
@@ -845,6 +873,8 @@ bool UMetaAgentParticleRuntime::BuildPatternTargets()
 	const FMetaAgentParticleShapeBuildResult BuildResult = FMetaAgentParticleShapeBuilder::BuildPatternTargets(
 		PatternRuntime.ActiveConfig,
 		BuildContext);
+
+	PatternRuntime.bAwaitingAsyncMask = BuildResult.bAwaitingAsyncMask;
 
 	if (!BuildResult.bSuccess || BuildResult.PatternWorldTargets.Num() <= 0)
 	{
@@ -890,6 +920,40 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 
 	switch (PatternRuntime.State)
 	{
+	case EMetaAgentParticlePatternState::Preparing:
+	{
+		if (BuildPatternTargets())
+		{
+			EnterPatternState(EMetaAgentParticlePatternState::Forming);
+			PatternRuntime.Phase = 0.0f;
+			bLoggedPatternStart = false;
+
+			const FString ResolvedShapeName =
+				PatternRuntime.ActiveShape == EMetaAgentParticlePatternShape::ImageSilhouette
+					? TEXT("ImageSilhouette")
+					: TEXT("SquareGrid");
+
+			UE_LOG(LogMetaAgent, Log,
+				TEXT("ParticleRuntime: pattern started after async mask build requested=%s resolved=%s particles=%d | %s"),
+				*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName(),
+				*ResolvedShapeName,
+				PatternRuntime.BaselineWorldPositions.Num(),
+				*PatternRuntime.ShapeDebugInfo);
+		}
+		else if (!PatternRuntime.bAwaitingAsyncMask && PatternRuntime.StateElapsedSeconds > 0.25f)
+		{
+			UE_LOG(LogMetaAgent, Warning,
+				TEXT("ParticleRuntime: async mask build failed (%s)."),
+				*PatternRuntime.ShapeDebugInfo);
+			ResetPatternRuntime();
+		}
+		else if (PatternRuntime.StateElapsedSeconds > 60.0f)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: async mask build timed out after 60s."));
+			ResetPatternRuntime();
+		}
+		break;
+	}
 	case EMetaAgentParticlePatternState::Forming:
 	{
 		const float FormDuration = FMath::Max(0.1f, Timings.FormDurationSeconds);

@@ -18,6 +18,11 @@ public:
 
 	static void InvalidateImageMaskCache();
 
+	static void RequestImageMaskBuild(
+		const FString& SourceImagePath,
+		const FMetaAgentParticleShapeDefinition& ShapeDefinition,
+		const int32 DesiredPointCount);
+
 private:
 	static bool BuildSquareGridTargets(
 		const FMetaAgentParticlePatternConfig& PatternConfig,
@@ -35,12 +40,12 @@ private:
 		const UTexture2D* SourceTexture);
 
 	static bool ExtractSilhouetteLocalPoints(
-		UTexture2D* SourceTexture,
 		const FString& SourceImagePath,
 		const FMetaAgentParticleShapeDefinition& ShapeDefinition,
 		const int32 DesiredPointCount,
 		TArray<FVector>& OutLocalPointsCm,
-		FString& OutDebugInfo);
+		FString& OutDebugInfo,
+		bool& bOutAwaitingAsyncMask);
 
 	static void AssignParticlesToShapePoints(
 		const TArray<FVector>& BaselineWorldPositions,

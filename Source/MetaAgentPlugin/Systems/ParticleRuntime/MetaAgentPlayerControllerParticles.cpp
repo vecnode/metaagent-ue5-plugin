@@ -313,7 +313,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageSampling Sobel|Fill"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageSampling Gray|Fill|Sobel"));
 			return;
 		}
 
@@ -331,6 +331,11 @@ namespace MetaAgentParticlePatternConsole
 		else if (ModeName == TEXT("fill") || ModeName == TEXT("filled") || ModeName == TEXT("filledsilhouette"))
 		{
 			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::FilledSilhouette);
+		}
+		else if (ModeName == TEXT("gray") || ModeName == TEXT("grey") || ModeName == TEXT("density")
+			|| ModeName == TEXT("grayscale") || ModeName == TEXT("grayscaledensity"))
+		{
+			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::GrayscaleDensity);
 		}
 		else
 		{
@@ -365,7 +370,7 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternImageSamplingCmd(
 		TEXT("MetaAgent.Pattern.ImageSampling"),
-		TEXT("Set image sampling: Sobel (edges) or Fill (filled silhouette)."),
+		TEXT("Set image sampling: Gray (default), Fill, or Sobel (edges)."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetImageSampling));
 
 	static FAutoConsoleCommand MetaAgentPatternEdgeThresholdCmd(
@@ -393,7 +398,6 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 	}
 
 	SyncParticlePatternConfigToRuntime();
-	ParticleRuntime->DiscoverNiagaraComponents(false);
 	ParticleRuntime->ForceCaptureParticles();
 	PrepareParticlePatternShapeContext();
 
@@ -411,13 +415,18 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 
 	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
 	{
+		const bool bPreparing = ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing;
 		MetaAgentHUD->AddTransientMessage(
-			FString::Printf(
-				TEXT("Particle pattern started (%s | %s)."),
-				*ParticleRuntime->BuildPatternShapeText(),
-				*ParticleRuntime->BuildPatternStatusText()),
-			FColor::Cyan,
-			3.0f);
+			bPreparing
+				? FString::Printf(
+					TEXT("Preparing image shape at full resolution (%s). Game stays responsive."),
+					*ParticleRuntime->BuildPatternStatusText())
+				: FString::Printf(
+					TEXT("Particle pattern started (%s | %s)."),
+					*ParticleRuntime->BuildPatternShapeText(),
+					*ParticleRuntime->BuildPatternStatusText()),
+			bPreparing ? FColor::Yellow : FColor::Cyan,
+			bPreparing ? 4.0f : 3.0f);
 	}
 }
 
@@ -552,7 +561,29 @@ bool AMetaAgentPlayerController::PrepareParticlePatternShapeContext()
 
 	const FMetaAgentParticleShapeContext ShapeContext = BuildParticleShapeContext();
 	ParticleRuntime->SetPatternShapeContext(ShapeContext);
+	RequestParticleImageMaskBuild();
 	return true;
+}
+
+void AMetaAgentPlayerController::RequestParticleImageMaskBuild()
+{
+	if (!ParticleRuntime
+		|| ParticlePatternConfig.Shape.ShapeType != EMetaAgentParticlePatternShape::ImageSilhouette)
+	{
+		return;
+	}
+
+	const FString SourceImagePath = GetLastLoadedPreviewImagePath();
+	if (SourceImagePath.IsEmpty())
+	{
+		return;
+	}
+
+	const int32 ParticleCount = FMath::Max(ParticleRuntime->GetKnownParticleCount(), 128);
+	FMetaAgentParticleShapeBuilder::RequestImageMaskBuild(
+		SourceImagePath,
+		ParticlePatternConfig.Shape,
+		ParticleCount);
 }
 
 void AMetaAgentPlayerController::SetParticlePatternShape(const EMetaAgentParticlePatternShape ShapeType)

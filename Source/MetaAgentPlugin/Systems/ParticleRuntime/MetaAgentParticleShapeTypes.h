@@ -19,7 +19,9 @@ UENUM(BlueprintType)
 enum class EMetaAgentParticleShapeAssignmentMode : uint8
 {
 	NearestNeighbor,
-	Ordered
+	Ordered,
+	/** One-to-one polar angle matching — reduces target stacking. */
+	PolarMatched
 };
 
 /** How image pixels are turned into particle target points. */
@@ -29,7 +31,9 @@ enum class EMetaAgentParticleImageSamplingMode : uint8
 	/** Strong edges only (Sobel) — outlines look like the image. */
 	SobelEdges,
 	/** All pixels above alpha/luminance threshold — filled plane look. */
-	FilledSilhouette
+	FilledSilhouette,
+	/** Grayscale-weighted stratified scatter — default image look. */
+	GrayscaleDensity
 };
 
 /** World-space placement frame for a 2D shape extruded on a plane. */
@@ -61,10 +65,10 @@ struct FMetaAgentParticleShapeDefinition
 	EMetaAgentParticlePatternShape ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape")
-	EMetaAgentParticleImageSamplingMode ImageSamplingMode = EMetaAgentParticleImageSamplingMode::SobelEdges;
+	EMetaAgentParticleImageSamplingMode ImageSamplingMode = EMetaAgentParticleImageSamplingMode::GrayscaleDensity;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AlphaThreshold = 0.35f;
+	float AlphaThreshold = 0.08f;
 
 	/** Sobel gradient magnitude threshold (normalized 0-1). Lower = more edge pixels. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.01", ClampMax = "1.0"))
@@ -73,8 +77,20 @@ struct FMetaAgentParticleShapeDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape")
 	bool bUseLuminance = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "32", ClampMax = "1024"))
-	int32 SampleResolution = 256;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "32", ClampMax = "4096"))
+	int32 SampleResolution = 1024;
+
+	/** Exponent on grayscale concentration (>1 = more weight on dark/dense regions). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.25", ClampMax = "4.0"))
+	float GrayscaleGamma = 1.2f;
+
+	/** Grid density multiplier for stratified scatter (higher = more spread). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "1.0", ClampMax = "8.0"))
+	float DensityGridScale = 2.5f;
+
+	/** Sub-cell jitter as a fraction of one grid cell (breaks exact overlaps). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float TargetJitterNormalized = 0.35f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape")
 	bool bUseLoadedPreviewTexture = true;
@@ -93,7 +109,7 @@ struct FMetaAgentParticleShapeDefinition
 	float ZOffsetCm = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape")
-	EMetaAgentParticleShapeAssignmentMode AssignmentMode = EMetaAgentParticleShapeAssignmentMode::NearestNeighbor;
+	EMetaAgentParticleShapeAssignmentMode AssignmentMode = EMetaAgentParticleShapeAssignmentMode::PolarMatched;
 
 	FString GetShapeDisplayName() const;
 
@@ -147,6 +163,10 @@ struct FMetaAgentParticleShapeBuildResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Shape")
 	FString DebugInfo;
+
+	/** True when silhouette points are still being built on a worker thread. */
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Shape")
+	bool bAwaitingAsyncMask = false;
 
 	UPROPERTY()
 	TArray<FVector> PatternWorldTargets;

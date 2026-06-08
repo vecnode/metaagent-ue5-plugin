@@ -597,20 +597,23 @@ flowchart TB
 
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- `V` plays particle choreography: **Forming → Holding → Returning → Idle**.
-- **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **Sobel edge** sampling; fallback: **SquareGrid**).
+- `V` plays particle choreography: **Preparing → Forming → Holding → Returning → Idle** (Preparing is brief when the async mask is already cached).
+- **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** scatter at **1024px**; fallback: **SquareGrid**).
+- PNG decode + Sobel extraction run on a **background thread** (`FMetaAgentParticleShapeCache`); the game thread stays responsive. Cache keys include PNG **file timestamp + size**, so replacing `sdxl_latest.png` on disk triggers a fresh build on the next `F`/`V`.
 - `F` loads `sdxl_latest.png` onto the preview plane and provides texture + transform for image shapes.
 - Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
 - Help panel (`Q`) shows capture status, preset/timings, active shape, and live pattern state.
 - Timings: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
 - Shape: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`).
 - `B` = Slow preset, `N` = Dramatic preset. Press `V` after choosing timings.
-- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Sobel|Fill`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`.
+- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Gray|Fill|Sobel`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`.
 - Implemented in:
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleShapeCache.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
 
@@ -619,7 +622,9 @@ flowchart TB
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Forming: V (snapshot + shape targets)
+    Idle --> Preparing: V (async mask build if needed)
+    Preparing --> Forming: mask ready
+    Idle --> Forming: V (cache hit)
     Forming --> Holding: elapsed >= FormDuration, phase 0→1
     Holding --> Returning: elapsed >= HoldDuration, phase = 1
     Returning --> Idle: elapsed >= ReturnDuration, phase 1→0
@@ -654,13 +659,14 @@ flowchart LR
 5. Player optionally presses `B` / `N` for timing presets.
 6. Player presses `V` to start the pattern.
 7. Runtime snapshots baselines and freezes timings + shape config for the run.
-8. `FMetaAgentParticleShapeBuilder` builds `PatternWorldTargets` (image silhouette with nearest-neighbor assignment, or square grid fallback).
-9. State machine enters `Forming` and lerps baseline → targets (phase 0→1).
-10. GPU emitters: readback → modify CPU float buffer → `PushCPUBuffersToGPU`.
-11. `Holding` locks phase at 1 on the resolved shape.
-12. `Returning` drives phase 1→0 back to baseline.
-13. On completion, state returns to `Idle` and normal capture resumes.
-14. Blueprint API: `StartParticleSquarePattern()`, `SetParticlePatternShape()`, `ApplyParticlePatternPreset()`, `SetParticlePatternTimings()`.
+8. `FMetaAgentParticleShapeCache` loads/decodes the PNG and runs Sobel on a worker thread (1024px by default). If not ready yet, state is **Preparing** and the game keeps running.
+9. `FMetaAgentParticleShapeBuilder` builds `PatternWorldTargets` (image silhouette with nearest-neighbor assignment, or square grid fallback).
+10. State machine enters `Forming` and lerps baseline → targets (phase 0→1).
+11. GPU emitters: readback → modify CPU float buffer → `PushCPUBuffersToGPU`.
+12. `Holding` locks phase at 1 on the resolved shape.
+13. `Returning` drives phase 1→0 back to baseline.
+14. On completion, state returns to `Idle` and normal capture resumes.
+15. Blueprint API: `StartParticleSquarePattern()`, `SetParticlePatternShape()`, `ApplyParticlePatternPreset()`, `SetParticlePatternTimings()`.
 
 </details>
 

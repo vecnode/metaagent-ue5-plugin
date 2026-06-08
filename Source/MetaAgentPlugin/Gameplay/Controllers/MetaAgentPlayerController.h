@@ -587,6 +587,9 @@ public:
 	/** Resolves and pushes shape context (texture, plane, baselines) into particle runtime. */
 	bool PrepareParticlePatternShapeContext();
 
+	/** Starts async full-resolution mask extraction when image silhouettes are enabled. */
+	void RequestParticleImageMaskBuild();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void SetParticlePatternShape(EMetaAgentParticlePatternShape ShapeType);
 

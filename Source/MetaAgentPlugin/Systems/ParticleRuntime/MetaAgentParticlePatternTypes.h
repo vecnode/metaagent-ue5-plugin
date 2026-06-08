@@ -10,6 +10,7 @@ UENUM(BlueprintType)
 enum class EMetaAgentParticlePatternState : uint8
 {
 	Idle,
+	Preparing,
 	Forming,
 	Holding,
 	Returning
@@ -92,4 +93,7 @@ struct FMetaAgentParticlePatternRuntime
 
 	UPROPERTY()
 	TArray<FVector> PatternWorldTargets;
+
+	UPROPERTY()
+	bool bAwaitingAsyncMask = false;
 };
