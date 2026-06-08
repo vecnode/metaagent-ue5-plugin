@@ -89,6 +89,46 @@ flowchart TB
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
 	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
 
+#### Character runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Config
+        GM_CFG[AMetaAgentGameMode]
+        PAWN_CFG[DefaultPlayerPawnClass]
+        BP[BP_MH_PlayerChar]
+    end
+
+    subgraph Spawn
+        RESTART[RestartPlayer]
+        SPAWN[Spawn default pawn]
+        POSSESS[Possess pawn]
+    end
+
+    subgraph Game
+        PC[AMetaAgentPlayerController]
+        PAWN[APawn / ACharacter]
+    end
+
+    subgraph CharacterRuntime
+        CHR[FMetaAgentCharacterRuntime]
+        BOOT[RunPossessedCharacterBootstrapSequence]
+    end
+
+    GM_CFG --> PAWN_CFG
+    PAWN_CFG --> BP
+    GM_CFG --> RESTART
+    RESTART --> SPAWN
+    SPAWN --> PAWN
+    RESTART --> POSSESS
+    POSSESS --> PC
+    PC --> PAWN
+    PC -->|OnPossess| CHR
+    CHR --> BOOT
+    BOOT --> PAWN
+    BP -->|owns camera mesh animation| PAWN
+```
+
 <details>
 <summary>Module 1: simplified runtime flow</summary>
 
@@ -110,6 +150,64 @@ flowchart TB
 	- `Systems/CameraRuntime/MetaAgentCameraRuntime.h`
 	- `Systems/CameraRuntime/MetaAgentCameraRuntime.cpp`
 
+#### Camera runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Input
+        O[O toggle cinematic]
+        WHEEL[Mouse wheel zoom]
+        LOOK[Mouse look fallback]
+        MOVE[WASD movement fallback]
+    end
+
+    subgraph Game
+        PC[AMetaAgentPlayerController]
+        ZOOM[FMetaAgentCameraZoomState]
+        CIN[FMetaAgentCinematicCameraState]
+    end
+
+    subgraph CameraRuntime
+        BRIDGE[MetaAgentPlayerControllerCamera]
+        CR[FMetaAgentCameraRuntime]
+        ZOOM_SEQ[RunEnvironmentZoomSequence]
+        TOGGLE[RunToggleCinematicCameraSequence]
+        ENABLE[RunEnableCinematicCameraSequence]
+        UPDATE[RunUpdateCinematicCameraSequence]
+        DISABLE[RunDisableCinematicCameraSequence]
+    end
+
+    subgraph Modes
+        FREE[FreeLook environment viewer]
+        ORBIT[Cinematic orbital camera]
+    end
+
+    CAM[ACameraActor transient]
+    TARGET[ResolveCinematicTargetActor]
+
+    O --> PC
+    WHEEL --> PC
+    LOOK --> PC
+    MOVE --> PC
+    PC --> BRIDGE
+    BRIDGE --> CR
+    PC --> ZOOM
+    PC --> CIN
+    PC -->|PlayerTick| ZOOM_SEQ
+    ZOOM_SEQ --> ZOOM
+    ZOOM_SEQ --> FREE
+    O --> TOGGLE
+    TOGGLE -->|enable| ENABLE
+    TOGGLE -->|disable| DISABLE
+    ENABLE --> CAM
+    ENABLE --> TARGET
+    ENABLE --> ORBIT
+    PC -->|PlayerTick while active| UPDATE
+    UPDATE --> CAM
+    UPDATE --> ORBIT
+    DISABLE --> FREE
+    DISABLE -->|restore view| PC
+```
 
 <details>
 <summary>Module 2: Simplified runtime steps (environment viewing only)</summary>
@@ -152,6 +250,55 @@ flowchart TB
 	- `Systems/GUIRuntime/MetaAgentGUIRuntime.cpp`
 	- `Systems/GUIRuntime/MetaAgentPlayerControllerGUI.cpp`
 
+#### GUI runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Input
+        Q[Q toggle help panel]
+    end
+
+    subgraph Game
+        PC[AMetaAgentPlayerController]
+        GUI[FMetaAgentGUIState]
+    end
+
+    subgraph GUIRuntime
+        BRIDGE[MetaAgentPlayerControllerGUI]
+        GR[FMetaAgentGUIRuntime]
+        TOGGLE[RunToggleHelpPanelSequence]
+        APPLY[RunApplyHelpPanelSequence]
+        INIT[InitializeDefaultHelpPanelLines]
+        REBUILD[RebuildDisplayHelpPanelLines]
+    end
+
+    subgraph HUD
+        HUD[AMetaAgentHUD]
+        HELP[Help panel canvas]
+        REC[Recording panel lines]
+        NET[Networking panel lines]
+        STATUS[Status lines]
+    end
+
+    Q --> PC
+    PC --> BRIDGE
+    BRIDGE --> TOGGLE
+    TOGGLE --> GR
+    GR --> GUI
+    TOGGLE --> APPLY
+    APPLY --> INIT
+    APPLY --> REBUILD
+    REBUILD --> GUI
+    APPLY --> HUD
+    HUD --> HELP
+    APPLY --> REC
+    PC -->|BuildRecordingRuntimePanelLines| REC
+    PC -->|GetNetworkingRuntimePanelLines| NET
+    GUI -->|bHelpPanelVisible| HELP
+    GUI -->|RecordingStatusLine| REBUILD
+    GR --> STATUS
+```
+
 <details>
 <summary>Module 3: 20 sequential runtime steps</summary>
 
@@ -188,6 +335,63 @@ flowchart TB
 	- `Systems/NetworkingRuntime/MetaAgentGameInstanceNetworking.cpp`
 	- `Systems/NetworkingRuntime/MetaAgentGameInstance.h`
 	- `Systems/NetworkingRuntime/MetaAgentGameInstance.cpp`
+
+#### Networking runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Settings
+        PS[UMetaAgentPluginSettings]
+        PORT[LocalHttpServerPort]
+        PLATFORM[PlatformBaseUrl + EventEndpoint]
+    end
+
+    subgraph GameInstance
+        GI[UMetaAgentGameInstance]
+        SNAP[NetworkingRuntime snapshot]
+    end
+
+    subgraph LocalServer
+        HTTP[Embedded HTTP server]
+        ROUTER[IHttpRouter]
+        HEALTH["GET /health"]
+        ECHO["POST /echo"]
+        NOTIFY["POST /notify"]
+    end
+
+    subgraph Outbound
+        PC[AMetaAgentPlayerController]
+        H[H start audio]
+        G[G start image]
+        FWD[SendPlatformEvent]
+    end
+
+    subgraph GUI
+        GR[FMetaAgentGUIRuntime]
+        HUD[AMetaAgentHUD networking panel]
+    end
+
+    EXT[(External platform API)]
+
+    PS --> GI
+    PORT --> GI
+    PLATFORM --> GI
+    GI -->|Init| HTTP
+    HTTP --> ROUTER
+    ROUTER --> HEALTH
+    ROUTER --> ECHO
+    ROUTER --> NOTIFY
+    NOTIFY --> SNAP
+    HEALTH --> SNAP
+    H --> PC
+    G --> PC
+    PC --> FWD
+    FWD --> EXT
+    EXT -->|response| SNAP
+    GI -->|Shutdown| HTTP
+    SNAP --> GR
+    GR --> HUD
+```
 
 <details>
 <summary>Module 4: 20 sequential runtime steps</summary>
@@ -320,6 +524,57 @@ flowchart TB
 - Implemented in:
 	- `Systems/AIRuntime/MetaAgentWanderAIController.cpp`
 	- `Systems/AIRuntime/MetaAgentPlayerControllerAutopilot.cpp`
+
+#### AI runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Input
+        I[I toggle autopilot]
+    end
+
+    subgraph Game
+        PC[AMetaAgentPlayerController]
+        AP[FMetaAgentAutopilotState]
+        PAWN[Possessed pawn]
+    end
+
+    subgraph AIRuntime
+        BRIDGE[MetaAgentPlayerControllerAutopilot]
+        ENABLE[EnableAutopilotForCurrentPawn]
+        DISABLE[DisableAutopilotAndRepossess]
+        DEBOUNCE[Toggle debounce guard]
+    end
+
+    subgraph AIController
+        AIC[AMetaAgentWanderAIController]
+        BT[Runtime behavior tree]
+    end
+
+    subgraph PatrolLoop
+        PICK[Pick random patrol point]
+        MOVE[MoveTo patrol location]
+        WAIT[Wait random interval]
+    end
+
+    I --> PC
+    PC --> BRIDGE
+    BRIDGE --> DEBOUNCE
+    DEBOUNCE -->|off| ENABLE
+    DEBOUNCE -->|on| DISABLE
+    ENABLE --> AP
+    ENABLE --> AIC
+    PC -->|unpossess| PAWN
+    AIC -->|possess| PAWN
+    AIC --> BT
+    BT --> PICK
+    PICK --> MOVE
+    MOVE --> WAIT
+    WAIT --> PICK
+    DISABLE -->|destroy AI| AIC
+    DISABLE -->|repossess| PC
+    DISABLE --> AP
+```
 
 <details>
 <summary>Module 6: 10 sequential runtime steps</summary>
