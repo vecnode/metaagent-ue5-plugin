@@ -522,6 +522,7 @@ void AMetaAgentPlayerController::BeginPlay()
 		if (ParticleRuntime)
 		{
 			ParticleRuntime->InitializeRuntime(this);
+			SyncParticlePatternConfigToRuntime();
 			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleRuntime->BuildStatusText());
 		}
 
@@ -583,6 +584,8 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternPressed);
+			InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternSlowPresetPressed);
+			InputComponent->BindKey(EKeys::N, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternDramaticPresetPressed);
 			InputFallback.bUtilityKeysBound = true;
 		}
 	}
@@ -930,6 +933,7 @@ void AMetaAgentPlayerController::EnsureParticleExportCallbackBindings(const bool
 		if (ParticleRuntime)
 		{
 			ParticleRuntime->InitializeRuntime(this);
+			SyncParticlePatternConfigToRuntime();
 		}
 	}
 
@@ -996,6 +1000,7 @@ void AMetaAgentPlayerController::SubmitNiagaraParticlePositions(
 		if (ParticleRuntime)
 		{
 			ParticleRuntime->InitializeRuntime(this);
+			SyncParticlePatternConfigToRuntime();
 		}
 	}
 
@@ -1020,6 +1025,7 @@ void AMetaAgentPlayerController::RefreshParticleRuntimeTracking()
 		if (ParticleRuntime)
 		{
 			ParticleRuntime->InitializeRuntime(this);
+			SyncParticlePatternConfigToRuntime();
 		}
 	}
 
@@ -1046,6 +1052,7 @@ void AMetaAgentPlayerController::SetParticleSteeringTarget(const FVector TargetL
 		if (ParticleRuntime)
 		{
 			ParticleRuntime->InitializeRuntime(this);
+			SyncParticlePatternConfigToRuntime();
 		}
 	}
 

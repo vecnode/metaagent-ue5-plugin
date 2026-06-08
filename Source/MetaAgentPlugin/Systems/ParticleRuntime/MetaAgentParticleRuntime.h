@@ -157,6 +157,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString BuildPatternStatusText() const;
 
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString BuildPatternTimingsText() const;
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetPatternTimings(float FormDurationSeconds, float HoldDurationSeconds, float ReturnDurationSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void ApplyPatternPreset(EMetaAgentParticlePatternPreset Preset);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FMetaAgentParticlePatternConfig GetPatternConfig() const { return PatternConfig; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	float GetActiveStateDurationSeconds() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	float GetActiveStateTimeRemainingSeconds() const;
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
 	void BuildComponentSnapshot();
@@ -167,6 +188,8 @@ private:
 	void BuildSquarePatternTargets();
 	void ApplyPatternActuation();
 	void ResetPatternRuntime();
+	void EnterPatternState(EMetaAgentParticlePatternState NewState);
+	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UWorld> CachedWorld;
@@ -203,17 +226,8 @@ private:
 	UPROPERTY(Transient)
 	FMetaAgentParticlePatternRuntime PatternRuntime;
 
-	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
-	float PatternFormDurationSeconds = 1.5f;
-
-	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0"))
-	float PatternHoldDurationSeconds = 0.5f;
-
-	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
-	float PatternReturnDurationSeconds = 1.5f;
-
-	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "1.0"))
-	float PatternGridSpacingCm = 12.0f;
+	UPROPERTY(Transient)
+	FMetaAgentParticlePatternConfig PatternConfig;
 
 	bool bLoggedPatternStart = false;
 };

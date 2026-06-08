@@ -654,19 +654,23 @@ bool UMetaAgentParticleRuntime::StartSquarePattern()
 		return false;
 	}
 
+	PatternRuntime.ActiveConfig = PatternConfig;
 	PatternRuntime.BaselineWorldPositions = LatestSnapshot.ExportedParticlePositions;
 	BuildSquarePatternTargets();
 
-	PatternRuntime.State = EMetaAgentParticlePatternState::Forming;
+	EnterPatternState(EMetaAgentParticlePatternState::Forming);
 	PatternRuntime.Phase = 0.0f;
-	PatternRuntime.StateElapsedSeconds = 0.0f;
 	bLoggedPatternStart = false;
 
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("ParticleRuntime: square pattern started with %d particle(s), grid columns=%d, spacing=%.1f."),
+		TEXT("ParticleRuntime: square pattern started preset=%s with %d particle(s), grid columns=%d, spacing=%.1f, timings form=%.1fs hold=%.1fs return=%.1fs."),
+		*PatternRuntime.ActiveConfig.GetPresetDisplayName(),
 		PatternRuntime.BaselineWorldPositions.Num(),
 		PatternRuntime.PatternColumns,
-		PatternGridSpacingCm);
+		PatternRuntime.ActiveConfig.GridSpacingCm,
+		PatternRuntime.ActiveConfig.FormDurationSeconds,
+		PatternRuntime.ActiveConfig.HoldDurationSeconds,
+		PatternRuntime.ActiveConfig.ReturnDurationSeconds);
 
 	return true;
 }
@@ -681,13 +685,91 @@ FString UMetaAgentParticleRuntime::GetPatternStateDisplayName() const
 	return PatternStateToString(PatternRuntime.State);
 }
 
+FString UMetaAgentParticleRuntime::BuildPatternTimingsText() const
+{
+	const FMetaAgentParticlePatternConfig& DisplayConfig =
+		PatternRuntime.State == EMetaAgentParticlePatternState::Idle
+			? PatternConfig
+			: PatternRuntime.ActiveConfig;
+
+	return FString::Printf(
+		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs"),
+		*DisplayConfig.GetPresetDisplayName(),
+		DisplayConfig.FormDurationSeconds,
+		DisplayConfig.HoldDurationSeconds,
+		DisplayConfig.ReturnDurationSeconds);
+}
+
 FString UMetaAgentParticleRuntime::BuildPatternStatusText() const
 {
+	const int32 ParticleCount = PatternRuntime.BaselineWorldPositions.Num();
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
+	{
+		return FString::Printf(
+			TEXT("Pattern State: Idle | Phase: 0.00 | Particles: %d"),
+			ParticleCount);
+	}
+
+	const float StateDuration = GetActiveStateDurationSeconds();
+	const float TimeRemaining = GetActiveStateTimeRemainingSeconds();
+
 	return FString::Printf(
-		TEXT("Pattern State: %s | Phase: %.2f | Particles: %d"),
+		TEXT("Pattern State: %s | Phase: %.2f | In-state: %.2fs / %.1fs (%.1fs left) | Particles: %d"),
 		*GetPatternStateDisplayName(),
 		PatternRuntime.Phase,
-		PatternRuntime.BaselineWorldPositions.Num());
+		PatternRuntime.StateElapsedSeconds,
+		StateDuration,
+		TimeRemaining,
+		ParticleCount);
+}
+
+void UMetaAgentParticleRuntime::ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config)
+{
+	PatternConfig = Config;
+}
+
+void UMetaAgentParticleRuntime::SetPatternTimings(
+	const float FormDurationSeconds,
+	const float HoldDurationSeconds,
+	const float ReturnDurationSeconds)
+{
+	PatternConfig.FormDurationSeconds = FMath::Max(0.1f, FormDurationSeconds);
+	PatternConfig.HoldDurationSeconds = FMath::Max(0.0f, HoldDurationSeconds);
+	PatternConfig.ReturnDurationSeconds = FMath::Max(0.1f, ReturnDurationSeconds);
+	PatternConfig.ActivePreset = EMetaAgentParticlePatternPreset::Custom;
+}
+
+void UMetaAgentParticleRuntime::ApplyPatternPreset(const EMetaAgentParticlePatternPreset Preset)
+{
+	PatternConfig.ApplyPreset(Preset);
+}
+
+float UMetaAgentParticleRuntime::GetActiveStateDurationSeconds() const
+{
+	const FMetaAgentParticlePatternConfig& Timings = GetTimingConfigForTick();
+
+	switch (PatternRuntime.State)
+	{
+	case EMetaAgentParticlePatternState::Forming:
+		return FMath::Max(0.1f, Timings.FormDurationSeconds);
+	case EMetaAgentParticlePatternState::Holding:
+		return FMath::Max(0.0f, Timings.HoldDurationSeconds);
+	case EMetaAgentParticlePatternState::Returning:
+		return FMath::Max(0.1f, Timings.ReturnDurationSeconds);
+	case EMetaAgentParticlePatternState::Idle:
+	default:
+		return 0.0f;
+	}
+}
+
+float UMetaAgentParticleRuntime::GetActiveStateTimeRemainingSeconds() const
+{
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
+	{
+		return 0.0f;
+	}
+
+	return FMath::Max(0.0f, GetActiveStateDurationSeconds() - PatternRuntime.StateElapsedSeconds);
 }
 
 void UMetaAgentParticleRuntime::ResetPatternRuntime()
@@ -720,9 +802,10 @@ void UMetaAgentParticleRuntime::BuildSquarePatternTargets()
 	Centroid /= static_cast<float>(ParticleCount);
 	PatternRuntime.PatternCenter = Centroid;
 
+	const float GridSpacingCm = FMath::Max(1.0f, PatternRuntime.ActiveConfig.GridSpacingCm);
 	const FVector GridOrigin = Centroid - FVector(
-		(PatternRuntime.PatternColumns - 1) * PatternGridSpacingCm * 0.5f,
-		(RowCount - 1) * PatternGridSpacingCm * 0.5f,
+		(PatternRuntime.PatternColumns - 1) * GridSpacingCm * 0.5f,
+		(RowCount - 1) * GridSpacingCm * 0.5f,
 		0.0f);
 
 	PatternRuntime.PatternWorldTargets.SetNum(ParticleCount);
@@ -731,10 +814,23 @@ void UMetaAgentParticleRuntime::BuildSquarePatternTargets()
 		const int32 Column = ParticleIndex % PatternRuntime.PatternColumns;
 		const int32 Row = ParticleIndex / PatternRuntime.PatternColumns;
 		PatternRuntime.PatternWorldTargets[ParticleIndex] = GridOrigin + FVector(
-			Column * PatternGridSpacingCm,
-			Row * PatternGridSpacingCm,
+			Column * GridSpacingCm,
+			Row * GridSpacingCm,
 			0.0f);
 	}
+}
+
+void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatternState NewState)
+{
+	PatternRuntime.State = NewState;
+	PatternRuntime.StateElapsedSeconds = 0.0f;
+}
+
+const FMetaAgentParticlePatternConfig& UMetaAgentParticleRuntime::GetTimingConfigForTick() const
+{
+	return PatternRuntime.State == EMetaAgentParticlePatternState::Idle
+		? PatternConfig
+		: PatternRuntime.ActiveConfig;
 }
 
 void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
@@ -746,33 +842,33 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 
 	PatternRuntime.StateElapsedSeconds += FMath::Max(0.0f, DeltaTimeSeconds);
 
+	const FMetaAgentParticlePatternConfig& Timings = PatternRuntime.ActiveConfig;
+
 	switch (PatternRuntime.State)
 	{
 	case EMetaAgentParticlePatternState::Forming:
 	{
-		const float FormDuration = FMath::Max(0.1f, PatternFormDurationSeconds);
+		const float FormDuration = FMath::Max(0.1f, Timings.FormDurationSeconds);
 		PatternRuntime.Phase = SmoothStep01(PatternRuntime.StateElapsedSeconds / FormDuration);
 		if (PatternRuntime.StateElapsedSeconds >= FormDuration)
 		{
-			PatternRuntime.State = EMetaAgentParticlePatternState::Holding;
+			EnterPatternState(EMetaAgentParticlePatternState::Holding);
 			PatternRuntime.Phase = 1.0f;
-			PatternRuntime.StateElapsedSeconds = 0.0f;
 		}
 		break;
 	}
 	case EMetaAgentParticlePatternState::Holding:
 	{
 		PatternRuntime.Phase = 1.0f;
-		if (PatternRuntime.StateElapsedSeconds >= FMath::Max(0.0f, PatternHoldDurationSeconds))
+		if (PatternRuntime.StateElapsedSeconds >= FMath::Max(0.0f, Timings.HoldDurationSeconds))
 		{
-			PatternRuntime.State = EMetaAgentParticlePatternState::Returning;
-			PatternRuntime.StateElapsedSeconds = 0.0f;
+			EnterPatternState(EMetaAgentParticlePatternState::Returning);
 		}
 		break;
 	}
 	case EMetaAgentParticlePatternState::Returning:
 	{
-		const float ReturnDuration = FMath::Max(0.1f, PatternReturnDurationSeconds);
+		const float ReturnDuration = FMath::Max(0.1f, Timings.ReturnDurationSeconds);
 		PatternRuntime.Phase = 1.0f - SmoothStep01(PatternRuntime.StateElapsedSeconds / ReturnDuration);
 		if (PatternRuntime.StateElapsedSeconds >= ReturnDuration)
 		{

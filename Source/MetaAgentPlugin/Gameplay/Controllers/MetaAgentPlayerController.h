@@ -7,6 +7,7 @@
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/SoftObjectPtr.h"
+#include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "MetaAgentPlayerController.generated.h"
 
 class AAIController;
@@ -459,6 +460,12 @@ protected:
 	/** Bound to V: plays square particle pattern choreography. */
 	void HandleParticlePatternPressed();
 
+	/** Bound to B: applies the Slow particle pattern timing preset. */
+	void HandleParticlePatternSlowPresetPressed();
+
+	/** Bound to N: applies the Dramatic particle pattern timing preset. */
+	void HandleParticlePatternDramaticPresetPressed();
+
 	/** Bound to F: loads the latest PNG from disk and shows it in front of the camera. */
 	void HandleLoadLatestPngPreviewPressed();
 
@@ -552,6 +559,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternStatusText() const;
 
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString GetParticlePatternTimingsText() const;
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset Preset);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternTimings(float FormDurationSeconds, float HoldDurationSeconds, float ReturnDurationSeconds);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FMetaAgentParticlePatternConfig GetParticlePatternConfig() const { return ParticlePatternConfig; }
+
+	/** Pushes controller pattern config into the transient particle runtime object. */
+	void SyncParticlePatternConfigToRuntime();
+
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
 
@@ -635,6 +657,10 @@ protected:
 	/** Keep a strong reference so the loaded runtime texture stays alive. */
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> LatestPngPreviewTexture;
+
+	/** Square pattern choreography timings and grid spacing (Class Defaults). */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	FMetaAgentParticlePatternConfig ParticlePatternConfig;
 
 	/** Runtime Niagara tracking and particle export cache. */
 	UPROPERTY(Transient)

@@ -33,6 +33,8 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("PARTICLES"));
 		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play square pattern (form -> hold -> return)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("B       : Pattern preset Slow (3.0 / 1.5 / 3.0 s)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("N       : Pattern preset Dramatic (4.0 / 2.0 / 5.0 s)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Shift   : Sprint modifier (input fallback)"));
@@ -62,6 +64,7 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 		TEXT("Particle Capture: %s (Count=%d)"),
 		Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
 		Controller.GetCapturedParticleCount()));
+	GUI.HelpPanelLines.Add(Controller.GetParticlePatternTimingsText());
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternStatusText());
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
