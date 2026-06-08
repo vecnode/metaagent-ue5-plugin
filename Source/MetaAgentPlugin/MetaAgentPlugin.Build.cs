@@ -44,5 +44,10 @@ public class MetaAgentPlugin : ModuleRules
 				"AVIWriter"
 			}
 		);
+
+		if (Target.Type == TargetType.Editor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }

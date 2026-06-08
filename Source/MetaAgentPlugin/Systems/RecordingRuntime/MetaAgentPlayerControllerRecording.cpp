@@ -4,8 +4,11 @@
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
 #include "MetaAgentPluginSettings.h"
+#include "Engine/Engine.h"
 #include "Engine/GameEngine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/World.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/Paths.h"
 #include "MovieSceneCapture.h"
@@ -14,16 +17,92 @@
 #include "Protocols/VideoCaptureProtocol.h"
 #include "Slate/SceneViewport.h"
 
+#if WITH_EDITOR
+#include "Editor/EditorEngine.h"
+#endif
+
 namespace MetaAgentRecording
 {
-	static TSharedPtr<FSceneViewport> ResolveLocalSceneViewport(const AMetaAgentPlayerController& Controller)
+	static const FName SceneViewportTypeName(TEXT("SceneViewport"));
+
+	static TSharedPtr<FSceneViewport> ToSharedSceneViewport(FSceneViewport* SceneViewport)
+	{
+		if (!SceneViewport)
+		{
+			return nullptr;
+		}
+
+		if (const UGameEngine* GameEngine = Cast<UGameEngine>(GEngine))
+		{
+			if (GameEngine->SceneViewport.IsValid() && GameEngine->SceneViewport.Get() == SceneViewport)
+			{
+				return GameEngine->SceneViewport;
+			}
+		}
+
+		// Viewport lifetime is owned by the active game/PIE session.
+		return TSharedPtr<FSceneViewport>(SceneViewport, [](FSceneViewport*) {});
+	}
+
+	static FSceneViewport* ResolveRawSceneViewport(const AMetaAgentPlayerController& Controller)
 	{
 		if (const UGameEngine* GameEngine = Cast<UGameEngine>(GEngine))
 		{
-			return GameEngine->SceneViewport;
+			if (GameEngine->SceneViewport.IsValid())
+			{
+				return GameEngine->SceneViewport.Get();
+			}
 		}
 
+		if (const ULocalPlayer* LocalPlayer = Controller.GetLocalPlayer())
+		{
+			if (UGameViewportClient* ViewportClient = LocalPlayer->ViewportClient)
+			{
+				if (FSceneViewport* SceneViewport = ViewportClient->GetGameViewport())
+				{
+					return SceneViewport;
+				}
+			}
+		}
+
+		if (const UWorld* World = Controller.GetWorld())
+		{
+			if (UGameViewportClient* ViewportClient = World->GetGameViewport())
+			{
+				if (FSceneViewport* SceneViewport = ViewportClient->GetGameViewport())
+				{
+					return SceneViewport;
+				}
+			}
+		}
+
+		if (GEngine && GEngine->GameViewport)
+		{
+			if (FSceneViewport* SceneViewport = GEngine->GameViewport->GetGameViewport())
+			{
+				return SceneViewport;
+			}
+		}
+
+#if WITH_EDITOR
+		if (UEditorEngine* EditorEngine = Cast<UEditorEngine>(GEngine))
+		{
+			if (FViewport* PieViewport = EditorEngine->GetPIEViewport())
+			{
+				if (PieViewport->GetViewportType() == SceneViewportTypeName)
+				{
+					return static_cast<FSceneViewport*>(PieViewport);
+				}
+			}
+		}
+#endif
+
 		return nullptr;
+	}
+
+	static TSharedPtr<FSceneViewport> ResolveLocalSceneViewport(const AMetaAgentPlayerController& Controller)
+	{
+		return ToSharedSceneViewport(ResolveRawSceneViewport(Controller));
 	}
 }
 
@@ -66,7 +145,11 @@ void AMetaAgentPlayerController::StartAutopilotTakeRecording()
 	const TSharedPtr<FSceneViewport> SceneViewport = MetaAgentRecording::ResolveLocalSceneViewport(*this);
 	if (!SceneViewport.IsValid())
 	{
-		UE_LOG(LogMetaAgent, Error, TEXT("RecordingRuntime: no local scene viewport available for capture."));
+		UE_LOG(LogMetaAgent, Error,
+			TEXT("RecordingRuntime: no scene viewport available for capture (world='%s' localPlayer=%s gameViewport=%s)."),
+			*GetNameSafe(GetWorld()),
+			GetLocalPlayer() ? TEXT("yes") : TEXT("no"),
+			(GEngine && GEngine->GameViewport) ? TEXT("yes") : TEXT("no"));
 		return;
 	}
 

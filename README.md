@@ -2,7 +2,7 @@
 
 Under heavy development. 
 
-- UE5 plugin with several runtimes for humanoid agents.
+- UE5 plugin with several runtimes for a multimodal agent with Humanoid structure.
 - Modules: MetaAgentPlugin (Runtime), MetaAgentPluginEditor (Editor).
 
 Objective: Allow an active agent to control the cinematic area. This plugin creates new levels and has default BPs to use. 
