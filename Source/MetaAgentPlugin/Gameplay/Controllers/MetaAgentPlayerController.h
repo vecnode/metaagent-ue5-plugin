@@ -19,6 +19,7 @@ class USkeletalMeshComponent;
 class UNiagaraComponent;
 class UMetaAgentParticleRuntime;
 class UMetaAgentNiagaraExportHandler;
+class UMovieSceneCapture;
 
 UENUM()
 enum class EMetaAgentCameraMode : uint8
@@ -238,28 +239,35 @@ struct FMetaAgentRecordingState
 	FColor RenderStatusColor = FColor::Silver;
 
 	UPROPERTY(Transient)
-	bool bRuntimeFrameCaptureActive = false;
-
-	UPROPERTY(Transient)
-	float RuntimeCaptureAccumulatedSeconds = 0.0f;
+	TObjectPtr<UMovieSceneCapture> ActiveMovieSceneCapture;
 
 	UPROPERTY(Transient)
 	int32 RuntimeCapturedFrameCount = 0;
 
 	UPROPERTY(Transient)
-	int32 RuntimeCaptureFrameIndex = 0;
+	int32 ActiveCaptureWidth = 0;
+
+	UPROPERTY(Transient)
+	int32 ActiveCaptureHeight = 0;
 
 	UPROPERTY(Transient)
 	FString RuntimeCaptureOutputDirectory;
 
-	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="1.0", ClampMax="60.0"))
-	float RuntimeCaptureFps = 15.0f;
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="1.0", ClampMax="120.0"))
+	float CaptureFps = 30.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="128", ClampMax="7680"))
-	int32 RuntimeCaptureWidth = 3840;
+	/** When zero, capture uses the current viewport resolution. */
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="0", ClampMax="7680"))
+	int32 CaptureWidth = 0;
 
-	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="128", ClampMax="4320"))
-	int32 RuntimeCaptureHeight = 2160;
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="0", ClampMax="4320"))
+	int32 CaptureHeight = 0;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording")
+	bool bUseVideoCompression = true;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Recording", meta=(ClampMin="1", ClampMax="100", EditCondition="bUseVideoCompression"))
+	float VideoCompressionQuality = 75.0f;
 };
 
 UENUM()
@@ -424,6 +432,8 @@ protected:
 	/** Gameplay initialization */
 	virtual void BeginPlay() override;
 
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	/** Called when this controller possesses a new pawn. Sets up third-person camera. */
 	virtual void OnPossess(APawn* InPawn) override;
 
@@ -493,10 +503,10 @@ protected:
 	/** Disables AI autopilot and repossesses the last autopilot pawn. */
 	void DisableAutopilotAndRepossess();
 
-	/** Starts high-resolution frame capture to disk. */
+	/** Starts viewport movie-scene capture to disk. */
 	void StartAutopilotTakeRecording();
 
-	/** Stops an in-progress high-resolution frame capture. */
+	/** Stops an in-progress viewport movie-scene capture. */
 	void StopAutopilotTakeRecording();
 
 	/** Reports status for captured frame output. */
@@ -505,8 +515,8 @@ protected:
 	/** Pushes current recording/take/render state into the persistent HUD status panel. */
 	void UpdateRecordingStatusHud();
 
-	/** Updates standalone/shipping frame capture recording at a fixed rate while active. */
-	void UpdateRuntimeFrameCapture(float DeltaTime);
+	/** Refreshes live capture metrics while Movie Scene Capture is active. */
+	void UpdateRecordingCaptureStatus();
 
 	/** Applies the active camera mode to the currently possessed pawn. */
 	void ApplyCameraModeToPawn(APawn* InPawn);

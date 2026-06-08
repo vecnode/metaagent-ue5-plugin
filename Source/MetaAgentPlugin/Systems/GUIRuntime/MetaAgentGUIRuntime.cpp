@@ -24,8 +24,8 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle HiRes frame capture"));
-		GUI.BaseHelpPanelLines.Add(TEXT("U       : Show capture output status"));
+		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle viewport capture"));
+		GUI.BaseHelpPanelLines.Add(TEXT("U       : Finalize / show capture output"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("COMMS"));
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Send HTTP 'start audio'"));

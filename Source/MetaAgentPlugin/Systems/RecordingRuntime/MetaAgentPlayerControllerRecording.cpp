@@ -3,8 +3,29 @@
 
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
+#include "MetaAgentPluginSettings.h"
+#include "Engine/GameEngine.h"
+#include "Engine/GameViewportClient.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/Paths.h"
+#include "MovieSceneCapture.h"
+#include "MovieSceneCaptureModule.h"
+#include "Protocols/AudioCaptureProtocol.h"
+#include "Protocols/VideoCaptureProtocol.h"
+#include "Slate/SceneViewport.h"
+
+namespace MetaAgentRecording
+{
+	static TSharedPtr<FSceneViewport> ResolveLocalSceneViewport(const AMetaAgentPlayerController& Controller)
+	{
+		if (const UGameEngine* GameEngine = Cast<UGameEngine>(GEngine))
+		{
+			return GameEngine->SceneViewport;
+		}
+
+		return nullptr;
+	}
+}
 
 void AMetaAgentPlayerController::HandleReportRecordingStatusPressed()
 {
@@ -35,39 +56,100 @@ void AMetaAgentPlayerController::StartAutopilotTakeRecording()
 		return;
 	}
 
-	Recording.bTakeRecordingActive = false;
-	Recording.bRuntimeFrameCaptureActive = false;
-	Recording.RuntimeCaptureAccumulatedSeconds = 0.0f;
+	const UMetaAgentPluginSettings* PluginSettings = GetDefault<UMetaAgentPluginSettings>();
+	if (!PluginSettings || !PluginSettings->bEnableRecordingSystems)
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("RecordingRuntime: recording systems are disabled in plugin settings."));
+		return;
+	}
+
+	const TSharedPtr<FSceneViewport> SceneViewport = MetaAgentRecording::ResolveLocalSceneViewport(*this);
+	if (!SceneViewport.IsValid())
+	{
+		UE_LOG(LogMetaAgent, Error, TEXT("RecordingRuntime: no local scene viewport available for capture."));
+		return;
+	}
+
+	Recording.ActiveMovieSceneCapture = nullptr;
 	Recording.RuntimeCapturedFrameCount = 0;
-	Recording.RuntimeCaptureFrameIndex = 0;
+	Recording.ActiveCaptureWidth = 0;
+	Recording.ActiveCaptureHeight = 0;
 	Recording.RuntimeCaptureOutputDirectory = TEXT("");
 
 	const FString SessionSuffix = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
 	Recording.RuntimeCaptureOutputDirectory = FPaths::ConvertRelativePathToFull(
-		FPaths::ProjectSavedDir() / TEXT("Renders") / FString::Printf(TEXT("HiResFrames_%s"), *SessionSuffix));
+		FPaths::ProjectSavedDir() / TEXT("Renders") / FString::Printf(TEXT("Capture_%s"), *SessionSuffix));
 
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 	if (!PlatformFile.CreateDirectoryTree(*Recording.RuntimeCaptureOutputDirectory))
 	{
-		UE_LOG(LogMetaAgent, Error, TEXT("Recording: failed to create runtime capture directory '%s'."), *Recording.RuntimeCaptureOutputDirectory);
+		UE_LOG(LogMetaAgent, Error, TEXT("RecordingRuntime: failed to create capture directory '%s'."), *Recording.RuntimeCaptureOutputDirectory);
 		return;
 	}
 
+	if (Recording.CaptureWidth > 0 && Recording.CaptureHeight > 0)
+	{
+		SceneViewport->SetViewportSize(Recording.CaptureWidth, Recording.CaptureHeight);
+	}
+
+	FIntPoint CaptureResolution = SceneViewport->GetSize();
+	if (CaptureResolution == FIntPoint::ZeroValue)
+	{
+		CaptureResolution = FIntPoint(GSystemResolution.ResX, GSystemResolution.ResY);
+	}
+
+	UMovieSceneCapture* Capture = NewObject<UMovieSceneCapture>(GetTransientPackage());
+	if (!Capture)
+	{
+		UE_LOG(LogMetaAgent, Error, TEXT("RecordingRuntime: failed to create Movie Scene Capture object."));
+		return;
+	}
+
+	const int32 CaptureFps = FMath::Clamp(FMath::RoundToInt(Recording.CaptureFps), 1, 120);
+	Capture->Settings.OutputDirectory.Path = Recording.RuntimeCaptureOutputDirectory;
+	Capture->Settings.OutputFormat = TEXT("Capture_{world}_{time}");
+	Capture->Settings.bOverwriteExisting = true;
+	Capture->Settings.bUseCustomFrameRate = true;
+	Capture->Settings.CustomFrameRate = FFrameRate(CaptureFps, 1);
+	Capture->Settings.Resolution.ResX = CaptureResolution.X;
+	Capture->Settings.Resolution.ResY = CaptureResolution.Y;
+	Capture->Settings.bCinematicMode = false;
+	Capture->Settings.bCinematicEngineScalability = false;
+	Capture->Settings.bShowHUD = false;
+	Capture->Settings.bEnableTextureStreaming = true;
+	Capture->Settings.MovieExtension = TEXT(".avi");
+	Capture->SetImageCaptureProtocolType(UVideoCaptureProtocol::StaticClass());
+	Capture->SetAudioCaptureProtocolType(UNullAudioCaptureProtocol::StaticClass());
+
+	Capture->Initialize(SceneViewport);
+
+	if (UVideoCaptureProtocol* VideoProtocol = Cast<UVideoCaptureProtocol>(Capture->GetImageCaptureProtocol()))
+	{
+		VideoProtocol->bUseCompression = Recording.bUseVideoCompression;
+		VideoProtocol->CompressionQuality = Recording.VideoCompressionQuality;
+	}
+
+	Capture->StartCapture();
+
+	Recording.ActiveMovieSceneCapture = Capture;
 	Recording.bTakeRecordingActive = true;
-	Recording.bRuntimeFrameCaptureActive = true;
+	Recording.ActiveCaptureWidth = CaptureResolution.X;
+	Recording.ActiveCaptureHeight = CaptureResolution.Y;
 	Recording.RenderStatusText = FString::Printf(
-		TEXT("HiRes frame capture active (%dx%d @ %0.0f FPS)"),
-		Recording.RuntimeCaptureWidth,
-		Recording.RuntimeCaptureHeight,
-		Recording.RuntimeCaptureFps);
+		TEXT("Video capture active (%dx%d @ %d FPS)"),
+		Recording.ActiveCaptureWidth,
+		Recording.ActiveCaptureHeight,
+		CaptureFps);
 	Recording.RenderStatusColor = FColor::Cyan;
 
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("RecordingRuntime: HiRes frame capture started. Output='%s' Res=%dx%d FPS=%0.0f"),
+		TEXT("RecordingRuntime: video capture started. Output='%s' Res=%dx%d FPS=%d Compression=%s Quality=%0.0f"),
 		*Recording.RuntimeCaptureOutputDirectory,
-		Recording.RuntimeCaptureWidth,
-		Recording.RuntimeCaptureHeight,
-		Recording.RuntimeCaptureFps);
+		Recording.ActiveCaptureWidth,
+		Recording.ActiveCaptureHeight,
+		CaptureFps,
+		Recording.bUseVideoCompression ? TEXT("On") : TEXT("Off"),
+		Recording.VideoCompressionQuality);
 	UpdateRecordingStatusHud();
 }
 
@@ -77,22 +159,24 @@ void AMetaAgentPlayerController::StopAutopilotTakeRecording()
 	{
 		return;
 	}
-	if (Recording.bRuntimeFrameCaptureActive)
-	{
-		Recording.bRuntimeFrameCaptureActive = false;
-		Recording.RenderStatusText = FString::Printf(
-			TEXT("HiRes frame capture stopped (%d frames)"),
-			Recording.RuntimeCapturedFrameCount);
-		Recording.RenderStatusColor = FColor::Silver;
 
-		UE_LOG(LogMetaAgent, Log,
-			TEXT("RecordingRuntime: HiRes frame capture stopped. Frames=%d Output='%s'"),
-			Recording.RuntimeCapturedFrameCount,
-			*Recording.RuntimeCaptureOutputDirectory);
+	if (Recording.ActiveMovieSceneCapture)
+	{
+		Recording.RuntimeCapturedFrameCount = Recording.ActiveMovieSceneCapture->GetMetrics().Frame;
+		IMovieSceneCaptureModule::Get().DestroyMovieSceneCapture(Recording.ActiveMovieSceneCapture->GetHandle());
+		Recording.ActiveMovieSceneCapture = nullptr;
 	}
 
 	Recording.bTakeRecordingActive = false;
-	UE_LOG(LogMetaAgent, Log, TEXT("RecordingRuntime: stop requested."));
+	Recording.RenderStatusText = FString::Printf(
+		TEXT("Video capture stopped (%d frames)"),
+		Recording.RuntimeCapturedFrameCount);
+	Recording.RenderStatusColor = FColor::Silver;
+
+	UE_LOG(LogMetaAgent, Log,
+		TEXT("RecordingRuntime: video capture stopped. Frames=%d Output='%s'"),
+		Recording.RuntimeCapturedFrameCount,
+		*Recording.RuntimeCaptureOutputDirectory);
 	UpdateRecordingStatusHud();
 }
 
@@ -111,58 +195,45 @@ void AMetaAgentPlayerController::ReportRuntimeCaptureStatus()
 	if (Recording.RuntimeCapturedFrameCount > 0)
 	{
 		Recording.RenderStatusText = FString::Printf(
-			TEXT("Frames already saved (%d)"),
+			TEXT("Video saved (%d frames)"),
 			Recording.RuntimeCapturedFrameCount);
 		Recording.RenderStatusColor = FColor::Green;
 		UpdateRecordingStatusHud();
 
 		UE_LOG(LogMetaAgent, Log,
-			TEXT("RecordingRuntime: captured frames are already saved to '%s' (%d frames)."),
+			TEXT("RecordingRuntime: video saved to '%s' (%d frames)."),
 			*Recording.RuntimeCaptureOutputDirectory,
 			Recording.RuntimeCapturedFrameCount);
 		return;
 	}
 
-	UE_LOG(LogMetaAgent, Warning, TEXT("RecordingRuntime: no captured frames available yet. Press J to start/stop capture first."));
-	return;
+	UE_LOG(LogMetaAgent, Warning, TEXT("RecordingRuntime: no captured video available yet. Press J to start/stop capture first."));
+}
+
+void AMetaAgentPlayerController::UpdateRecordingCaptureStatus()
+{
+	if (!Recording.bTakeRecordingActive || !Recording.ActiveMovieSceneCapture)
+	{
+		return;
+	}
+
+	const FCachedMetrics& Metrics = Recording.ActiveMovieSceneCapture->GetMetrics();
+	if (Metrics.Frame == Recording.RuntimeCapturedFrameCount)
+	{
+		return;
+	}
+
+	Recording.RuntimeCapturedFrameCount = Metrics.Frame;
+	Recording.RenderStatusText = FString::Printf(TEXT("Recording video: %d frames"), Recording.RuntimeCapturedFrameCount);
+	Recording.RenderStatusColor = FColor::Cyan;
+	UpdateRecordingStatusHud();
 }
 
 void AMetaAgentPlayerController::UpdateRecordingStatusHud()
 {
 	const TCHAR* RecordingState = Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF");
-	GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s (HiResFrameCapture) | %s"), RecordingState, *Recording.RenderStatusText);
+	GUI.RecordingStatusLine = FString::Printf(TEXT("Recording: %s (Video/AVI) | %s"), RecordingState, *Recording.RenderStatusText);
 	ApplyGUIHelpPanelState();
-}
-
-void AMetaAgentPlayerController::UpdateRuntimeFrameCapture(float DeltaTime)
-{
-	if (!Recording.bTakeRecordingActive || !Recording.bRuntimeFrameCaptureActive)
-	{
-		return;
-	}
-
-	Recording.RuntimeCaptureAccumulatedSeconds += DeltaTime;
-	const float CaptureIntervalSeconds = 1.0f / FMath::Max(1.0f, Recording.RuntimeCaptureFps);
-	if (Recording.RuntimeCaptureAccumulatedSeconds < CaptureIntervalSeconds)
-	{
-		return;
-	}
-
-	Recording.RuntimeCaptureAccumulatedSeconds -= CaptureIntervalSeconds;
-
-	const FString FrameFilename = Recording.RuntimeCaptureOutputDirectory /
-		FString::Printf(TEXT("frame_%06d.png"), Recording.RuntimeCaptureFrameIndex++);
-	const FString HighResShotCommand = FString::Printf(
-		TEXT("HighResShot filename=\"%s\" %dx%d"),
-		*FrameFilename,
-		Recording.RuntimeCaptureWidth,
-		Recording.RuntimeCaptureHeight);
-	ConsoleCommand(HighResShotCommand, true);
-	Recording.RuntimeCapturedFrameCount++;
-
-	Recording.RenderStatusText = FString::Printf(TEXT("Frames captured: %d"), Recording.RuntimeCapturedFrameCount);
-	Recording.RenderStatusColor = FColor::Cyan;
-	UpdateRecordingStatusHud();
 }
 
 TArray<FString> AMetaAgentPlayerController::BuildRecordingRuntimePanelLines() const
@@ -170,11 +241,28 @@ TArray<FString> AMetaAgentPlayerController::BuildRecordingRuntimePanelLines() co
 	TArray<FString> Lines;
 	Lines.Add(TEXT("Recording Runtime"));
 	Lines.Add(FString::Printf(TEXT("State         : %s"), Recording.bTakeRecordingActive ? TEXT("ON") : TEXT("OFF")));
-	Lines.Add(TEXT("Backend       : HiResFrameCapture"));
-	Lines.Add(FString::Printf(TEXT("Resolution    : %dx%d"), Recording.RuntimeCaptureWidth, Recording.RuntimeCaptureHeight));
+	Lines.Add(TEXT("Backend       : MovieSceneCapture (AVI video)"));
+	if (Recording.ActiveCaptureWidth > 0 && Recording.ActiveCaptureHeight > 0)
+	{
+		Lines.Add(FString::Printf(TEXT("Resolution    : %dx%d"), Recording.ActiveCaptureWidth, Recording.ActiveCaptureHeight));
+	}
+	else if (Recording.CaptureWidth > 0 && Recording.CaptureHeight > 0)
+	{
+		Lines.Add(FString::Printf(TEXT("Resolution    : %dx%d (override)"), Recording.CaptureWidth, Recording.CaptureHeight));
+	}
+	else
+	{
+		Lines.Add(TEXT("Resolution    : Viewport"));
+	}
+	Lines.Add(FString::Printf(TEXT("FPS           : %0.0f"), Recording.CaptureFps));
+	Lines.Add(FString::Printf(
+		TEXT("Compression   : %s (%0.0f)"),
+		Recording.bUseVideoCompression ? TEXT("On") : TEXT("Off"),
+		Recording.VideoCompressionQuality));
 	Lines.Add(FString::Printf(TEXT("Frames        : %d"), Recording.RuntimeCapturedFrameCount));
 	Lines.Add(FString::Printf(TEXT("Render        : %s"), *Recording.RenderStatusText));
-	Lines.Add(FString::Printf(TEXT("Output Dir    : %s"), Recording.RuntimeCaptureOutputDirectory.IsEmpty() ? TEXT("Saved/Renders") : *Recording.RuntimeCaptureOutputDirectory));
+	Lines.Add(FString::Printf(
+		TEXT("Output Dir    : %s"),
+		Recording.RuntimeCaptureOutputDirectory.IsEmpty() ? TEXT("Saved/Renders") : *Recording.RuntimeCaptureOutputDirectory));
 	return Lines;
 }
-

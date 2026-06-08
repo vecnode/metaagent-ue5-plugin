@@ -497,7 +497,7 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
 	}
 
-	UpdateRuntimeFrameCapture(DeltaTime);
+	UpdateRecordingCaptureStatus();
 }
 
 void AMetaAgentPlayerController::BeginPlay()
@@ -561,6 +561,16 @@ void AMetaAgentPlayerController::BeginPlay()
 
 	UpdateRecordingStatusHud();
 	ApplyGUIHelpPanelState();
+}
+
+void AMetaAgentPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (Recording.bTakeRecordingActive)
+	{
+		StopAutopilotTakeRecording();
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AMetaAgentPlayerController::SetupInputComponent()

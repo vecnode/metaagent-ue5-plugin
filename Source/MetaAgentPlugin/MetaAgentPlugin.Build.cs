@@ -39,7 +39,9 @@ public class MetaAgentPlugin : ModuleRules
 				"Slate",
 				"DeveloperSettings",
 				"ImageWrapper",
-				"ImageCore"
+				"ImageCore",
+				"MovieSceneCapture",
+				"AVIWriter"
 			}
 		);
 	}

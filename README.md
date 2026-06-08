@@ -218,28 +218,91 @@ flowchart TB
 
 ### Module 5: MetaAgentRecordingRuntime
 
-- Simple runtime recording based on direct HiRes frame capture (no Take Recorder dependency)
-- `J` toggles capture start/stop and writes PNG frames directly to disk
-- Frames are captured from the active player camera at fixed FPS
-- Output directory is created under `Saved/Renders/HiResFrames_YYYYMMDD_HHMMSS`
-- `U` reports output/capture status (frames are already saved on disk)
+- Runtime recording based on Unreal Engine Movie Scene Capture (FrameGrabber, no HiResShot loop)
+- `J` toggles viewport capture start/stop and writes an AVI video file directly to disk
+- Video is captured from the active player viewport at a fixed FPS (default 30)
+- Output directory is created under `Saved/Renders/Capture_YYYYMMDD_HHMMSS`
+- `U` finalizes capture (if active) and reports output/status summary
 - Recording panel shows runtime capture state, resolution, frame count, and output path
+- Video compression can be toggled on the player controller (`bUseVideoCompression`, `VideoCompressionQuality`)
+- Implemented in:
+	- `Systems/RecordingRuntime/MetaAgentPlayerControllerRecording.cpp`
+
+#### Recording runtime graph
+
+```mermaid
+flowchart TB
+    subgraph Input
+        J[J toggle capture]
+        U[U finalize / status]
+    end
+
+    subgraph Game
+        PC[AMetaAgentPlayerController]
+        RS[FMetaAgentRecordingState]
+    end
+
+    subgraph RecordingRuntime
+        RR[RecordingRuntime partials]
+        START[StartViewportRecording]
+        STOP[StopViewportRecording]
+        REPORT[ReportRuntimeCaptureStatus]
+        METRICS[UpdateRecordingCaptureStatus]
+    end
+
+    subgraph MovieSceneCapture
+        MSC[UMovieSceneCapture]
+        RTS[FRealTimeCaptureStrategy]
+        FG[FrameGrabber]
+        VIDEO[UVideoCaptureProtocol AVI]
+    end
+
+    VP[FSceneViewport]
+    OUT[(Saved/Renders/Capture_*)]
+    GUI[FMetaAgentGUIRuntime]
+    HUD[AMetaAgentHUD recording panel]
+
+    J --> PC
+    U --> PC
+    PC --> RR
+    RR --> START
+    RR --> STOP
+    RR --> REPORT
+    PC --> RS
+    START --> MSC
+    STOP --> MSC
+    REPORT --> STOP
+    MSC --> RTS
+    MSC --> FG
+    MSC --> VIDEO
+    VP --> FG
+    FG --> VIDEO
+    VIDEO --> OUT
+    PC -->|PlayerTick while active| METRICS
+    METRICS --> RS
+    START --> HUD
+    STOP --> HUD
+    REPORT --> HUD
+    RR --> GUI
+    GUI --> HUD
+    PC -->|EndPlay| STOP
+```
 
 <details>
 <summary>Module 5: 12 sequential runtime steps</summary>
 
-1. Press `J` to start frame capture.
+1. Press `J` to start viewport video capture.
 2. Initialize a new output folder in `Saved/Renders`.
-3. Mark runtime recording active and reset counters.
-4. Tick capture accumulator every frame.
-5. Capture at configured fixed FPS (default 15 FPS).
-6. For each capture step, request a HiRes screenshot using configured resolution.
-7. Save frames as sequential PNG files (`frame_000000.png`, ...).
-8. Update recording runtime panel line values continuously.
-9. Press `J` again to stop capture.
-10. Keep all captured frames in the output directory.
-11. Press `U` to report save/status summary for the current or last capture session.
-12. Use output frames directly for post-processing or external encoding.
+3. Configure Movie Scene Capture with `UVideoCaptureProtocol` (AVI output).
+4. Bind capture to the local game viewport and start recording.
+5. Capture at configured fixed FPS (default 30 FPS).
+6. Engine FrameGrabber streams frames into the AVI writer while gameplay continues.
+7. Update recording runtime panel line values continuously.
+8. Press `J` again to stop capture and finalize the AVI file.
+9. Keep the captured video in the output directory.
+10. Press `U` to finalize/status summary for the current or last capture session.
+11. Use the output AVI directly or transcode externally if needed.
+12. Capture resolution defaults to viewport size; optional override via recording settings.
 
 </details>
 
