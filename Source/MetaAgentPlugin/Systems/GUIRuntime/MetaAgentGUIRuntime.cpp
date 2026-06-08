@@ -20,7 +20,7 @@ namespace
 		GUI.BaseHelpPanelLines.Reset();
 		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Q       : Toggle this controls panel"));
-		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load/update static sdxl_latest.png preview"));
+		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load sdxl_latest.png preview + particle image shape"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
@@ -32,7 +32,7 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("G       : Send HTTP 'start image'"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("PARTICLES"));
-		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play square pattern (form -> hold -> return)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play pattern (image silhouette or square grid)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("B       : Pattern preset Slow (3.0 / 1.5 / 3.0 s)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("N       : Pattern preset Dramatic (4.0 / 2.0 / 5.0 s)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
@@ -65,6 +65,7 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 		Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
 		Controller.GetCapturedParticleCount()));
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternTimingsText());
+	GUI.HelpPanelLines.Add(Controller.GetParticlePatternShapeText());
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternStatusText());
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())

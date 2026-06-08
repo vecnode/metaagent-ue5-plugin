@@ -6,7 +6,9 @@
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
+#include "Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 
 namespace MetaAgentParticlePatternConsole
 {
@@ -179,10 +181,15 @@ namespace MetaAgentParticlePatternConsole
 		}
 
 		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *Controller->GetParticlePatternTimingsText());
+		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *Controller->GetParticlePatternShapeText());
 		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *Controller->GetParticlePatternStatusText());
 		ShowTransientPatternMessage(
 			Controller,
-			FString::Printf(TEXT("%s | %s"), *Controller->GetParticlePatternTimingsText(), *Controller->GetParticlePatternStatusText()),
+			FString::Printf(
+				TEXT("%s | %s | %s"),
+				*Controller->GetParticlePatternTimingsText(),
+				*Controller->GetParticlePatternShapeText(),
+				*Controller->GetParticlePatternStatusText()),
 			FColor::Silver);
 	}
 
@@ -208,8 +215,163 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternStatusCmd(
 		TEXT("MetaAgent.Pattern.Status"),
-		TEXT("Print active particle pattern timings and live state."),
+		TEXT("Print active particle pattern timings, shape, and live state."),
 		FConsoleCommandDelegate::CreateStatic(&ExecStatus));
+
+	void ExecSetShape(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const FString ShapeName = Args[0].ToLower();
+		if (ShapeName == TEXT("imagesilhouette") || ShapeName == TEXT("image"))
+		{
+			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::ImageSilhouette);
+		}
+		else if (ShapeName == TEXT("squaregrid") || ShapeName == TEXT("square"))
+		{
+			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::SquareGrid);
+		}
+		else
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.Shape: unknown shape '%s'."), *Args[0]);
+			return;
+		}
+
+		ShowTransientPatternMessage(Controller, Controller->GetParticlePatternShapeText(), FColor::Cyan);
+	}
+
+	void ExecSetImageThreshold(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageThreshold <0-1>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const float Threshold = FMath::Clamp(FCString::Atof(*Args[0]), 0.0f, 1.0f);
+		Controller->SetParticlePatternImageThreshold(Threshold);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Image threshold set to %.2f."), Threshold),
+			FColor::Cyan);
+	}
+
+	void ExecSetShapeWidth(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ShapeWidth <cm>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const float WidthCm = FMath::Max(10.0f, FCString::Atof(*Args[0]));
+		Controller->SetParticlePatternShapeWidth(WidthCm);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Shape width set to %.0f cm."), WidthCm),
+			FColor::Cyan);
+	}
+
+	static FAutoConsoleCommand MetaAgentPatternShapeCmd(
+		TEXT("MetaAgent.Pattern.Shape"),
+		TEXT("Set particle pattern shape: SquareGrid or ImageSilhouette."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetShape));
+
+	static FAutoConsoleCommand MetaAgentPatternImageThresholdCmd(
+		TEXT("MetaAgent.Pattern.ImageThreshold"),
+		TEXT("Set image silhouette alpha/luminance threshold (0-1)."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetImageThreshold));
+
+	static FAutoConsoleCommand MetaAgentPatternShapeWidthCmd(
+		TEXT("MetaAgent.Pattern.ShapeWidth"),
+		TEXT("Set image shape width in centimeters when not aligned to preview plane."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetShapeWidth));
+
+	void ExecSetImageSampling(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageSampling Sobel|Fill"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const FString ModeName = Args[0].ToLower();
+		if (ModeName == TEXT("sobel") || ModeName == TEXT("edges") || ModeName == TEXT("sobeledges"))
+		{
+			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::SobelEdges);
+		}
+		else if (ModeName == TEXT("fill") || ModeName == TEXT("filled") || ModeName == TEXT("filledsilhouette"))
+		{
+			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::FilledSilhouette);
+		}
+		else
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.ImageSampling: unknown mode '%s'."), *Args[0]);
+			return;
+		}
+
+		ShowTransientPatternMessage(Controller, Controller->GetParticlePatternShapeText(), FColor::Cyan);
+	}
+
+	void ExecSetEdgeThreshold(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.EdgeThreshold <0-1>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const float Threshold = FMath::Clamp(FCString::Atof(*Args[0]), 0.01f, 1.0f);
+		Controller->SetParticlePatternEdgeThreshold(Threshold);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Edge threshold set to %.3f."), Threshold),
+			FColor::Cyan);
+	}
+
+	static FAutoConsoleCommand MetaAgentPatternImageSamplingCmd(
+		TEXT("MetaAgent.Pattern.ImageSampling"),
+		TEXT("Set image sampling: Sobel (edges) or Fill (filled silhouette)."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetImageSampling));
+
+	static FAutoConsoleCommand MetaAgentPatternEdgeThresholdCmd(
+		TEXT("MetaAgent.Pattern.EdgeThreshold"),
+		TEXT("Set Sobel edge magnitude threshold (0.01-1). Lower = denser outlines."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetEdgeThreshold));
 }
 
 void AMetaAgentPlayerController::HandleParticlePatternPressed()
@@ -233,6 +395,7 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 	SyncParticlePatternConfigToRuntime();
 	ParticleRuntime->DiscoverNiagaraComponents(false);
 	ParticleRuntime->ForceCaptureParticles();
+	PrepareParticlePatternShapeContext();
 
 	if (!ParticleRuntime->StartSquarePattern())
 	{
@@ -249,7 +412,10 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
 	{
 		MetaAgentHUD->AddTransientMessage(
-			FString::Printf(TEXT("Particle square pattern started (%s)."), *ParticleRuntime->BuildPatternStatusText()),
+			FString::Printf(
+				TEXT("Particle pattern started (%s | %s)."),
+				*ParticleRuntime->BuildPatternShapeText(),
+				*ParticleRuntime->BuildPatternStatusText()),
 			FColor::Cyan,
 			3.0f);
 	}
@@ -310,6 +476,7 @@ bool AMetaAgentPlayerController::StartParticleSquarePattern()
 
 	SyncParticlePatternConfigToRuntime();
 	ParticleRuntime->ForceCaptureParticles();
+	PrepareParticlePatternShapeContext();
 	return ParticleRuntime->StartSquarePattern();
 }
 
@@ -364,4 +531,121 @@ void AMetaAgentPlayerController::SyncParticlePatternConfigToRuntime()
 	}
 
 	ParticleRuntime->ApplyPatternConfig(ParticlePatternConfig);
+}
+
+bool AMetaAgentPlayerController::PrepareParticlePatternShapeContext()
+{
+	if (!ParticleRuntime)
+	{
+		return false;
+	}
+
+	if (ParticlePatternConfig.Shape.ShapeType == EMetaAgentParticlePatternShape::ImageSilhouette)
+	{
+		FString ResolvedPath;
+		if (!EnsureParticlePreviewTextureLoaded(ResolvedPath))
+		{
+			UE_LOG(LogMetaAgent, Warning,
+				TEXT("ParticleRuntime: image silhouette requested but no preview texture is available. Falling back to square grid if needed."));
+		}
+	}
+
+	const FMetaAgentParticleShapeContext ShapeContext = BuildParticleShapeContext();
+	ParticleRuntime->SetPatternShapeContext(ShapeContext);
+	return true;
+}
+
+void AMetaAgentPlayerController::SetParticlePatternShape(const EMetaAgentParticlePatternShape ShapeType)
+{
+	ParticlePatternConfig.Shape.ShapeType = ShapeType;
+	SyncParticlePatternConfigToRuntime();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternImageThreshold(const float Threshold)
+{
+	ParticlePatternConfig.Shape.AlphaThreshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
+	SyncParticlePatternConfigToRuntime();
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternImageSamplingMode(
+	const EMetaAgentParticleImageSamplingMode SamplingMode)
+{
+	ParticlePatternConfig.Shape.ImageSamplingMode = SamplingMode;
+	SyncParticlePatternConfigToRuntime();
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternEdgeThreshold(const float Threshold)
+{
+	ParticlePatternConfig.Shape.EdgeThreshold = FMath::Clamp(Threshold, 0.01f, 1.0f);
+	SyncParticlePatternConfigToRuntime();
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternShapeWidth(const float WidthCm)
+{
+	ParticlePatternConfig.Shape.ShapeWidthCm = FMath::Max(10.0f, WidthCm);
+	SyncParticlePatternConfigToRuntime();
+}
+
+FString AMetaAgentPlayerController::GetParticlePatternShapeText() const
+{
+	const bool bImageLoaded = GetLatestPngPreviewTexture() != nullptr;
+
+	if (ParticleRuntime && ParticleRuntime->IsPatternActive())
+	{
+		return ParticleRuntime->BuildPatternShapeText();
+	}
+
+	return FString::Printf(
+		TEXT("Pattern Shape: %s | Sampling=%s | ImageLoaded=%s"),
+		*ParticlePatternConfig.Shape.GetShapeDisplayName(),
+		*ParticlePatternConfig.Shape.GetImageSamplingDisplayName(),
+		bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
+}
+
+FMetaAgentParticleShapeContext AMetaAgentPlayerController::BuildParticleShapeContext()
+{
+	FMetaAgentParticleShapeContext Context;
+
+	if (ParticleRuntime)
+	{
+		Context.BaselineWorldPositions = ParticleRuntime->GetKnownParticlePositions();
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		Context.PreviewPlaneMesh = FMetaAgentImagePreviewRuntime::FindPreviewPlaneMesh(
+			World,
+			ExistingPreviewPlaneActorName,
+			ExistingPreviewPlaneComponentName,
+			GetExistingPreviewPlaneMesh());
+		if (Context.PreviewPlaneMesh)
+		{
+			CacheExistingPreviewPlaneMesh(Context.PreviewPlaneMesh);
+		}
+	}
+
+	Context.SourceTexture = GetLatestPngPreviewTexture();
+	Context.SourceImagePath = GetLastLoadedPreviewImagePath();
+	Context.bHasResolvedImage = Context.SourceTexture != nullptr;
+	return Context;
+}
+
+bool AMetaAgentPlayerController::EnsureParticlePreviewTextureLoaded(FString& OutResolvedPath)
+{
+	if (!ParticlePatternConfig.Shape.bUseLoadedPreviewTexture
+		&& ParticlePatternConfig.Shape.ShapeType != EMetaAgentParticlePatternShape::ImageSilhouette)
+	{
+		OutResolvedPath = GetLastLoadedPreviewImagePath();
+		return GetLatestPngPreviewTexture() != nullptr;
+	}
+
+	return FMetaAgentImagePreviewRuntime::EnsurePreviewTextureLoaded(*this, OutResolvedPath);
+}
+
+void AMetaAgentPlayerController::CacheExistingPreviewPlaneMesh(UStaticMeshComponent* Mesh)
+{
+	ExistingPreviewPlaneMesh = Mesh;
 }

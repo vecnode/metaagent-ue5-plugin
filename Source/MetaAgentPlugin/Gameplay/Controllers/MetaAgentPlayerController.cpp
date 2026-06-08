@@ -11,8 +11,10 @@
 #include "Systems/CameraRuntime/MetaAgentCameraRuntime.h"
 #include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentNiagaraExportHandler.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
@@ -721,33 +723,7 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 		return;
 	}
 
-	FString DesktopDir;
-	const FString UserProfileDir = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
-	if (!UserProfileDir.IsEmpty())
-	{
-		DesktopDir = FPaths::Combine(UserProfileDir, TEXT("Desktop"));
-	}
-
-	if (DesktopDir.IsEmpty() || !FPaths::DirectoryExists(DesktopDir))
-	{
-		const FString OneDriveDir = FPlatformMisc::GetEnvironmentVariable(TEXT("OneDrive"));
-		if (!OneDriveDir.IsEmpty())
-		{
-			const FString OneDriveDesktopDir = FPaths::Combine(OneDriveDir, TEXT("Desktop"));
-			if (FPaths::DirectoryExists(OneDriveDesktopDir))
-			{
-				DesktopDir = OneDriveDesktopDir;
-			}
-		}
-	}
-
-	if (DesktopDir.IsEmpty())
-	{
-		DesktopDir = FPaths::ProjectDir();
-	}
-
-	const FString PngPath = FPaths::ConvertRelativePathToFull(
-		FPaths::Combine(DesktopDir, TEXT("github/agent-sequencer-app/output/sdxl_latest.png")));
+	const FString PngPath = FMetaAgentImagePreviewRuntime::ResolveDefaultSdxlPngPath();
 	if (!FPaths::FileExists(PngPath))
 	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: file not found '%s'"), *PngPath);
@@ -758,7 +734,7 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 		return;
 	}
 
-	UTexture2D* ImportedTexture = FImageUtils::ImportFileAsTexture2D(PngPath);
+	UTexture2D* ImportedTexture = FMetaAgentImagePreviewRuntime::ImportPngTexture(PngPath);
 	if (!ImportedTexture)
 	{
 		UE_LOG(LogMetaAgent, Error, TEXT("F pressed: failed to import png '%s'"), *PngPath);
@@ -769,65 +745,20 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 		return;
 	}
 
-	LatestPngPreviewTexture = ImportedTexture;
-	ImportedTexture->SRGB = true;
-	ImportedTexture->UpdateResource();
+	SetLatestPngPreviewTexture(ImportedTexture);
+	SetLastLoadedPreviewImagePath(PngPath);
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+	PrepareParticlePatternShapeContext();
 
-	UStaticMeshComponent* PreviewMesh = ExistingPreviewPlaneMesh.Get();
-	if (!PreviewMesh)
+	UStaticMeshComponent* PreviewMesh = GetExistingPreviewPlaneMesh();
+	if (!PreviewMesh && GetWorld())
 	{
-		if (UWorld* World = GetWorld())
-		{
-			auto NameMatches = [](const FString& CandidateName, const FString& WantedName) -> bool
-			{
-				if (CandidateName.Equals(WantedName, ESearchCase::IgnoreCase))
-				{
-					return true;
-				}
-
-				// Unreal may suffix duplicated actor names (e.g. Plane_2), so accept prefix match.
-				const FString Prefix = WantedName + TEXT("_");
-				return CandidateName.StartsWith(Prefix, ESearchCase::IgnoreCase);
-			};
-
-			const FString WantedActorName = ExistingPreviewPlaneActorName.ToString();
-			const FString WantedComponentName = ExistingPreviewPlaneComponentName.ToString();
-
-			for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
-			{
-				AStaticMeshActor* CandidateActor = *It;
-				if (!CandidateActor)
-				{
-					continue;
-				}
-
-				UStaticMeshComponent* CandidateMesh = CandidateActor->GetStaticMeshComponent();
-				if (!CandidateMesh)
-				{
-					continue;
-				}
-
-				const bool bActorNameMatches =
-					NameMatches(CandidateActor->GetActorNameOrLabel(), WantedActorName) ||
-					NameMatches(CandidateActor->GetName(), WantedActorName);
-
-				const bool bComponentNameMatches =
-					NameMatches(CandidateMesh->GetName(), WantedComponentName);
-
-				if (bActorNameMatches || bComponentNameMatches)
-				{
-					PreviewMesh = CandidateMesh;
-					break;
-				}
-
-				if (PreviewMesh)
-				{
-					break;
-				}
-			}
-		}
-
-		ExistingPreviewPlaneMesh = PreviewMesh;
+		PreviewMesh = FMetaAgentImagePreviewRuntime::FindPreviewPlaneMesh(
+			GetWorld(),
+			ExistingPreviewPlaneActorName,
+			ExistingPreviewPlaneComponentName,
+			nullptr);
+		CacheExistingPreviewPlaneMesh(PreviewMesh);
 	}
 
 	if (!PreviewMesh)
@@ -839,7 +770,15 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 
 		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
 		{
-			MetaAgentHUD->AddTransientMessage(TEXT("No preview plane named 'Plane' found"), FColor::Yellow, 3.0f);
+			MetaAgentHUD->AddTransientMessage(
+				TEXT("No preview plane named 'Plane' found (image still loaded for particle shape)."),
+				FColor::Yellow,
+				3.0f);
+		}
+
+		if (GUI.bHelpPanelVisible)
+		{
+			ApplyGUIHelpPanelState();
 		}
 		return;
 	}
@@ -891,7 +830,15 @@ void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
 	UE_LOG(LogMetaAgent, Log, TEXT("F pressed: loaded '%s' onto reusable scene preview plane."), *PngPath);
 	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
 	{
-		MetaAgentHUD->AddTransientMessage(TEXT("Loaded sdxl_latest.png onto scene plane 'Plane'"), FColor::Green, 2.5f);
+		MetaAgentHUD->AddTransientMessage(
+			FString::Printf(TEXT("Loaded sdxl_latest.png (%s)."), *GetParticlePatternShapeText()),
+			FColor::Green,
+			3.0f);
+	}
+
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
 	}
 
 	if (ParticleRuntime)

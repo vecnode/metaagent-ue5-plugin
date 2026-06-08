@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "MetaAgentParticlePatternTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -40,6 +41,9 @@ struct FMetaAgentParticlePatternConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "1.0"))
 	float GridSpacingCm = 12.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern")
+	FMetaAgentParticleShapeDefinition Shape;
+
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	EMetaAgentParticlePatternPreset ActivePreset = EMetaAgentParticlePatternPreset::Normal;
 
@@ -69,6 +73,15 @@ struct FMetaAgentParticlePatternRuntime
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	FVector PatternCenter = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
+	EMetaAgentParticlePatternShape ActiveShape = EMetaAgentParticlePatternShape::SquareGrid;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
+	FMetaAgentParticleShapeFrame ActiveShapeFrame;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
+	FString ShapeDebugInfo;
 
 	/** Timings frozen when the current pattern run started. */
 	UPROPERTY()

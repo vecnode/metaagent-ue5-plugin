@@ -11,6 +11,7 @@
 #include "NiagaraSystemInstanceController.h"
 #include "NiagaraTypes.h"
 #include "Core/MetaAgent.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
@@ -656,21 +657,37 @@ bool UMetaAgentParticleRuntime::StartSquarePattern()
 
 	PatternRuntime.ActiveConfig = PatternConfig;
 	PatternRuntime.BaselineWorldPositions = LatestSnapshot.ExportedParticlePositions;
-	BuildSquarePatternTargets();
+
+	if (PatternShapeContext.BaselineWorldPositions.Num() <= 0)
+	{
+		PatternShapeContext.BaselineWorldPositions = PatternRuntime.BaselineWorldPositions;
+	}
+
+	if (!BuildPatternTargets())
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: failed to build pattern targets."));
+		return false;
+	}
 
 	EnterPatternState(EMetaAgentParticlePatternState::Forming);
 	PatternRuntime.Phase = 0.0f;
 	bLoggedPatternStart = false;
 
+	const FString ResolvedShapeName =
+		PatternRuntime.ActiveShape == EMetaAgentParticlePatternShape::ImageSilhouette
+			? TEXT("ImageSilhouette")
+			: TEXT("SquareGrid");
+
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("ParticleRuntime: square pattern started preset=%s with %d particle(s), grid columns=%d, spacing=%.1f, timings form=%.1fs hold=%.1fs return=%.1fs."),
+		TEXT("ParticleRuntime: pattern started requested=%s resolved=%s preset=%s particles=%d timings form=%.1fs hold=%.1fs return=%.1fs | %s"),
+		*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName(),
+		*ResolvedShapeName,
 		*PatternRuntime.ActiveConfig.GetPresetDisplayName(),
 		PatternRuntime.BaselineWorldPositions.Num(),
-		PatternRuntime.PatternColumns,
-		PatternRuntime.ActiveConfig.GridSpacingCm,
 		PatternRuntime.ActiveConfig.FormDurationSeconds,
 		PatternRuntime.ActiveConfig.HoldDurationSeconds,
-		PatternRuntime.ActiveConfig.ReturnDurationSeconds);
+		PatternRuntime.ActiveConfig.ReturnDurationSeconds,
+		*PatternRuntime.ShapeDebugInfo);
 
 	return true;
 }
@@ -683,6 +700,45 @@ bool UMetaAgentParticleRuntime::IsPatternActive() const
 FString UMetaAgentParticleRuntime::GetPatternStateDisplayName() const
 {
 	return PatternStateToString(PatternRuntime.State);
+}
+
+void UMetaAgentParticleRuntime::SetPatternShapeContext(const FMetaAgentParticleShapeContext& ShapeContext)
+{
+	PatternShapeContext = ShapeContext;
+}
+
+FString UMetaAgentParticleRuntime::BuildPatternShapeText() const
+{
+	const FMetaAgentParticleShapeDefinition& DisplayShape =
+		PatternRuntime.State == EMetaAgentParticlePatternState::Idle
+			? PatternConfig.Shape
+			: PatternRuntime.ActiveConfig.Shape;
+
+	const EMetaAgentParticlePatternShape DisplayShapeType =
+		PatternRuntime.State == EMetaAgentParticlePatternState::Idle
+			? DisplayShape.ShapeType
+			: PatternRuntime.ActiveShape;
+
+	const FString ShapeName = DisplayShapeType == EMetaAgentParticlePatternShape::ImageSilhouette
+		? TEXT("ImageSilhouette")
+		: TEXT("SquareGrid");
+
+	const bool bImageLoaded = PatternShapeContext.bHasResolvedImage || PatternShapeContext.SourceTexture != nullptr;
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
+	{
+		return FString::Printf(
+			TEXT("Pattern Shape: %s | Sampling=%s | ImageLoaded=%s"),
+			*ShapeName,
+			*DisplayShape.GetImageSamplingDisplayName(),
+			bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
+	}
+
+	return FString::Printf(
+		TEXT("Pattern Shape: %s | ImageLoaded=%s | %s"),
+		*ShapeName,
+		bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"),
+		*PatternRuntime.ShapeDebugInfo);
 }
 
 FString UMetaAgentParticleRuntime::BuildPatternTimingsText() const
@@ -778,46 +834,34 @@ void UMetaAgentParticleRuntime::ResetPatternRuntime()
 	bLoggedPatternStart = false;
 }
 
-void UMetaAgentParticleRuntime::BuildSquarePatternTargets()
+bool UMetaAgentParticleRuntime::BuildPatternTargets()
 {
-	const TArray<FVector>& Baseline = PatternRuntime.BaselineWorldPositions;
-	const int32 ParticleCount = Baseline.Num();
-	PatternRuntime.PatternWorldTargets.Reset();
+	FMetaAgentParticleShapeContext BuildContext = PatternShapeContext;
+	if (BuildContext.BaselineWorldPositions.Num() <= 0)
+	{
+		BuildContext.BaselineWorldPositions = PatternRuntime.BaselineWorldPositions;
+	}
 
-	if (ParticleCount <= 0)
+	const FMetaAgentParticleShapeBuildResult BuildResult = FMetaAgentParticleShapeBuilder::BuildPatternTargets(
+		PatternRuntime.ActiveConfig,
+		BuildContext);
+
+	if (!BuildResult.bSuccess || BuildResult.PatternWorldTargets.Num() <= 0)
 	{
 		PatternRuntime.PatternColumns = 0;
 		PatternRuntime.PatternCenter = FVector::ZeroVector;
-		return;
+		PatternRuntime.PatternWorldTargets.Reset();
+		PatternRuntime.ShapeDebugInfo = BuildResult.DebugInfo;
+		return false;
 	}
 
-	PatternRuntime.PatternColumns = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(ParticleCount))));
-	const int32 RowCount = FMath::DivideAndRoundUp(ParticleCount, PatternRuntime.PatternColumns);
-
-	FVector Centroid = FVector::ZeroVector;
-	for (const FVector& Position : Baseline)
-	{
-		Centroid += Position;
-	}
-	Centroid /= static_cast<float>(ParticleCount);
-	PatternRuntime.PatternCenter = Centroid;
-
-	const float GridSpacingCm = FMath::Max(1.0f, PatternRuntime.ActiveConfig.GridSpacingCm);
-	const FVector GridOrigin = Centroid - FVector(
-		(PatternRuntime.PatternColumns - 1) * GridSpacingCm * 0.5f,
-		(RowCount - 1) * GridSpacingCm * 0.5f,
-		0.0f);
-
-	PatternRuntime.PatternWorldTargets.SetNum(ParticleCount);
-	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
-	{
-		const int32 Column = ParticleIndex % PatternRuntime.PatternColumns;
-		const int32 Row = ParticleIndex / PatternRuntime.PatternColumns;
-		PatternRuntime.PatternWorldTargets[ParticleIndex] = GridOrigin + FVector(
-			Column * GridSpacingCm,
-			Row * GridSpacingCm,
-			0.0f);
-	}
+	PatternRuntime.PatternWorldTargets = BuildResult.PatternWorldTargets;
+	PatternRuntime.PatternColumns = BuildResult.PatternColumns;
+	PatternRuntime.PatternCenter = BuildResult.PatternCenter;
+	PatternRuntime.ActiveShape = BuildResult.ResolvedShape;
+	PatternRuntime.ActiveShapeFrame = BuildResult.ShapeFrame;
+	PatternRuntime.ShapeDebugInfo = BuildResult.DebugInfo;
+	return true;
 }
 
 void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatternState NewState)

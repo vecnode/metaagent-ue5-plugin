@@ -38,7 +38,8 @@ public class MetaAgentPlugin : ModuleRules
 				"UMG",
 				"Slate",
 				"DeveloperSettings",
-				"ImageWrapper"
+				"ImageWrapper",
+				"ImageCore"
 			}
 		);
 	}

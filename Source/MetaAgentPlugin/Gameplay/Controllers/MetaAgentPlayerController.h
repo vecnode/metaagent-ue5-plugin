@@ -574,6 +574,40 @@ public:
 	/** Pushes controller pattern config into the transient particle runtime object. */
 	void SyncParticlePatternConfigToRuntime();
 
+	/** Resolves and pushes shape context (texture, plane, baselines) into particle runtime. */
+	bool PrepareParticlePatternShapeContext();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternShape(EMetaAgentParticlePatternShape ShapeType);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternImageThreshold(float Threshold);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode SamplingMode);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternEdgeThreshold(float Threshold);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternShapeWidth(float WidthCm);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString GetParticlePatternShapeText() const;
+
+	/** Resolves shape inputs (texture, plane, baselines) for the next pattern run. */
+	FMetaAgentParticleShapeContext BuildParticleShapeContext();
+
+	/** Loads sdxl_latest.png when needed for image silhouette shapes. */
+	bool EnsureParticlePreviewTextureLoaded(FString& OutResolvedPath);
+
+	UTexture2D* GetLatestPngPreviewTexture() const { return LatestPngPreviewTexture; }
+	void SetLatestPngPreviewTexture(UTexture2D* Texture) { LatestPngPreviewTexture = Texture; }
+	FString GetLastLoadedPreviewImagePath() const { return LastLoadedPreviewImagePath; }
+	void SetLastLoadedPreviewImagePath(const FString& Path) { LastLoadedPreviewImagePath = Path; }
+	UStaticMeshComponent* GetExistingPreviewPlaneMesh() const { return ExistingPreviewPlaneMesh.Get(); }
+	void CacheExistingPreviewPlaneMesh(UStaticMeshComponent* Mesh);
+
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
 
@@ -657,6 +691,9 @@ protected:
 	/** Keep a strong reference so the loaded runtime texture stays alive. */
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> LatestPngPreviewTexture;
+
+	UPROPERTY(Transient)
+	FString LastLoadedPreviewImagePath;
 
 	/** Square pattern choreography timings and grid spacing (Class Defaults). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")

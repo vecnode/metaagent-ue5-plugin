@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 
@@ -160,6 +161,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString BuildPatternTimingsText() const;
 
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	FString BuildPatternShapeText() const;
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetPatternShapeContext(const FMetaAgentParticleShapeContext& ShapeContext);
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config);
 
@@ -185,7 +192,7 @@ private:
 	void CaptureParticlesDirectly();
 	void EnsureNiagaraComponentReadable(UNiagaraComponent* NiagaraComponent);
 	void TickPatternRuntime(float DeltaTimeSeconds);
-	void BuildSquarePatternTargets();
+	bool BuildPatternTargets();
 	void ApplyPatternActuation();
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
@@ -228,6 +235,9 @@ private:
 
 	UPROPERTY(Transient)
 	FMetaAgentParticlePatternConfig PatternConfig;
+
+	UPROPERTY(Transient)
+	FMetaAgentParticleShapeContext PatternShapeContext;
 
 	bool bLoggedPatternStart = false;
 };
