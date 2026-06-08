@@ -7,6 +7,8 @@
 #include "HAL/IConsoleManager.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
+#include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 
@@ -137,7 +139,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic|Sculpt"));
 			return;
 		}
 
@@ -157,6 +159,10 @@ namespace MetaAgentParticlePatternConsole
 		else if (PresetName == TEXT("dramatic"))
 		{
 			Preset = EMetaAgentParticlePatternPreset::Dramatic;
+		}
+		else if (PresetName == TEXT("sculpt"))
+		{
+			Preset = EMetaAgentParticlePatternPreset::Sculpt;
 		}
 		else if (PresetName != TEXT("normal"))
 		{
@@ -222,7 +228,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette|RandomParallelepiped|Box"));
 			return;
 		}
 
@@ -237,9 +243,21 @@ namespace MetaAgentParticlePatternConsole
 		{
 			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::ImageSilhouette);
 		}
-		else if (ShapeName == TEXT("squaregrid") || ShapeName == TEXT("square"))
+		else if (ShapeName == TEXT("squaregrid") || ShapeName == TEXT("square") || ShapeName == TEXT("grid"))
 		{
 			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::SquareGrid);
+		}
+		else if (ShapeName == TEXT("splinepath") || ShapeName == TEXT("spline"))
+		{
+			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::SplinePath);
+		}
+		else if (ShapeName == TEXT("meshsilhouette") || ShapeName == TEXT("mesh"))
+		{
+			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::MeshSilhouette);
+		}
+		else if (ShapeName == TEXT("randomparallelepiped") || ShapeName == TEXT("randombox") || ShapeName == TEXT("box"))
+		{
+			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::RandomParallelepiped);
 		}
 		else
 		{
@@ -368,6 +386,108 @@ namespace MetaAgentParticlePatternConsole
 			FColor::Cyan);
 	}
 
+	void ExecCancel(const TArray<FString>& Args)
+	{
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const bool bSkipReturn = Args.Num() > 0 && Args[0].Equals(TEXT("SkipReturn"), ESearchCase::IgnoreCase);
+		if (Controller->RequestParticlePatternCancel(bSkipReturn))
+		{
+			ShowTransientPatternMessage(Controller, TEXT("Particle pattern cancelled."), FColor::Orange);
+		}
+	}
+
+	void ExecSkipHold()
+	{
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		if (Controller->RequestParticleSkipHold())
+		{
+			ShowTransientPatternMessage(Controller, TEXT("Particle pattern skip hold."), FColor::Cyan);
+		}
+	}
+
+	void ExecReady(const TArray<FString>& Args)
+	{
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		FString ImagePath;
+		if (Args.Num() > 0)
+		{
+			ImagePath = Args[0];
+		}
+		else
+		{
+			ImagePath = Controller->GetLastLoadedPreviewImagePath();
+		}
+
+		const bool bReady = Controller->IsParticlePatternReady(ImagePath);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Pattern mask ready: %s"), bReady ? TEXT("TRUE") : TEXT("FALSE")),
+			bReady ? FColor::Green : FColor::Orange);
+	}
+
+	void ExecRandomBox()
+	{
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.Box: no local MetaAgent player controller found."));
+			return;
+		}
+
+		if (Controller->PlayRandomBoxParticlePattern())
+		{
+			ShowTransientPatternMessage(
+				Controller,
+				FString::Printf(
+					TEXT("Random box sculpt started (%s | %s)."),
+					*Controller->GetParticlePatternShapeText(),
+					*Controller->GetParticlePatternStatusText()),
+				FColor::Green);
+		}
+		else
+		{
+			ShowTransientPatternMessage(
+				Controller,
+				TEXT("Random box pattern unavailable (busy or no captured particles)."),
+				FColor::Orange);
+		}
+	}
+
+	static FAutoConsoleCommand MetaAgentPatternCancelCmd(
+		TEXT("MetaAgent.Pattern.Cancel"),
+		TEXT("Cancel active particle pattern. Optional arg: SkipReturn"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecCancel));
+
+	static FAutoConsoleCommand MetaAgentPatternSkipHoldCmd(
+		TEXT("MetaAgent.Pattern.SkipHold"),
+		TEXT("Skip Holding and begin Returning immediately."),
+		FConsoleCommandDelegate::CreateStatic(&ExecSkipHold));
+
+	static FAutoConsoleCommand MetaAgentPatternReadyCmd(
+		TEXT("MetaAgent.Pattern.Ready"),
+		TEXT("Check whether image mask is cached. Optional: image path."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecReady));
+
+	static FAutoConsoleCommand MetaAgentPatternBoxCmd(
+		TEXT("MetaAgent.Pattern.Box"),
+		TEXT("Play random 3D box sculpt pattern (same as C key)."),
+		FConsoleCommandDelegate::CreateStatic(&ExecRandomBox));
+
 	static FAutoConsoleCommand MetaAgentPatternImageSamplingCmd(
 		TEXT("MetaAgent.Pattern.ImageSampling"),
 		TEXT("Set image sampling: Gray (default), Fill, or Sobel (edges)."),
@@ -401,7 +521,7 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 	ParticleRuntime->ForceCaptureParticles();
 	PrepareParticlePatternShapeContext();
 
-	if (!ParticleRuntime->StartSquarePattern())
+	if (!StartParticlePattern())
 	{
 		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
 		{
@@ -428,6 +548,60 @@ void AMetaAgentPlayerController::HandleParticlePatternPressed()
 			bPreparing ? FColor::Yellow : FColor::Cyan,
 			bPreparing ? 4.0f : 3.0f);
 	}
+}
+
+void AMetaAgentPlayerController::HandleRandomBoxPatternPressed()
+{
+	if (!IsMetaAgentRuntimeActive())
+	{
+		return;
+	}
+
+	if (PlayRandomBoxParticlePattern())
+	{
+		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		{
+			MetaAgentHUD->AddTransientMessage(
+				FString::Printf(
+					TEXT("Random box sculpt started (%s | %s)."),
+					*GetParticlePatternShapeText(),
+					*GetParticlePatternStatusText()),
+				FColor::Green,
+				3.0f);
+		}
+	}
+	else if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+	{
+		MetaAgentHUD->AddTransientMessage(
+			TEXT("Random box pattern unavailable (busy or no captured particles)."),
+			FColor::Orange,
+			2.5f);
+	}
+}
+
+bool AMetaAgentPlayerController::PlayRandomBoxParticlePattern()
+{
+	if (!ParticleRuntime)
+	{
+		RefreshParticleRuntimeTracking();
+	}
+
+	if (!ParticleRuntime)
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: random box request ignored because runtime is not initialized."));
+		return false;
+	}
+
+	ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset::Sculpt);
+	SetParticlePatternShape(EMetaAgentParticlePatternShape::RandomParallelepiped);
+	ParticlePatternConfig.Shape.AssignmentMode = EMetaAgentParticleShapeAssignmentMode::NearestNeighbor;
+	ParticlePatternConfig.Shape.bOrientShapeToView = true;
+	ParticlePatternConfig.Shape.BoxRandomSeed = 0;
+	SyncParticlePatternConfigToRuntime();
+
+	ParticleRuntime->ForceCaptureParticles();
+	PrepareParticlePatternShapeContext();
+	return StartParticlePattern();
 }
 
 void AMetaAgentPlayerController::HandleParticlePatternSlowPresetPressed()
@@ -478,6 +652,22 @@ void AMetaAgentPlayerController::HandleParticlePatternDramaticPresetPressed()
 
 bool AMetaAgentPlayerController::StartParticleSquarePattern()
 {
+	return StartParticlePattern();
+}
+
+bool AMetaAgentPlayerController::StartParticlePattern()
+{
+	if (BlockedPatternTags.HasTag(MetaAgentParticleTags::Pattern_Blocked))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern start blocked by BlockedPatternTags."));
+		return false;
+	}
+
+	if (!ParticleRuntime)
+	{
+		RefreshParticleRuntimeTracking();
+	}
+
 	if (!ParticleRuntime)
 	{
 		return false;
@@ -486,7 +676,81 @@ bool AMetaAgentPlayerController::StartParticleSquarePattern()
 	SyncParticlePatternConfigToRuntime();
 	ParticleRuntime->ForceCaptureParticles();
 	PrepareParticlePatternShapeContext();
-	return ParticleRuntime->StartSquarePattern();
+
+	if (DefaultParticlePatternAsset)
+	{
+		return ParticleRuntime->RequestPatternStart(DefaultParticlePatternAsset);
+	}
+
+	return ParticleRuntime->StartPattern();
+}
+
+bool AMetaAgentPlayerController::RequestParticlePatternStart(UMetaAgentParticlePatternAsset* PatternAsset)
+{
+	if (!ParticleRuntime)
+	{
+		return false;
+	}
+
+	SyncParticlePatternConfigToRuntime();
+	ParticleRuntime->ForceCaptureParticles();
+	PrepareParticlePatternShapeContext();
+	return ParticleRuntime->RequestPatternStart(PatternAsset);
+}
+
+bool AMetaAgentPlayerController::RequestParticlePatternCancel(const bool bSkipReturn)
+{
+	return ParticleRuntime ? ParticleRuntime->RequestPatternCancel(bSkipReturn) : false;
+}
+
+bool AMetaAgentPlayerController::RequestParticleSkipHold()
+{
+	return ParticleRuntime ? ParticleRuntime->RequestSkipHold() : false;
+}
+
+bool AMetaAgentPlayerController::RequestParticlePatternQueue(UMetaAgentParticlePatternAsset* PatternAsset)
+{
+	return ParticleRuntime ? ParticleRuntime->RequestPatternQueue(PatternAsset) : false;
+}
+
+bool AMetaAgentPlayerController::CanStartParticlePattern() const
+{
+	return ParticleRuntime ? ParticleRuntime->CanStartPattern() : false;
+}
+
+bool AMetaAgentPlayerController::IsParticlePatternReady(const FString& ImagePath) const
+{
+	return ParticleRuntime ? ParticleRuntime->IsPatternReady(ImagePath) : false;
+}
+
+int32 AMetaAgentPlayerController::GetParticlePatternQueueDepth() const
+{
+	return ParticleRuntime ? ParticleRuntime->GetPatternQueueDepth() : 0;
+}
+
+void AMetaAgentPlayerController::BindParticleRuntimeDelegates()
+{
+	if (!ParticleRuntime)
+	{
+		return;
+	}
+
+	ParticleRuntime->OnPatternStateEntered.RemoveAll(this);
+	ParticleRuntime->OnPatternCompleted.RemoveAll(this);
+	ParticleRuntime->OnPatternStateEntered.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternStateEntered);
+	ParticleRuntime->OnPatternCompleted.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternCompleted);
+}
+
+void AMetaAgentPlayerController::HandleParticlePatternStateEntered(
+	const EMetaAgentParticlePatternState NewState,
+	const EMetaAgentParticlePatternState PreviousState)
+{
+	OnParticlePatternStateEntered.Broadcast(NewState, PreviousState);
+}
+
+void AMetaAgentPlayerController::HandleParticlePatternCompleted()
+{
+	OnParticlePatternCompleted.Broadcast();
 }
 
 FString AMetaAgentPlayerController::GetParticlePatternStatusText() const
@@ -540,6 +804,7 @@ void AMetaAgentPlayerController::SyncParticlePatternConfigToRuntime()
 	}
 
 	ParticleRuntime->ApplyPatternConfig(ParticlePatternConfig);
+	ParticleRuntime->SetActuationMode(ParticleActuationMode);
 }
 
 bool AMetaAgentPlayerController::PrepareParticlePatternShapeContext()
@@ -661,6 +926,18 @@ FMetaAgentParticleShapeContext AMetaAgentPlayerController::BuildParticleShapeCon
 	Context.SourceTexture = GetLatestPngPreviewTexture();
 	Context.SourceImagePath = GetLastLoadedPreviewImagePath();
 	Context.bHasResolvedImage = Context.SourceTexture != nullptr;
+
+	if (APlayerCameraManager* CameraManager = PlayerCameraManager)
+	{
+		Context.ViewOrigin = CameraManager->GetCameraLocation();
+		Context.bHasViewOrigin = true;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		Context.World = World;
+	}
+
 	return Context;
 }
 

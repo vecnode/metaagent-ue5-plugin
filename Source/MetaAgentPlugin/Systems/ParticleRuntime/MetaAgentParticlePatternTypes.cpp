@@ -25,6 +25,11 @@ void FMetaAgentParticlePatternConfig::ApplyPreset(const EMetaAgentParticlePatter
 		HoldDurationSeconds = 2.0f;
 		ReturnDurationSeconds = 5.0f;
 		break;
+	case EMetaAgentParticlePatternPreset::Sculpt:
+		FormDurationSeconds = 1.6f;
+		HoldDurationSeconds = 0.4f;
+		ReturnDurationSeconds = 1.2f;
+		break;
 	case EMetaAgentParticlePatternPreset::Normal:
 		FormDurationSeconds = 1.5f;
 		HoldDurationSeconds = 0.5f;
@@ -44,6 +49,8 @@ FString FMetaAgentParticlePatternConfig::GetPresetDisplayName() const
 		return TEXT("Slow");
 	case EMetaAgentParticlePatternPreset::Dramatic:
 		return TEXT("Dramatic");
+	case EMetaAgentParticlePatternPreset::Sculpt:
+		return TEXT("Sculpt");
 	case EMetaAgentParticlePatternPreset::Custom:
 		return TEXT("Custom");
 	case EMetaAgentParticlePatternPreset::Normal:

@@ -7,7 +7,8 @@
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/SoftObjectPtr.h"
-#include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
 #include "MetaAgentPlayerController.generated.h"
 
 class AAIController;
@@ -18,6 +19,7 @@ class UUserWidget;
 class USkeletalMeshComponent;
 class UNiagaraComponent;
 class UMetaAgentParticleRuntime;
+class UMetaAgentParticlePatternAsset;
 class UMetaAgentNiagaraExportHandler;
 class UMovieSceneCapture;
 
@@ -470,6 +472,9 @@ protected:
 	/** Bound to V: plays square particle pattern choreography. */
 	void HandleParticlePatternPressed();
 
+	/** Bound to C: plays random 3D box sculpt pattern (Sculpt preset). */
+	void HandleRandomBoxPatternPressed();
+
 	/** Bound to B: applies the Slow particle pattern timing preset. */
 	void HandleParticlePatternSlowPresetPressed();
 
@@ -563,8 +568,42 @@ public:
 	bool HasReceivedParticleCallback() const;
 
 	/** Starts square particle pattern choreography when capture data is available. */
-	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern", meta = (DeprecatedFunction, DeprecationMessage = "Use StartParticlePattern"))
 	bool StartParticleSquarePattern();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool StartParticlePattern();
+
+	/** Applies Sculpt preset, random box shape, and starts pattern choreography (C key). */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool PlayRandomBoxParticlePattern();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestParticlePatternStart(UMetaAgentParticlePatternAsset* PatternAsset);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestParticlePatternCancel(bool bSkipReturn = false);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestParticleSkipHold();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestParticlePatternQueue(UMetaAgentParticlePatternAsset* PatternAsset);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	bool CanStartParticlePattern() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	bool IsParticlePatternReady(const FString& ImagePath) const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	int32 GetParticlePatternQueueDepth() const;
+
+	UPROPERTY(BlueprintAssignable, Category = "MetaAgent|Particles|Pattern")
+	FOnMetaAgentPatternStateChanged OnParticlePatternStateEntered;
+
+	UPROPERTY(BlueprintAssignable, Category = "MetaAgent|Particles|Pattern")
+	FOnMetaAgentPatternCompleted OnParticlePatternCompleted;
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternStatusText() const;
@@ -711,6 +750,25 @@ protected:
 	/** Square pattern choreography timings and grid spacing (Class Defaults). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticlePatternConfig ParticlePatternConfig;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	FGameplayTagContainer BlockedPatternTags;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	EMetaAgentParticleActuationMode ParticleActuationMode = EMetaAgentParticleActuationMode::Hybrid;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	TObjectPtr<UMetaAgentParticlePatternAsset> DefaultParticlePatternAsset = nullptr;
+
+	void BindParticleRuntimeDelegates();
+
+	UFUNCTION()
+	void HandleParticlePatternStateEntered(
+		EMetaAgentParticlePatternState NewState,
+		EMetaAgentParticlePatternState PreviousState);
+
+	UFUNCTION()
+	void HandleParticlePatternCompleted();
 
 	/** Runtime Niagara tracking and particle export cache. */
 	UPROPERTY(Transient)

@@ -298,3 +298,31 @@ FMetaAgentImageMaskLookupResult FMetaAgentParticleShapeCache::ResolveMask(
 
 	return Result;
 }
+
+bool FMetaAgentParticleShapeCache::IsMaskReady(const FMetaAgentImageMaskBuildParams& Params)
+{
+	if (Params.SourceImagePath.IsEmpty() || Params.DesiredPointCount <= 0)
+	{
+		return false;
+	}
+
+	FDateTime CurrentTimestamp = Params.SourceFileTimestamp;
+	int64 CurrentFileSize = Params.SourceFileSize;
+	if (!MetaAgentImageMask::GetImageFileIdentity(Params.SourceImagePath, CurrentTimestamp, CurrentFileSize))
+	{
+		return false;
+	}
+
+	FMetaAgentImageMaskBuildParams FreshParams = Params;
+	FreshParams.SourceFileTimestamp = CurrentTimestamp;
+	FreshParams.SourceFileSize = CurrentFileSize;
+	const FMetaAgentImageMaskCacheKey Key = MakeCacheKey(FreshParams);
+
+	FScopeLock Lock(&GMaskCacheMutex);
+	if (const FMetaAgentImageMaskCacheEntry* CachedEntry = GMaskCache.Find(Key))
+	{
+		return CachedEntry->bSuccess && CachedEntry->LocalPointsCm.Num() > 0;
+	}
+
+	return false;
+}

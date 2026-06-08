@@ -3,12 +3,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleActuation.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 
 class UNiagaraComponent;
+class UMetaAgentParticlePatternAsset;
+class UCurveFloat;
 
 USTRUCT(BlueprintType)
 struct FMetaAgentTrackedNiagaraComponent
@@ -60,6 +63,9 @@ struct FMetaAgentParticleSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles")
 	TArray<FVector> ExportedParticlePositions;
 
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles")
+	TArray<FMetaAgentTrackedParticleBlock> ParticleBlocks;
+
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Steering")
 	bool bSteeringTargetEnabled = false;
 
@@ -73,17 +79,18 @@ struct FMetaAgentParticleSnapshot
 	TArray<FVector> SuggestedSteeringDirections;
 };
 
-/**
- * Runtime skeleton for Niagara introspection.
- * Stage A tracks Niagara components in the active world and their transforms/bounds.
- * Stage B accepts per-particle positions exported from Niagara graphs/blueprints.
- */
 UCLASS(BlueprintType)
 class METAAGENTPLUGIN_API UMetaAgentParticleRuntime : public UObject
 {
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(BlueprintAssignable, Category = "MetaAgent|Particles|Pattern")
+	FOnMetaAgentPatternStateChanged OnPatternStateEntered;
+
+	UPROPERTY(BlueprintAssignable, Category = "MetaAgent|Particles|Pattern")
+	FOnMetaAgentPatternCompleted OnPatternCompleted;
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void InitializeRuntime(UObject* WorldContextObject);
 
@@ -93,13 +100,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void DiscoverNiagaraComponents(bool bLogSummary = false);
 
-	/** Forces an immediate direct particle capture pass (used before pattern start). */
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void ForceCaptureParticles();
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
 	void SubmitExportedParticlePositions(
 		const TArray<FVector>& ParticlePositions,
+		FName SourceActorName = NAME_None,
+		FName SourceComponentName = NAME_None);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
+	void SubmitAggregatedParticleCapture(
+		const TArray<FVector>& ParticlePositions,
+		const TArray<FMetaAgentTrackedParticleBlock>& ParticleBlocks,
 		FName SourceActorName = NAME_None,
 		FName SourceComponentName = NAME_None);
 
@@ -136,12 +149,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Steering")
 	TArray<FVector> GetSuggestedSteeringDirections() const { return LatestSnapshot.SuggestedSteeringDirections; }
 
-	/** Returns currently tracked Niagara components (name-filtered discovery list). */
 	TArray<UNiagaraComponent*> GetTrackedNiagaraComponents() const;
 
-	/** Starts square pattern choreography if particle capture data is available. Returns false when busy or no particles. */
-	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern", meta = (DeprecatedFunction, DeprecationMessage = "Use StartPattern"))
 	bool StartSquarePattern();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool StartPattern();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestPatternStart(UMetaAgentParticlePatternAsset* PatternAsset);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestPatternCancel(bool bSkipReturn = false);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestSkipHold();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestPatternQueue(UMetaAgentParticlePatternAsset* PatternAsset);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	bool CanStartPattern() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	bool IsPatternReady(const FString& ImagePath) const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	int32 GetPatternQueueDepth() const { return PendingPatternAssets.Num(); }
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	bool IsPatternActive() const;
@@ -171,7 +206,10 @@ public:
 	void ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config);
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
-	void SetPatternTimings(float FormDurationSeconds, float HoldDurationSeconds, float ReturnDurationSeconds);
+	void SetPatternTimings(
+		float FormDurationSeconds,
+		float HoldDurationSeconds,
+		float ReturnDurationSeconds);
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void ApplyPatternPreset(EMetaAgentParticlePatternPreset Preset);
@@ -185,15 +223,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	float GetActiveStateTimeRemainingSeconds() const;
 
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetActuationMode(EMetaAgentParticleActuationMode NewMode) { ActuationMode = NewMode; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	EMetaAgentParticleActuationMode GetActuationMode() const { return ActuationMode; }
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
 	void BuildComponentSnapshot();
 	void RebuildSuggestedSteeringDirections();
 	void CaptureParticlesDirectly();
+	void CaptureLiveSimPositions();
+	void RefreshTrajectoryBaselineAtHoldStart();
+	void BeginReturnFromHold();
 	void EnsureNiagaraComponentReadable(UNiagaraComponent* NiagaraComponent);
 	void TickPatternRuntime(float DeltaTimeSeconds);
 	bool BuildPatternTargets();
 	void ApplyPatternActuation();
+	float EvaluatePhaseForState(EMetaAgentParticlePatternState State, float NormalizedTimeInState) const;
+	float ComputeActuationBlendAlpha() const;
+	bool BeginPatternStart();
+	bool ApplyPatternAsset(UMetaAgentParticlePatternAsset* PatternAsset);
+	void TryStartQueuedPattern();
+	void CompletePatternRun();
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
 	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
@@ -217,12 +270,27 @@ private:
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
 	FString NameFilter = TEXT("NIAGARA");
 
-	/** When true, reads particle positions directly from Niagara simulation buffers (CPU + GPU readback). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
 	bool bEnableDirectParticleCapture = true;
 
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta = (ClampMin = "1"))
 	int32 DirectCaptureEveryNFrames = 2;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0", ClampMax = "8"))
+	int32 MaxPatternQueueSize = 3;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	EMetaAgentParticleActuationMode ActuationMode = EMetaAgentParticleActuationMode::Hybrid;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FormingSteeringBlendDurationSeconds = 0.2f;
+
+	TArray<FVector> LiveSimWorldPositions;
+	TArray<FVector> LastAppliedWorldPositions;
+
+	float ActiveHoldPulseAmplitude = 0.0f;
+	float FormingSteeringBlendElapsedSeconds = 0.0f;
+	bool bLoggedPatternStart = false;
 
 	int32 DirectCaptureFrameCounter = 0;
 	bool bLoggedDirectCaptureSuccess = false;
@@ -239,5 +307,12 @@ private:
 	UPROPERTY(Transient)
 	FMetaAgentParticleShapeContext PatternShapeContext;
 
-	bool bLoggedPatternStart = false;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMetaAgentParticlePatternAsset>> PendingPatternAssets;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCurveFloat> ActiveFormCurve = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCurveFloat> ActiveReturnCurve = nullptr;
 };

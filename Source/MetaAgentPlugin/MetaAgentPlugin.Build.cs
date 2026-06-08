@@ -38,6 +38,7 @@ public class MetaAgentPlugin : ModuleRules
 				"UMG",
 				"Slate",
 				"DeveloperSettings",
+				"GameplayTags",
 				"ImageWrapper",
 				"ImageCore",
 				"MovieSceneCapture",

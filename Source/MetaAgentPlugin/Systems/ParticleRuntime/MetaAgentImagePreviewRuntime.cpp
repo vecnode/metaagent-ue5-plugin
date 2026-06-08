@@ -134,18 +134,17 @@ FMetaAgentParticleShapeFrame FMetaAgentImagePreviewRuntime::BuildShapeFrameFromP
 
 FMetaAgentParticleShapeFrame FMetaAgentImagePreviewRuntime::BuildShapeFrameFromCentroid(
 	const TArray<FVector>& BaselineWorldPositions,
-	const float ShapeWidthCm,
-	const float ShapeHeightCm,
-	const float ZOffsetCm)
+	const FShapeFrameBuildParams& Params)
 {
 	FMetaAgentParticleShapeFrame Frame;
-	Frame.ZOffsetCm = ZOffsetCm;
-	Frame.Orientation = FRotator::ZeroRotator;
+	Frame.ZOffsetCm = Params.ZOffsetCm;
 
 	const int32 ParticleCount = BaselineWorldPositions.Num();
 	if (ParticleCount <= 0)
 	{
-		Frame.ExtentsCm = FVector2D(ShapeWidthCm, ShapeHeightCm > 0.0f ? ShapeHeightCm : ShapeWidthCm);
+		Frame.ExtentsCm = FVector2D(
+			Params.ShapeWidthCm,
+			Params.ShapeHeightCm > 0.0f ? Params.ShapeHeightCm : Params.ShapeWidthCm);
 		return Frame;
 	}
 
@@ -156,10 +155,56 @@ FMetaAgentParticleShapeFrame FMetaAgentImagePreviewRuntime::BuildShapeFrameFromC
 	}
 	Centroid /= static_cast<float>(ParticleCount);
 
+	float BoundingRadiusCm = 0.0f;
+	for (const FVector& Position : BaselineWorldPositions)
+	{
+		BoundingRadiusCm = FMath::Max(BoundingRadiusCm, FVector::Dist(Position, Centroid));
+	}
+
+	float ShapeWidthCm = Params.ShapeWidthCm;
+	float ShapeHeightCm = Params.ShapeHeightCm;
+	if (Params.bAutoFitToParticleSphere && BoundingRadiusCm > KINDA_SMALL_NUMBER)
+	{
+		const float DiameterCm = FMath::Max(10.0f, BoundingRadiusCm * 2.0f * 0.92f);
+		if (Params.ShapeHeightCm > 0.0f && Params.ShapeWidthCm > 0.0f)
+		{
+			const float Aspect = Params.ShapeHeightCm / Params.ShapeWidthCm;
+			ShapeWidthCm = DiameterCm;
+			ShapeHeightCm = DiameterCm * Aspect;
+		}
+		else
+		{
+			ShapeWidthCm = DiameterCm;
+			ShapeHeightCm = DiameterCm;
+		}
+	}
+	if (ShapeHeightCm <= 0.0f)
+	{
+		ShapeHeightCm = ShapeWidthCm;
+	}
+
 	Frame.Origin = Centroid;
-	Frame.ExtentsCm = FVector2D(
-		ShapeWidthCm,
-		ShapeHeightCm > 0.0f ? ShapeHeightCm : ShapeWidthCm);
+	Frame.ExtentsCm = FVector2D(ShapeWidthCm, ShapeHeightCm);
+	Frame.Orientation = FRotator::ZeroRotator;
+
+	if (Params.bOrientShapeToView && Params.bHasViewOrigin)
+	{
+		FVector PlaneNormal = Params.ViewOrigin - Centroid;
+		if (!PlaneNormal.Normalize())
+		{
+			return Frame;
+		}
+
+		FVector UpReference = FVector::UpVector;
+		if (FMath::Abs(FVector::DotProduct(PlaneNormal, UpReference)) > 0.95f)
+		{
+			UpReference = FVector::ForwardVector;
+		}
+
+		const FVector TangentX = FVector::CrossProduct(UpReference, PlaneNormal).GetSafeNormal();
+		const FVector TangentY = FVector::CrossProduct(PlaneNormal, TangentX);
+		Frame.Orientation = FRotationMatrix::MakeFromXY(TangentX, TangentY).Rotator();
+	}
 
 	return Frame;
 }

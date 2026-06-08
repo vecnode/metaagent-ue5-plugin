@@ -3,8 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "MetaAgentParticlePatternTypes.generated.h"
+
+class UCurveFloat;
+class UMetaAgentParticlePatternAsset;
 
 UENUM(BlueprintType)
 enum class EMetaAgentParticlePatternState : uint8
@@ -13,7 +17,9 @@ enum class EMetaAgentParticlePatternState : uint8
 	Preparing,
 	Forming,
 	Holding,
-	Returning
+	Returning,
+	/** Deprecated: unused; return now follows live sim directly. Kept for Blueprint compat. */
+	Releasing UMETA(Hidden)
 };
 
 UENUM(BlueprintType)
@@ -22,8 +28,28 @@ enum class EMetaAgentParticlePatternPreset : uint8
 	Normal,
 	Slow,
 	Dramatic,
+	/** Tuned for C-key random box sculpt (form / hold / return). */
+	Sculpt,
 	Custom
 };
+
+UENUM(BlueprintType)
+enum class EMetaAgentParticleActuationMode : uint8
+{
+	/** Direct Niagara Position buffer read/write. */
+	Direct,
+	/** Push phase/center/active via Niagara user parameters. */
+	Parameters,
+	/** Direct in editor/PIE; Parameters in packaged builds. */
+	Hybrid
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FOnMetaAgentPatternStateChanged,
+	EMetaAgentParticlePatternState, NewState,
+	EMetaAgentParticlePatternState, PreviousState);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMetaAgentPatternCompleted);
 
 USTRUCT(BlueprintType)
 struct FMetaAgentParticlePatternConfig
@@ -94,6 +120,21 @@ struct FMetaAgentParticlePatternRuntime
 	UPROPERTY()
 	TArray<FVector> PatternWorldTargets;
 
+	/** Positions frozen when Returning begins (end of Holding actuation). */
+	UPROPERTY()
+	TArray<FVector> ReturnHoldPositions;
+
+	/** Idle rest positions for return (snapshot at return start, typically pattern-start baseline). */
+	UPROPERTY()
+	TArray<FVector> ReturnRestPositions;
+
+	/** Positions when Holding began (formed shape reference). */
+	UPROPERTY()
+	TArray<FVector> TrajectoryWorldPositions;
+
 	UPROPERTY()
 	bool bAwaitingAsyncMask = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
+	FGameplayTagContainer ActivePatternTags;
 };

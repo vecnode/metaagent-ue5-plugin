@@ -525,6 +525,7 @@ void AMetaAgentPlayerController::BeginPlay()
 		{
 			ParticleRuntime->InitializeRuntime(this);
 			SyncParticlePatternConfigToRuntime();
+			BindParticleRuntimeDelegates();
 			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleRuntime->BuildStatusText());
 		}
 
@@ -596,6 +597,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternPressed);
+			InputComponent->BindKey(EKeys::C, IE_Pressed, this, &AMetaAgentPlayerController::HandleRandomBoxPatternPressed);
 			InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternSlowPresetPressed);
 			InputComponent->BindKey(EKeys::N, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternDramaticPresetPressed);
 			InputFallback.bUtilityKeysBound = true;

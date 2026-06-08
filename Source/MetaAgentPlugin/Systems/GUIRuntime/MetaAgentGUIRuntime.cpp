@@ -33,6 +33,7 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("PARTICLES"));
 		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play pattern (image silhouette or square grid)"));
+		GUI.BaseHelpPanelLines.Add(TEXT("C       : Random 3D box sculpt inside particle sphere"));
 		GUI.BaseHelpPanelLines.Add(TEXT("B       : Pattern preset Slow (3.0 / 1.5 / 3.0 s)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("N       : Pattern preset Dramatic (4.0 / 2.0 / 5.0 s)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
@@ -67,6 +68,9 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternTimingsText());
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternShapeText());
 	GUI.HelpPanelLines.Add(Controller.GetParticlePatternStatusText());
+	GUI.HelpPanelLines.Add(FString::Printf(
+		TEXT("Pattern Queue Depth: %d"),
+		Controller.GetParticlePatternQueueDepth()));
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
 	{

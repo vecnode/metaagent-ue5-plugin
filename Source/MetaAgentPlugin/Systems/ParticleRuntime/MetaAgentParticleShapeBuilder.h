@@ -23,13 +23,27 @@ public:
 		const FMetaAgentParticleShapeDefinition& ShapeDefinition,
 		const int32 DesiredPointCount);
 
-private:
 	static bool BuildSquareGridTargets(
 		const FMetaAgentParticlePatternConfig& PatternConfig,
 		const FMetaAgentParticleShapeContext& ShapeContext,
 		FMetaAgentParticleShapeBuildResult& OutResult);
 
 	static bool BuildImageSilhouetteTargets(
+		const FMetaAgentParticlePatternConfig& PatternConfig,
+		const FMetaAgentParticleShapeContext& ShapeContext,
+		FMetaAgentParticleShapeBuildResult& OutResult);
+
+	static bool BuildSplinePathTargets(
+		const FMetaAgentParticlePatternConfig& PatternConfig,
+		const FMetaAgentParticleShapeContext& ShapeContext,
+		FMetaAgentParticleShapeBuildResult& OutResult);
+
+	static bool BuildMeshSilhouetteTargets(
+		const FMetaAgentParticlePatternConfig& PatternConfig,
+		const FMetaAgentParticleShapeContext& ShapeContext,
+		FMetaAgentParticleShapeBuildResult& OutResult);
+
+	static bool BuildRandomParallelepipedTargets(
 		const FMetaAgentParticlePatternConfig& PatternConfig,
 		const FMetaAgentParticleShapeContext& ShapeContext,
 		FMetaAgentParticleShapeBuildResult& OutResult);

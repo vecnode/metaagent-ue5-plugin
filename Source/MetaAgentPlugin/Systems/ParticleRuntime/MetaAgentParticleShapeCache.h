@@ -37,4 +37,7 @@ public:
 
 	static FMetaAgentImageMaskLookupResult ResolveMask(
 		const FMetaAgentImageMaskBuildParams& Params);
+
+	/** Returns true when a successful mask exists for the given build params (does not start builds). */
+	static bool IsMaskReady(const FMetaAgentImageMaskBuildParams& Params);
 };

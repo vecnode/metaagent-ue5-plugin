@@ -28,11 +28,20 @@ public:
 		const UStaticMeshComponent* PreviewMesh,
 		float ZOffsetCm);
 
+	struct FShapeFrameBuildParams
+	{
+		float ShapeWidthCm = 200.0f;
+		float ShapeHeightCm = 0.0f;
+		float ZOffsetCm = 2.0f;
+		bool bAutoFitToParticleSphere = true;
+		bool bOrientShapeToView = true;
+		FVector ViewOrigin = FVector::ZeroVector;
+		bool bHasViewOrigin = false;
+	};
+
 	static FMetaAgentParticleShapeFrame BuildShapeFrameFromCentroid(
 		const TArray<FVector>& BaselineWorldPositions,
-		float ShapeWidthCm,
-		float ShapeHeightCm,
-		float ZOffsetCm);
+		const FShapeFrameBuildParams& Params);
 
 	static UTexture2D* ImportPngTexture(const FString& PngPath);
 
