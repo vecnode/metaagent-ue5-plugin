@@ -260,7 +260,7 @@ flowchart TB
 
     subgraph Game
         PC[AMetaAgentPlayerController]
-        GUI[FMetaAgentGUIState]
+        GSTATE[FMetaAgentGUIState]
     end
 
     subgraph GUIRuntime
@@ -272,8 +272,8 @@ flowchart TB
         REBUILD[RebuildDisplayHelpPanelLines]
     end
 
-    subgraph HUD
-        HUD[AMetaAgentHUD]
+    subgraph HUDPanels
+        MAHUD[AMetaAgentHUD]
         HELP[Help panel canvas]
         REC[Recording panel lines]
         NET[Networking panel lines]
@@ -284,18 +284,18 @@ flowchart TB
     PC --> BRIDGE
     BRIDGE --> TOGGLE
     TOGGLE --> GR
-    GR --> GUI
+    GR --> GSTATE
     TOGGLE --> APPLY
     APPLY --> INIT
     APPLY --> REBUILD
-    REBUILD --> GUI
-    APPLY --> HUD
-    HUD --> HELP
+    REBUILD --> GSTATE
+    APPLY --> MAHUD
+    MAHUD --> HELP
     APPLY --> REC
     PC -->|BuildRecordingRuntimePanelLines| REC
     PC -->|GetNetworkingRuntimePanelLines| NET
-    GUI -->|bHelpPanelVisible| HELP
-    GUI -->|RecordingStatusLine| REBUILD
+    GSTATE -->|bHelpPanelVisible| HELP
+    GSTATE -->|RecordingStatusLine| REBUILD
     GR --> STATUS
 ```
 
