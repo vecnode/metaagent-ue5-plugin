@@ -124,7 +124,7 @@ struct FMetaAgentParticlePatternRuntime
 	UPROPERTY()
 	TArray<FVector> ReturnHoldPositions;
 
-	/** Live Niagara rest positions for return (refreshed each Returning tick). */
+	/** Frozen idle rest positions for return (captured once when Returning begins). */
 	UPROPERTY()
 	TArray<FVector> ReturnRestPositions;
 

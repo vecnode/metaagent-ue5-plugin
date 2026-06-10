@@ -285,6 +285,10 @@ private:
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float FormingSteeringBlendDurationSeconds = 0.2f;
 
+	/** Below this return phase, stop Direct buffer writes and release Niagara sim control. */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float ReturnReleaseAuthorityThreshold = 0.08f;
+
 	TArray<FVector> LiveSimWorldPositions;
 	TArray<FVector> LastAppliedWorldPositions;
 

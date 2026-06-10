@@ -7,6 +7,7 @@
 #include "Core/MetaAgent.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleInputRouter.h"
 
 namespace
 {
@@ -20,7 +21,7 @@ namespace
 		GUI.BaseHelpPanelLines.Reset();
 		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Q       : Toggle this controls panel"));
-		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load sdxl_latest.png preview + particle image shape"));
+		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load sdxl_latest.png preview (see PARTICLES below)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
 		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
@@ -31,12 +32,7 @@ namespace
 		GUI.BaseHelpPanelLines.Add(TEXT("H       : Send HTTP 'start audio'"));
 		GUI.BaseHelpPanelLines.Add(TEXT("G       : Send HTTP 'start image'"));
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("PARTICLES"));
-		GUI.BaseHelpPanelLines.Add(TEXT("V       : Play pattern (image / grid / spline / mesh)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("C       : Random 3D box sculpt inside particle sphere"));
-		GUI.BaseHelpPanelLines.Add(TEXT("B       : Pattern preset Slow (3.0 / 1.5 / 3.0 s)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("N       : Pattern preset Dramatic (4.0 / 2.0 / 5.0 s)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Console: MetaAgent.Pattern.Cancel / .SkipHold / .Ready"));
+		GUI.BaseHelpPanelLines.Append(FMetaAgentParticleInputRouter::GetParticleKeyHelpLines());
 		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
 		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
 		GUI.BaseHelpPanelLines.Add(TEXT("Shift   : Sprint modifier (input fallback)"));

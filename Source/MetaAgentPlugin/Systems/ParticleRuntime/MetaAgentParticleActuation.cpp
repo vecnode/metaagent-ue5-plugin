@@ -124,18 +124,18 @@ namespace MetaAgentParticleActuationInternal
 		for (int32 LocalIndex = 0; LocalIndex <= MaxLocalIndex; ++LocalIndex)
 		{
 			const int32 GlobalIndex = GlobalStartIndex + LocalIndex;
-			if (!PatternWorldTargets.IsValidIndex(GlobalIndex))
-			{
-				break;
-			}
 
-			FVector DesiredWorld = PatternWorldTargets[GlobalIndex];
+			FVector DesiredWorld = FVector::ZeroVector;
+			if (PatternWorldTargets.IsValidIndex(GlobalIndex))
+			{
+				DesiredWorld = PatternWorldTargets[GlobalIndex];
+			}
 			if (bReturnBlend)
 			{
 				if (!ReturnHoldPositions->IsValidIndex(GlobalIndex)
 					|| !ReturnRestPositions->IsValidIndex(GlobalIndex))
 				{
-					break;
+					continue;
 				}
 
 				const FVector HoldPos = (*ReturnHoldPositions)[GlobalIndex];
@@ -144,9 +144,10 @@ namespace MetaAgentParticleActuationInternal
 			}
 			else
 			{
-				if (!BaselineWorldPositions.IsValidIndex(GlobalIndex))
+				if (!BaselineWorldPositions.IsValidIndex(GlobalIndex)
+					|| !PatternWorldTargets.IsValidIndex(GlobalIndex))
 				{
-					break;
+					continue;
 				}
 
 				DesiredWorld = FMath::Lerp(

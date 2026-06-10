@@ -9,6 +9,9 @@
 #include "Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleInputRouter.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 
@@ -381,6 +384,50 @@ namespace MetaAgentParticlePatternConsole
 		ShowTransientPatternMessage(Controller, Controller->GetParticlePatternShapeText(), FColor::Cyan);
 	}
 
+	void ExecSetScatterGrid(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ScatterGrid <1-16>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const float GridScale = FMath::Clamp(FCString::Atof(*Args[0]), 1.0f, 16.0f);
+		Controller->SetParticlePatternDensityGridScale(GridScale);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Scatter grid scale set to %.1f. Press F then V to rebuild."), GridScale),
+			FColor::Cyan);
+	}
+
+	void ExecSetScatterJitter(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ScatterJitter <0-1>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const float Jitter = FMath::Clamp(FCString::Atof(*Args[0]), 0.0f, 1.0f);
+		Controller->SetParticlePatternTargetJitter(Jitter);
+		ShowTransientPatternMessage(
+			Controller,
+			FString::Printf(TEXT("Scatter jitter set to %.2f. Press F then V to rebuild."), Jitter),
+			FColor::Cyan);
+	}
+
 	void ExecSetEdgeThreshold(const TArray<FString>& Args)
 	{
 		if (Args.Num() < 1)
@@ -514,157 +561,178 @@ namespace MetaAgentParticlePatternConsole
 		TEXT("MetaAgent.Pattern.EdgeThreshold"),
 		TEXT("Set Sobel edge magnitude threshold (0.01-1). Lower = denser outlines."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetEdgeThreshold));
+
+	static FAutoConsoleCommand MetaAgentPatternScatterGridCmd(
+		TEXT("MetaAgent.Pattern.ScatterGrid"),
+		TEXT("Stratification grid scale (1-16). Higher = particles spread across more of the image."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetScatterGrid));
+
+	static FAutoConsoleCommand MetaAgentPatternScatterJitterCmd(
+		TEXT("MetaAgent.Pattern.ScatterJitter"),
+		TEXT("Per-particle scatter jitter within grid cells (0-1). Higher = more random offset."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetScatterJitter));
 }
 
-void AMetaAgentPlayerController::HandleParticlePatternPressed()
+namespace MetaAgentParticleControllerInternal
 {
-	if (!IsMetaAgentRuntimeActive())
+	void NotifyEffectResult(AMetaAgentPlayerController* Controller, const FMetaAgentParticleEffectResult& Result)
 	{
-		return;
-	}
-
-	if (!ParticleRuntime)
-	{
-		RefreshParticleRuntimeTracking();
-	}
-
-	if (!ParticleRuntime)
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern request ignored because runtime is not initialized."));
-		return;
-	}
-
-	SyncParticlePatternConfigToRuntime();
-	ParticleRuntime->ForceCaptureParticles();
-	PrepareParticlePatternShapeContext();
-
-	if (!StartParticlePattern())
-	{
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		if (!Controller)
 		{
-			MetaAgentHUD->AddTransientMessage(
-				TEXT("Particle pattern unavailable (busy or no captured particles)."),
-				FColor::Orange,
-				2.5f);
+			return;
 		}
-		return;
+
+		if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
+		{
+			const FColor Color = Result.bSuccess
+				? (Result.bAwaitingAsyncPrepare ? FColor::Yellow : FColor::Cyan)
+				: FColor::Orange;
+			HUD->AddTransientMessage(Result.UserMessage.ToString(), Color, Result.bAwaitingAsyncPrepare ? 4.0f : 3.0f);
+		}
 	}
 
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+	void TriggerEffectOnController(AMetaAgentPlayerController* Controller, const FName EffectId)
 	{
-		const bool bPreparing = ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing;
-		MetaAgentHUD->AddTransientMessage(
-			bPreparing
-				? FString::Printf(
-					TEXT("Preparing image shape at full resolution (%s). Game stays responsive."),
-					*ParticleRuntime->BuildPatternStatusText())
-				: FString::Printf(
-					TEXT("Particle pattern started (%s | %s)."),
-					*ParticleRuntime->BuildPatternShapeText(),
-					*ParticleRuntime->BuildPatternStatusText()),
-			bPreparing ? FColor::Yellow : FColor::Cyan,
-			bPreparing ? 4.0f : 3.0f);
+		if (!Controller || !IsMetaAgentRuntimeActive())
+		{
+			return;
+		}
+
+		NotifyEffectResult(Controller, Controller->TriggerParticleEffect(EffectId));
 	}
 }
 
-void AMetaAgentPlayerController::HandleRandomBoxPatternPressed()
+void AMetaAgentPlayerController::EnsureParticleOrchestrator()
 {
-	if (!IsMetaAgentRuntimeActive())
+	if (ParticleOrchestrator)
 	{
 		return;
 	}
 
-	if (PlayRandomBoxParticlePattern())
+	const TSubclassOf<UMetaAgentParticleOrchestrator> OrchestratorClass =
+		ParticleOrchestratorClass
+			? ParticleOrchestratorClass
+			: TSubclassOf<UMetaAgentParticleOrchestrator>(UMetaAgentDefaultParticleOrchestrator::StaticClass());
+	ParticleOrchestrator = NewObject<UMetaAgentParticleOrchestrator>(this, OrchestratorClass, TEXT("MetaAgentParticleOrchestrator"));
+	SyncOrchestratorFromControllerDefaults();
+	ParticleOrchestrator->InitializeOrchestrator(this, GetWorld());
+	BindParticleRuntimeDelegates();
+}
+
+void AMetaAgentPlayerController::SyncOrchestratorFromControllerDefaults()
+{
+	if (!ParticleOrchestrator)
 	{
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+		return;
+	}
+
+	ParticleOrchestrator->ApplyPatternConfig(ParticlePatternConfig);
+	ParticleOrchestrator->SetActuationMode(ParticleActuationMode);
+	ParticleOrchestrator->SetBlockedPatternTags(BlockedPatternTags);
+	ParticleOrchestrator->SetDefaultPatternAsset(DefaultParticlePatternAsset);
+}
+
+UMetaAgentParticleRuntime* AMetaAgentPlayerController::GetParticleRuntime() const
+{
+	return ParticleOrchestrator ? ParticleOrchestrator->GetParticleRuntime() : nullptr;
+}
+
+FMetaAgentParticleEffectResult AMetaAgentPlayerController::TriggerParticleEffect(const FName EffectId)
+{
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
+	{
+		return FMetaAgentParticleEffectResult();
+	}
+
+	const FMetaAgentParticleEffectResult Result = ParticleOrchestrator->TriggerEffect(EffectId);
+	if (Result.bSuccess)
+	{
+		ParticlePatternConfig = ParticleOrchestrator->GetPatternConfig();
+	}
+
+	return Result;
+}
+
+void AMetaAgentPlayerController::HandleParticleLoadPreviewPressed()
+{
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
+	{
+		return;
+	}
+
+	FString Message;
+	if (ParticleOrchestrator->LoadDefaultPreviewPng(Message))
+	{
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
 		{
-			MetaAgentHUD->AddTransientMessage(
-				FString::Printf(
-					TEXT("Random box sculpt started (%s | %s)."),
-					*GetParticlePatternShapeText(),
-					*GetParticlePatternStatusText()),
-				FColor::Green,
-				3.0f);
+			HUD->AddTransientMessage(Message, FColor::Green, 3.0f);
 		}
+		ApplyGUIHelpPanelState();
 	}
-	else if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
+	else if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
 	{
-		MetaAgentHUD->AddTransientMessage(
-			TEXT("Random box pattern unavailable (busy or no captured particles)."),
-			FColor::Orange,
-			2.5f);
+		HUD->AddTransientMessage(Message, FColor::Yellow, 2.5f);
 	}
+}
+
+void AMetaAgentPlayerController::HandleParticleImageRevealPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::ImageReveal);
+}
+
+void AMetaAgentPlayerController::HandleParticleBoxSculptPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::BoxSculpt);
+}
+
+void AMetaAgentPlayerController::HandleParticleSlowPresetPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetSlow);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleDramaticPresetPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetDramatic);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticlePlayNormalPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlayNormal);
+}
+
+void AMetaAgentPlayerController::HandleParticlePlaySlowPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlaySlow);
+}
+
+void AMetaAgentPlayerController::HandleParticlePlayDramaticPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlayDramatic);
+}
+
+void AMetaAgentPlayerController::HandleParticleReplayLastPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::ReplayLast);
+}
+
+void AMetaAgentPlayerController::HandleParticleCycleSamplingPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleSampling);
 }
 
 bool AMetaAgentPlayerController::PlayRandomBoxParticlePattern()
 {
-	if (!ParticleRuntime)
-	{
-		RefreshParticleRuntimeTracking();
-	}
-
-	if (!ParticleRuntime)
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: random box request ignored because runtime is not initialized."));
-		return false;
-	}
-
-	ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset::Sculpt);
-	SetParticlePatternShape(EMetaAgentParticlePatternShape::RandomParallelepiped);
-	ParticlePatternConfig.Shape.AssignmentMode = EMetaAgentParticleShapeAssignmentMode::NearestNeighbor;
-	ParticlePatternConfig.Shape.bOrientShapeToView = true;
-	ParticlePatternConfig.Shape.BoxRandomSeed = 0;
-	SyncParticlePatternConfigToRuntime();
-
-	ParticleRuntime->ForceCaptureParticles();
-	PrepareParticlePatternShapeContext();
-	return StartParticlePattern();
-}
-
-void AMetaAgentPlayerController::HandleParticlePatternSlowPresetPressed()
-{
-	if (!IsMetaAgentRuntimeActive())
-	{
-		return;
-	}
-
-	ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset::Slow);
-
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(
-			FString::Printf(TEXT("Particle pattern preset: Slow (%s). Press V to play."), *GetParticlePatternTimingsText()),
-			FColor::Cyan,
-			2.5f);
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticlePatternDramaticPresetPressed()
-{
-	if (!IsMetaAgentRuntimeActive())
-	{
-		return;
-	}
-
-	ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset::Dramatic);
-
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(
-			FString::Printf(TEXT("Particle pattern preset: Dramatic (%s). Press V to play."), *GetParticlePatternTimingsText()),
-			FColor::Cyan,
-			2.5f);
-	}
+	return TriggerParticleEffect(MetaAgentParticleEffectIds::BoxSculpt).bSuccess;
 }
 
 bool AMetaAgentPlayerController::StartParticleSquarePattern()
@@ -674,117 +742,65 @@ bool AMetaAgentPlayerController::StartParticleSquarePattern()
 
 bool AMetaAgentPlayerController::StartParticlePattern()
 {
-	const FGameplayTagContainer PatternTags = DefaultParticlePatternAsset
-		? DefaultParticlePatternAsset->PatternTags
-		: FGameplayTagContainer();
-	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(BlockedPatternTags, PatternTags))
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern start blocked by BlockedPatternTags."));
-		return false;
-	}
-
-	if (!ParticleRuntime)
-	{
-		RefreshParticleRuntimeTracking();
-	}
-
-	if (!ParticleRuntime)
-	{
-		return false;
-	}
-
-	SyncParticlePatternConfigToRuntime();
-	ParticleRuntime->ForceCaptureParticles();
-	PrepareParticlePatternShapeContext();
-
-	if (DefaultParticlePatternAsset)
-	{
-		return ParticleRuntime->RequestPatternStart(DefaultParticlePatternAsset);
-	}
-
-	return ParticleRuntime->StartPattern();
+	return TriggerParticleEffect(MetaAgentParticleEffectIds::ImageReveal).bSuccess;
 }
 
 bool AMetaAgentPlayerController::RequestParticlePatternStart(UMetaAgentParticlePatternAsset* PatternAsset)
 {
-	if (!PatternAsset)
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator || !PatternAsset)
 	{
 		return false;
 	}
 
-	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(
-		BlockedPatternTags,
-		PatternAsset->PatternTags))
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern start blocked by BlockedPatternTags."));
-		return false;
-	}
-
-	if (!ParticleRuntime)
-	{
-		return false;
-	}
-
-	SyncParticlePatternConfigToRuntime();
-	ParticleRuntime->ForceCaptureParticles();
-	PrepareParticlePatternShapeContext();
-	return ParticleRuntime->RequestPatternStart(PatternAsset);
+	return ParticleOrchestrator->StartPatternWithAsset(PatternAsset).bSuccess;
 }
 
 bool AMetaAgentPlayerController::RequestParticlePatternCancel(const bool bSkipReturn)
 {
-	return ParticleRuntime ? ParticleRuntime->RequestPatternCancel(bSkipReturn) : false;
+	EnsureParticleOrchestrator();
+	return ParticleOrchestrator ? ParticleOrchestrator->RequestPatternCancel(bSkipReturn) : false;
 }
 
 bool AMetaAgentPlayerController::RequestParticleSkipHold()
 {
-	return ParticleRuntime ? ParticleRuntime->RequestSkipHold() : false;
+	EnsureParticleOrchestrator();
+	return ParticleOrchestrator ? ParticleOrchestrator->RequestSkipHold() : false;
 }
 
 bool AMetaAgentPlayerController::RequestParticlePatternQueue(UMetaAgentParticlePatternAsset* PatternAsset)
 {
-	if (!PatternAsset)
-	{
-		return false;
-	}
-
-	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(
-		BlockedPatternTags,
-		PatternAsset->PatternTags))
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern queue blocked by BlockedPatternTags."));
-		return false;
-	}
-
-	return ParticleRuntime ? ParticleRuntime->RequestPatternQueue(PatternAsset) : false;
+	EnsureParticleOrchestrator();
+	return ParticleOrchestrator ? ParticleOrchestrator->RequestPatternQueue(PatternAsset) : false;
 }
 
 bool AMetaAgentPlayerController::CanStartParticlePattern() const
 {
-	return ParticleRuntime ? ParticleRuntime->CanStartPattern() : false;
+	return GetParticleRuntime() ? GetParticleRuntime()->CanStartPattern() : false;
 }
 
 bool AMetaAgentPlayerController::IsParticlePatternReady(const FString& ImagePath) const
 {
-	return ParticleRuntime ? ParticleRuntime->IsPatternReady(ImagePath) : false;
+	return GetParticleRuntime() ? GetParticleRuntime()->IsPatternReady(ImagePath) : false;
 }
 
 int32 AMetaAgentPlayerController::GetParticlePatternQueueDepth() const
 {
-	return ParticleRuntime ? ParticleRuntime->GetPatternQueueDepth() : 0;
+	return GetParticleRuntime() ? GetParticleRuntime()->GetPatternQueueDepth() : 0;
 }
 
 void AMetaAgentPlayerController::BindParticleRuntimeDelegates()
 {
-	if (!ParticleRuntime)
+	UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	if (!Runtime)
 	{
 		return;
 	}
 
-	ParticleRuntime->OnPatternStateEntered.RemoveAll(this);
-	ParticleRuntime->OnPatternCompleted.RemoveAll(this);
-	ParticleRuntime->OnPatternStateEntered.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternStateEntered);
-	ParticleRuntime->OnPatternCompleted.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternCompleted);
+	Runtime->OnPatternStateEntered.RemoveAll(this);
+	Runtime->OnPatternCompleted.RemoveAll(this);
+	Runtime->OnPatternStateEntered.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternStateEntered);
+	Runtime->OnPatternCompleted.AddDynamic(this, &AMetaAgentPlayerController::HandleParticlePatternCompleted);
 }
 
 void AMetaAgentPlayerController::HandleParticlePatternStateEntered(
@@ -801,27 +817,27 @@ void AMetaAgentPlayerController::HandleParticlePatternCompleted()
 
 FString AMetaAgentPlayerController::GetParticlePatternStatusText() const
 {
-	if (!ParticleRuntime)
+	if (ParticleOrchestrator)
 	{
-		return TEXT("Pattern State: Idle | Phase: 0.00 | Particles: 0");
+		return ParticleOrchestrator->BuildPatternStatusText();
 	}
 
-	return ParticleRuntime->BuildPatternStatusText();
+	return TEXT("Pattern State: Idle | Phase: 0.00 | Particles: 0");
 }
 
 FString AMetaAgentPlayerController::GetParticlePatternTimingsText() const
 {
-	if (!ParticleRuntime)
+	if (ParticleOrchestrator)
 	{
-		return FString::Printf(
-			TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs"),
-			*ParticlePatternConfig.GetPresetDisplayName(),
-			ParticlePatternConfig.FormDurationSeconds,
-			ParticlePatternConfig.HoldDurationSeconds,
-			ParticlePatternConfig.ReturnDurationSeconds);
+		return ParticleOrchestrator->BuildPatternTimingsText();
 	}
 
-	return ParticleRuntime->BuildPatternTimingsText();
+	return FString::Printf(
+		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs"),
+		*ParticlePatternConfig.GetPresetDisplayName(),
+		ParticlePatternConfig.FormDurationSeconds,
+		ParticlePatternConfig.HoldDurationSeconds,
+		ParticlePatternConfig.ReturnDurationSeconds);
 }
 
 void AMetaAgentPlayerController::ApplyParticlePatternPreset(const EMetaAgentParticlePatternPreset Preset)
@@ -844,57 +860,18 @@ void AMetaAgentPlayerController::SetParticlePatternTimings(
 
 void AMetaAgentPlayerController::SyncParticlePatternConfigToRuntime()
 {
-	if (!ParticleRuntime)
-	{
-		return;
-	}
-
-	ParticleRuntime->ApplyPatternConfig(ParticlePatternConfig);
-	ParticleRuntime->SetActuationMode(ParticleActuationMode);
+	SyncOrchestratorFromControllerDefaults();
 }
 
 bool AMetaAgentPlayerController::PrepareParticlePatternShapeContext()
 {
-	if (!ParticleRuntime)
-	{
-		return false;
-	}
-
-	if (ParticlePatternConfig.Shape.ShapeType == EMetaAgentParticlePatternShape::ImageSilhouette)
-	{
-		FString ResolvedPath;
-		if (!EnsureParticlePreviewTextureLoaded(ResolvedPath))
-		{
-			UE_LOG(LogMetaAgent, Warning,
-				TEXT("ParticleRuntime: image silhouette requested but no preview texture is available. Falling back to square grid if needed."));
-		}
-	}
-
-	const FMetaAgentParticleShapeContext ShapeContext = BuildParticleShapeContext();
-	ParticleRuntime->SetPatternShapeContext(ShapeContext);
-	RequestParticleImageMaskBuild();
-	return true;
+	EnsureParticleOrchestrator();
+	return ParticleOrchestrator ? ParticleOrchestrator->PrepareShapeContextForPlay() : false;
 }
 
 void AMetaAgentPlayerController::RequestParticleImageMaskBuild()
 {
-	if (!ParticleRuntime
-		|| ParticlePatternConfig.Shape.ShapeType != EMetaAgentParticlePatternShape::ImageSilhouette)
-	{
-		return;
-	}
-
-	const FString SourceImagePath = GetLastLoadedPreviewImagePath();
-	if (SourceImagePath.IsEmpty())
-	{
-		return;
-	}
-
-	const int32 ParticleCount = FMath::Max(ParticleRuntime->GetKnownParticleCount(), 128);
-	FMetaAgentParticleShapeBuilder::RequestImageMaskBuild(
-		SourceImagePath,
-		ParticlePatternConfig.Shape,
-		ParticleCount);
+	PrepareParticlePatternShapeContext();
 }
 
 void AMetaAgentPlayerController::SetParticlePatternShape(const EMetaAgentParticlePatternShape ShapeType)
@@ -931,75 +908,80 @@ void AMetaAgentPlayerController::SetParticlePatternShapeWidth(const float WidthC
 	SyncParticlePatternConfigToRuntime();
 }
 
+void AMetaAgentPlayerController::SetParticlePatternDensityGridScale(const float GridScale)
+{
+	ParticlePatternConfig.Shape.DensityGridScale = FMath::Clamp(GridScale, 1.0f, 16.0f);
+	SyncParticlePatternConfigToRuntime();
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternTargetJitter(const float JitterNormalized)
+{
+	ParticlePatternConfig.Shape.TargetJitterNormalized = FMath::Clamp(JitterNormalized, 0.0f, 1.0f);
+	SyncParticlePatternConfigToRuntime();
+	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
 FString AMetaAgentPlayerController::GetParticlePatternShapeText() const
 {
-	const bool bImageLoaded = GetLatestPngPreviewTexture() != nullptr;
-
-	if (ParticleRuntime && ParticleRuntime->IsPatternActive())
-	{
-		return ParticleRuntime->BuildPatternShapeText();
-	}
-
-	return FString::Printf(
-		TEXT("Pattern Shape: %s | Sampling=%s | ImageLoaded=%s"),
-		*ParticlePatternConfig.Shape.GetShapeDisplayName(),
-		*ParticlePatternConfig.Shape.GetImageSamplingDisplayName(),
-		bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
+	return ParticleOrchestrator
+		? ParticleOrchestrator->BuildPatternShapeText()
+		: FString::Printf(
+			TEXT("Pattern Shape: %s | Sampling=%s | ImageLoaded=FALSE"),
+			*ParticlePatternConfig.Shape.GetShapeDisplayName(),
+			*ParticlePatternConfig.Shape.GetImageSamplingDisplayName());
 }
 
 FMetaAgentParticleShapeContext AMetaAgentPlayerController::BuildParticleShapeContext()
 {
-	FMetaAgentParticleShapeContext Context;
-
-	if (ParticleRuntime)
-	{
-		Context.BaselineWorldPositions = ParticleRuntime->GetKnownParticlePositions();
-	}
-
-	if (UWorld* World = GetWorld())
-	{
-		Context.PreviewPlaneMesh = FMetaAgentImagePreviewRuntime::FindPreviewPlaneMesh(
-			World,
-			ExistingPreviewPlaneActorName,
-			ExistingPreviewPlaneComponentName,
-			GetExistingPreviewPlaneMesh());
-		if (Context.PreviewPlaneMesh)
-		{
-			CacheExistingPreviewPlaneMesh(Context.PreviewPlaneMesh);
-		}
-	}
-
-	Context.SourceTexture = GetLatestPngPreviewTexture();
-	Context.SourceImagePath = GetLastLoadedPreviewImagePath();
-	Context.bHasResolvedImage = Context.SourceTexture != nullptr;
-
-	if (APlayerCameraManager* CameraManager = PlayerCameraManager)
-	{
-		Context.ViewOrigin = CameraManager->GetCameraLocation();
-		Context.bHasViewOrigin = true;
-	}
-
-	if (UWorld* World = GetWorld())
-	{
-		Context.World = World;
-	}
-
-	return Context;
+	EnsureParticleOrchestrator();
+	PrepareParticlePatternShapeContext();
+	return FMetaAgentParticleShapeContext();
 }
 
 bool AMetaAgentPlayerController::EnsureParticlePreviewTextureLoaded(FString& OutResolvedPath)
 {
-	if (!ParticlePatternConfig.Shape.bUseLoadedPreviewTexture
-		&& ParticlePatternConfig.Shape.ShapeType != EMetaAgentParticlePatternShape::ImageSilhouette)
-	{
-		OutResolvedPath = GetLastLoadedPreviewImagePath();
-		return GetLatestPngPreviewTexture() != nullptr;
-	}
-
 	return FMetaAgentImagePreviewRuntime::EnsurePreviewTextureLoaded(*this, OutResolvedPath);
+}
+
+UTexture2D* AMetaAgentPlayerController::GetLatestPngPreviewTexture() const
+{
+	return ParticleOrchestrator ? ParticleOrchestrator->GetPreviewTexture() : nullptr;
+}
+
+void AMetaAgentPlayerController::SetLatestPngPreviewTexture(UTexture2D* Texture)
+{
+	EnsureParticleOrchestrator();
+	if (ParticleOrchestrator)
+	{
+		ParticleOrchestrator->SetPreviewSource(Texture, GetLastLoadedPreviewImagePath());
+	}
+}
+
+FString AMetaAgentPlayerController::GetLastLoadedPreviewImagePath() const
+{
+	return ParticleOrchestrator ? ParticleOrchestrator->GetPreviewImagePath() : FString();
+}
+
+void AMetaAgentPlayerController::SetLastLoadedPreviewImagePath(const FString& Path)
+{
+	EnsureParticleOrchestrator();
+	if (ParticleOrchestrator)
+	{
+		ParticleOrchestrator->SetPreviewSource(GetLatestPngPreviewTexture(), Path);
+	}
+}
+
+UStaticMeshComponent* AMetaAgentPlayerController::GetExistingPreviewPlaneMesh() const
+{
+	return ParticleOrchestrator ? ParticleOrchestrator->GetCachedPreviewPlaneMesh() : nullptr;
 }
 
 void AMetaAgentPlayerController::CacheExistingPreviewPlaneMesh(UStaticMeshComponent* Mesh)
 {
-	ExistingPreviewPlaneMesh = Mesh;
+	EnsureParticleOrchestrator();
+	if (ParticleOrchestrator)
+	{
+		ParticleOrchestrator->SetCachedPreviewPlaneMesh(Mesh);
+	}
 }

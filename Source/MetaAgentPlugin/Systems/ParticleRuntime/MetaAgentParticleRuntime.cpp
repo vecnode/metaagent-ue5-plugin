@@ -214,12 +214,31 @@ void UMetaAgentParticleRuntime::BeginReturnFromHold()
 		PatternRuntime.ReturnHoldPositions = PatternRuntime.PatternWorldTargets;
 	}
 
-	// ReturnRestPositions is refreshed from live Niagara sim each Returning tick.
+	const int32 ParticleCount = PatternRuntime.ReturnHoldPositions.Num();
 	PatternRuntime.ReturnRestPositions.Reset();
+	PatternRuntime.ReturnRestPositions.Reserve(ParticleCount);
+
+	// Freeze a stable idle rest target once. Per-tick live reads fight Direct buffer writes and flicker.
+	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
+	{
+		if (PatternRuntime.BaselineWorldPositions.IsValidIndex(ParticleIndex))
+		{
+			PatternRuntime.ReturnRestPositions.Add(PatternRuntime.BaselineWorldPositions[ParticleIndex]);
+		}
+		else if (PatternRuntime.TrajectoryWorldPositions.IsValidIndex(ParticleIndex))
+		{
+			PatternRuntime.ReturnRestPositions.Add(PatternRuntime.TrajectoryWorldPositions[ParticleIndex]);
+		}
+		else
+		{
+			PatternRuntime.ReturnRestPositions.Add(PatternRuntime.ReturnHoldPositions[ParticleIndex]);
+		}
+	}
 
 	UE_LOG(LogMetaAgent, Verbose,
-		TEXT("ParticleRuntime: return started hold=%d (live rest refreshed each tick)."),
-		PatternRuntime.ReturnHoldPositions.Num());
+		TEXT("ParticleRuntime: return started hold=%d rest=%d (frozen targets)."),
+		PatternRuntime.ReturnHoldPositions.Num(),
+		PatternRuntime.ReturnRestPositions.Num());
 }
 
 void UMetaAgentParticleRuntime::DiscoverNiagaraComponents(const bool bLogSummary)
@@ -812,10 +831,12 @@ FString UMetaAgentParticleRuntime::BuildPatternShapeText() const
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
 	{
 		return FString::Printf(
-			TEXT("Pattern Shape: %s | Sampling=%s | Res=%dpx | ImageLoaded=%s"),
+			TEXT("Pattern Shape: %s | Sampling=%s | Res=%dpx | ScatterGrid=%.1f Jitter=%.2f | ImageLoaded=%s"),
 			*ShapeName,
 			*DisplayShape.GetImageSamplingDisplayName(),
 			DisplayShape.SampleResolution,
+			DisplayShape.DensityGridScale,
+			DisplayShape.TargetJitterNormalized,
 			bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
 	}
 
@@ -1135,16 +1156,6 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 	float BlendAlpha = ComputeActuationBlendAlpha();
 	if (bReturning)
 	{
-		CaptureLiveSimPositions();
-		if (LiveSimWorldPositions.Num() > 0)
-		{
-			PatternRuntime.ReturnRestPositions = LiveSimWorldPositions;
-		}
-		else if (PatternRuntime.ReturnRestPositions.Num() <= 0)
-		{
-			PatternRuntime.ReturnRestPositions = PatternRuntime.TrajectoryWorldPositions;
-		}
-
 		BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
 	}
 
@@ -1187,6 +1198,14 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 
 	IMetaAgentParticleActuator& ParameterActuator =
 		FMetaAgentParticleActuation::GetActuator(EMetaAgentParticleActuationMode::Parameters);
+
+	if (bReturning && BlendAlpha <= ReturnReleaseAuthorityThreshold)
+	{
+		Request.bPatternActive = false;
+		Request.BlendAlpha = 0.0f;
+		ParameterActuator.ApplyParameters(Request);
+		return;
+	}
 
 	if (EffectiveMode == EMetaAgentParticleActuationMode::Parameters)
 	{

@@ -103,17 +103,17 @@ struct FMetaAgentParticleShapeDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "32", ClampMax = "4096"))
 	int32 SampleResolution = 1024;
 
-	/** Exponent on grayscale concentration (>1 = more weight on dark/dense regions). */
+	/** Exponent on grayscale concentration (>1 = clusters in dark regions; lower = flatter scatter). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.25", ClampMax = "4.0"))
-	float GrayscaleGamma = 1.2f;
+	float GrayscaleGamma = 1.0f;
 
-	/** Grid density multiplier for stratified scatter (higher = more spread). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "1.0", ClampMax = "8.0"))
-	float DensityGridScale = 2.5f;
+	/** Stratification grid scale: grid cells ≈ sqrt(particleCount * this). Applies to Gray, Sobel, and Fill sampling. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "1.0", ClampMax = "16.0"))
+	float DensityGridScale = 5.0f;
 
-	/** Sub-cell jitter as a fraction of one grid cell (breaks exact overlaps). */
+	/** Sub-cell jitter as a fraction of one stratification cell. Applies to Gray, Sobel, and Fill sampling. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float TargetJitterNormalized = 0.35f;
+	float TargetJitterNormalized = 0.7f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape")
 	bool bUseLoadedPreviewTexture = true;

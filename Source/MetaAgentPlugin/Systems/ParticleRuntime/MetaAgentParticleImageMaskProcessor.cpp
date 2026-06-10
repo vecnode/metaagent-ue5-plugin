@@ -12,6 +12,16 @@ namespace MetaAgentImageMask
 {
 	namespace
 	{
+		FVector2D ApplyCellJitter(const FVector2D& NormalizedPoint, const int32 GridSize, const float JitterNormalized);
+		void FillPointsWithWeightedScatter(
+			const TArray<float>& Weights,
+			const int32 MaskWidth,
+			const int32 MaskHeight,
+			const int32 DesiredCount,
+			const float JitterNormalized,
+			const int32 GridSize,
+			TArray<FVector2D>& InOutPoints);
+
 		int32 ResolveEffectiveSampleResolution(
 			const int32 SourceWidth,
 			const int32 SourceHeight,
@@ -333,7 +343,9 @@ namespace MetaAgentImageMask
 			const TArray<FVector2D>& CandidatePoints,
 			const TArray<float>* CandidateWeights,
 			const int32 DesiredCount,
-			TArray<FVector2D>& OutPoints)
+			TArray<FVector2D>& OutPoints,
+			const float DensityGridScale = 1.0f,
+			const float JitterNormalized = 0.0f)
 		{
 			OutPoints.Reset();
 			if (CandidatePoints.Num() <= 0 || DesiredCount <= 0)
@@ -348,10 +360,12 @@ namespace MetaAgentImageMask
 				{
 					OutPoints.Add(CandidatePoints[OutPoints.Num() % CandidatePoints.Num()]);
 				}
-				return;
 			}
-
-			const int32 GridSize = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(DesiredCount))));
+			else
+			{
+			const int32 GridSize = FMath::Max(
+				1,
+				FMath::CeilToInt(FMath::Sqrt(static_cast<float>(DesiredCount) * FMath::Max(DensityGridScale, 1.0f))));
 			const int32 CellCount = GridSize * GridSize;
 			TArray<int32> BestCandidatePerCell;
 			TArray<float> BestWeightPerCell;
@@ -396,61 +410,151 @@ namespace MetaAgentImageMask
 					const int32 PickIndex = FMath::Clamp(FMath::FloorToInt((static_cast<float>(Index) + 0.5f) * Stride), 0, GridPoints.Num() - 1);
 					OutPoints.Add(GridPoints[PickIndex]);
 				}
-				return;
+			}
+			else
+			{
+				OutPoints = GridPoints;
+				while (OutPoints.Num() < DesiredCount)
+				{
+					OutPoints.Add(GridPoints[OutPoints.Num() % GridPoints.Num()]);
+				}
+			}
 			}
 
-			OutPoints = GridPoints;
-			while (OutPoints.Num() < DesiredCount)
+			if (JitterNormalized > KINDA_SMALL_NUMBER && OutPoints.Num() > 0)
 			{
-				OutPoints.Add(GridPoints[OutPoints.Num() % GridPoints.Num()]);
+				const int32 JitterGridSize = FMath::Max(
+					1,
+					FMath::CeilToInt(FMath::Sqrt(static_cast<float>(DesiredCount) * FMath::Max(DensityGridScale, 1.0f))));
+				for (FVector2D& Point : OutPoints)
+				{
+					Point = ApplyCellJitter(Point, JitterGridSize, JitterNormalized);
+				}
 			}
 		}
 
-		void SubsampleWeightedPoints(
-			const TArray<FVector2D>& CandidatePoints,
-			const TArray<float>& CandidateWeights,
-			const int32 DesiredCount,
-			TArray<FVector2D>& OutPoints)
+		bool ScatterStratifiedFromMaskWeights(
+			const TArray<float>& Weights,
+			const int32 MaskWidth,
+			const int32 MaskHeight,
+			const FMetaAgentImageMaskBuildParams& Params,
+			TArray<FVector2D>& OutNormalizedPoints,
+			int32& OutStratGridSize)
 		{
-			OutPoints.Reset();
-			if (CandidatePoints.Num() <= 0 || DesiredCount <= 0)
+			OutNormalizedPoints.Reset();
+			OutStratGridSize = 1;
+
+			if (Weights.Num() <= 0 || MaskWidth <= 0 || MaskHeight <= 0)
 			{
-				return;
+				return false;
 			}
 
-			if (CandidatePoints.Num() != CandidateWeights.Num())
+			struct FDensityCell
 			{
-				SubsampleMaskedPointsFast(CandidatePoints, nullptr, DesiredCount, OutPoints);
-				return;
-			}
+				float WeightSum = 0.0f;
+				FVector2D WeightedUvSum = FVector2D::ZeroVector;
+			};
 
-			TArray<int32> Order;
-			Order.Reserve(CandidatePoints.Num());
-			for (int32 Index = 0; Index < CandidatePoints.Num(); ++Index)
-			{
-				Order.Add(Index);
-			}
-			Order.Sort([&CandidateWeights](const int32 A, const int32 B)
-			{
-				return CandidateWeights[A] > CandidateWeights[B];
-			});
+			const int32 GridSize = FMath::Max(
+				1,
+				FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Params.DesiredPointCount) * Params.DensityGridScale)));
+			OutStratGridSize = GridSize;
+			TArray<FDensityCell> Cells;
+			Cells.SetNum(GridSize * GridSize);
 
-			TArray<FVector2D> WeightedPool;
-			WeightedPool.Reserve(FMath::Min(CandidatePoints.Num(), DesiredCount * 4));
-			TArray<float> WeightedPoolWeights;
-			WeightedPoolWeights.Reserve(WeightedPool.Max());
-
-			for (const int32 Index : Order)
+			for (int32 Y = 0; Y < MaskHeight; ++Y)
 			{
-				WeightedPool.Add(CandidatePoints[Index]);
-				WeightedPoolWeights.Add(CandidateWeights[Index]);
-				if (WeightedPool.Num() >= DesiredCount * 4)
+				for (int32 X = 0; X < MaskWidth; ++X)
 				{
-					break;
+					const int32 Index = Y * MaskWidth + X;
+					const float Weight = Weights[Index];
+					if (Weight <= KINDA_SMALL_NUMBER)
+					{
+						continue;
+					}
+
+					const float U = (static_cast<float>(X) + 0.5f) / static_cast<float>(MaskWidth);
+					const float V = (static_cast<float>(Y) + 0.5f) / static_cast<float>(MaskHeight);
+					const int32 CellX = FMath::Clamp(FMath::FloorToInt(U * GridSize), 0, GridSize - 1);
+					const int32 CellY = FMath::Clamp(FMath::FloorToInt(V * GridSize), 0, GridSize - 1);
+					const int32 CellIndex = CellY * GridSize + CellX;
+
+					FDensityCell& Cell = Cells[CellIndex];
+					Cell.WeightSum += Weight;
+					Cell.WeightedUvSum += FVector2D(U, V) * Weight;
 				}
 			}
 
-			SubsampleMaskedPointsFast(WeightedPool, &WeightedPoolWeights, DesiredCount, OutPoints);
+			struct FWeightedCell
+			{
+				int32 CellIndex = INDEX_NONE;
+				float WeightSum = 0.0f;
+				FVector2D Uv = FVector2D::ZeroVector;
+			};
+
+			TArray<FWeightedCell> ActiveCells;
+			ActiveCells.Reserve(Cells.Num());
+			for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
+			{
+				const FDensityCell& Cell = Cells[CellIndex];
+				if (Cell.WeightSum <= KINDA_SMALL_NUMBER)
+				{
+					continue;
+				}
+
+				FWeightedCell Entry;
+				Entry.CellIndex = CellIndex;
+				Entry.WeightSum = Cell.WeightSum;
+				Entry.Uv = Cell.WeightedUvSum / Cell.WeightSum;
+				ActiveCells.Add(Entry);
+			}
+
+			OutNormalizedPoints.Reserve(Params.DesiredPointCount);
+
+			TArray<FWeightedCell> RemainingCells = ActiveCells;
+			const int32 PrimaryCount = FMath::Min(Params.DesiredPointCount, RemainingCells.Num());
+			FRandomStream PrimaryStream(Params.DesiredPointCount * 131 + GridSize * 17 + MaskWidth);
+			for (int32 Index = 0; Index < PrimaryCount && RemainingCells.Num() > 0; ++Index)
+			{
+				float TotalCellWeight = 0.0f;
+				for (const FWeightedCell& Cell : RemainingCells)
+				{
+					TotalCellWeight += Cell.WeightSum;
+				}
+
+				int32 ChosenIndex = RemainingCells.Num() - 1;
+				if (TotalCellWeight > KINDA_SMALL_NUMBER)
+				{
+					float Pick = PrimaryStream.FRand() * TotalCellWeight;
+					for (int32 CellIndex = 0; CellIndex < RemainingCells.Num(); ++CellIndex)
+					{
+						Pick -= RemainingCells[CellIndex].WeightSum;
+						if (Pick <= 0.0f)
+						{
+							ChosenIndex = CellIndex;
+							break;
+						}
+					}
+				}
+
+				const FVector2D Jittered = ApplyCellJitter(
+					RemainingCells[ChosenIndex].Uv,
+					GridSize,
+					Params.TargetJitterNormalized);
+				OutNormalizedPoints.Add(Jittered);
+				RemainingCells.RemoveAt(ChosenIndex);
+			}
+
+			FillPointsWithWeightedScatter(
+				Weights,
+				MaskWidth,
+				MaskHeight,
+				Params.DesiredPointCount,
+				Params.TargetJitterNormalized,
+				GridSize,
+				OutNormalizedPoints);
+
+			return OutNormalizedPoints.Num() > 0;
 		}
 
 		void NormalizedPointsToLocalCm(
@@ -651,93 +755,14 @@ namespace MetaAgentImageMask
 				return false;
 			}
 
-			struct FDensityCell
-			{
-				float WeightSum = 0.0f;
-				FVector2D WeightedUvSum = FVector2D::ZeroVector;
-			};
-
-			const int32 GridSize = FMath::Max(
-				1,
-				FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Params.DesiredPointCount) * Params.DensityGridScale)));
-			TArray<FDensityCell> Cells;
-			Cells.SetNum(GridSize * GridSize);
-
-			for (int32 Y = 0; Y < OutMaskHeight; ++Y)
-			{
-				for (int32 X = 0; X < OutMaskWidth; ++X)
-				{
-					const int32 Index = Y * OutMaskWidth + X;
-					const float Weight = Weights[Index];
-					if (Weight <= KINDA_SMALL_NUMBER)
-					{
-						continue;
-					}
-
-					const float U = (static_cast<float>(X) + 0.5f) / static_cast<float>(OutMaskWidth);
-					const float V = (static_cast<float>(Y) + 0.5f) / static_cast<float>(OutMaskHeight);
-					const int32 CellX = FMath::Clamp(FMath::FloorToInt(U * GridSize), 0, GridSize - 1);
-					const int32 CellY = FMath::Clamp(FMath::FloorToInt(V * GridSize), 0, GridSize - 1);
-					const int32 CellIndex = CellY * GridSize + CellX;
-
-					FDensityCell& Cell = Cells[CellIndex];
-					Cell.WeightSum += Weight;
-					Cell.WeightedUvSum += FVector2D(U, V) * Weight;
-				}
-			}
-
-			struct FWeightedCell
-			{
-				int32 CellIndex = INDEX_NONE;
-				float WeightSum = 0.0f;
-				FVector2D Uv = FVector2D::ZeroVector;
-			};
-
-			TArray<FWeightedCell> ActiveCells;
-			ActiveCells.Reserve(Cells.Num());
-			for (int32 CellIndex = 0; CellIndex < Cells.Num(); ++CellIndex)
-			{
-				const FDensityCell& Cell = Cells[CellIndex];
-				if (Cell.WeightSum <= KINDA_SMALL_NUMBER)
-				{
-					continue;
-				}
-
-				FWeightedCell Entry;
-				Entry.CellIndex = CellIndex;
-				Entry.WeightSum = Cell.WeightSum;
-				Entry.Uv = Cell.WeightedUvSum / Cell.WeightSum;
-				ActiveCells.Add(Entry);
-			}
-
-			ActiveCells.Sort([](const FWeightedCell& A, const FWeightedCell& B)
-			{
-				return A.WeightSum > B.WeightSum;
-			});
-
-			OutNormalizedPoints.Reset();
-			OutNormalizedPoints.Reserve(Params.DesiredPointCount);
-
-			const int32 PrimaryCount = FMath::Min(Params.DesiredPointCount, ActiveCells.Num());
-			for (int32 Index = 0; Index < PrimaryCount; ++Index)
-			{
-				const FVector2D Jittered = ApplyCellJitter(
-					ActiveCells[Index].Uv,
-					GridSize,
-					Params.TargetJitterNormalized);
-				OutNormalizedPoints.Add(Jittered);
-			}
-
-			FillPointsWithWeightedScatter(
+			int32 StratGridSize = 1;
+			if (!ScatterStratifiedFromMaskWeights(
 				Weights,
 				OutMaskWidth,
 				OutMaskHeight,
-				Params.DesiredPointCount,
-				Params.TargetJitterNormalized,
-				GridSize,
-				OutNormalizedPoints);
-
-			if (OutNormalizedPoints.Num() <= 0)
+				Params,
+				OutNormalizedPoints,
+				StratGridSize))
 			{
 				OutDebugInfo = TEXT("Grayscale density produced no scatter points.");
 				return false;
@@ -795,7 +820,13 @@ namespace MetaAgentImageMask
 				return false;
 			}
 
-			SubsampleMaskedPointsFast(CandidateNormalizedPoints, nullptr, Params.DesiredPointCount, OutNormalizedPoints);
+			SubsampleMaskedPointsFast(
+				CandidateNormalizedPoints,
+				nullptr,
+				Params.DesiredPointCount,
+				OutNormalizedPoints,
+				Params.DensityGridScale,
+				Params.TargetJitterNormalized);
 			return OutNormalizedPoints.Num() > 0;
 		}
 
@@ -830,35 +861,31 @@ namespace MetaAgentImageMask
 			TArray<float> SobelMagnitudes;
 			ComputeSobelMagnitudes(Gray, OutMaskWidth, OutMaskHeight, SobelMagnitudes);
 
-			const int32 DesiredCandidates = FMath::Max(Params.DesiredPointCount * 3, 128);
+			const int32 DesiredCandidates = FMath::Max(
+				FMath::RoundToInt(static_cast<float>(Params.DesiredPointCount) * Params.DensityGridScale * 3.0f),
+				128);
 			OutAppliedThreshold = ResolveAdaptiveEdgeThreshold(
 				SobelMagnitudes,
 				Params.EdgeThreshold,
 				DesiredCandidates);
 
-			TArray<FVector2D> CandidateNormalizedPoints;
-			TArray<float> CandidateWeights;
-			CandidateNormalizedPoints.Reserve(DesiredCandidates);
-			CandidateWeights.Reserve(DesiredCandidates);
+			TArray<float> Weights;
+			Weights.SetNum(SobelMagnitudes.Num());
+			OutCandidateCount = 0;
 
-			for (int32 Y = 1; Y < OutMaskHeight - 1; ++Y)
+			for (int32 Index = 0; Index < SobelMagnitudes.Num(); ++Index)
 			{
-				for (int32 X = 1; X < OutMaskWidth - 1; ++X)
+				const float EdgeMagnitude = SobelMagnitudes[Index];
+				if (EdgeMagnitude < OutAppliedThreshold)
 				{
-					const float EdgeMagnitude = SobelMagnitudes[Y * OutMaskWidth + X];
-					if (EdgeMagnitude < OutAppliedThreshold)
-					{
-						continue;
-					}
-
-					CandidateNormalizedPoints.Add(FVector2D(
-						(static_cast<float>(X) + 0.5f) / static_cast<float>(OutMaskWidth),
-						(static_cast<float>(Y) + 0.5f) / static_cast<float>(OutMaskHeight)));
-					CandidateWeights.Add(EdgeMagnitude);
+					Weights[Index] = 0.0f;
+					continue;
 				}
+
+				Weights[Index] = FMath::Pow(EdgeMagnitude, Params.GrayscaleGamma);
+				OutCandidateCount++;
 			}
 
-			OutCandidateCount = CandidateNormalizedPoints.Num();
 			if (OutCandidateCount <= 0)
 			{
 				OutDebugInfo = FString::Printf(
@@ -867,8 +894,20 @@ namespace MetaAgentImageMask
 				return false;
 			}
 
-			SubsampleWeightedPoints(CandidateNormalizedPoints, CandidateWeights, Params.DesiredPointCount, OutNormalizedPoints);
-			return OutNormalizedPoints.Num() > 0;
+			int32 StratGridSize = 1;
+			if (!ScatterStratifiedFromMaskWeights(
+				Weights,
+				OutMaskWidth,
+				OutMaskHeight,
+				Params,
+				OutNormalizedPoints,
+				StratGridSize))
+			{
+				OutDebugInfo = TEXT("Sobel edges produced no scatter points.");
+				return false;
+			}
+
+			return true;
 		}
 	}
 
@@ -987,8 +1026,11 @@ namespace MetaAgentImageMask
 		const FString PixelSource = FString::Printf(TEXT("PNG:%s"), *FPaths::GetCleanFilename(Params.SourceImagePath));
 		if (Params.ImageSamplingMode == EMetaAgentParticleImageSamplingMode::SobelEdges)
 		{
+			const int32 StratGridSize = FMath::Max(
+				1,
+				FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Params.DesiredPointCount) * Params.DensityGridScale)));
 			OutOutput.DebugInfo = FString::Printf(
-				TEXT("SobelEdges async pixels=%s src=%dx%d mask=%dx%d edgeCandidates=%d points=%d edgeThreshold=%.3f"),
+				TEXT("SobelEdges async pixels=%s src=%dx%d mask=%dx%d edgeCandidates=%d points=%d stratGrid=%dx%d edgeThreshold=%.3f gridScale=%.1f jitter=%.2f"),
 				*PixelSource,
 				SourceWidth,
 				SourceHeight,
@@ -996,12 +1038,19 @@ namespace MetaAgentImageMask
 				MaskHeight,
 				CandidateCount,
 				OutOutput.LocalPointsCm.Num(),
-				AppliedEdgeThreshold);
+				StratGridSize,
+				StratGridSize,
+				AppliedEdgeThreshold,
+				Params.DensityGridScale,
+				Params.TargetJitterNormalized);
 		}
 		else if (Params.ImageSamplingMode == EMetaAgentParticleImageSamplingMode::GrayscaleDensity)
 		{
+			const int32 StratGridSize = FMath::Max(
+				1,
+				FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Params.DesiredPointCount) * Params.DensityGridScale)));
 			OutOutput.DebugInfo = FString::Printf(
-				TEXT("GrayscaleDensity async pixels=%s src=%dx%d mask=%dx%d weightedPixels=%d points=%d gamma=%.2f grid=%.1f jitter=%.2f"),
+				TEXT("GrayscaleDensity async pixels=%s src=%dx%d mask=%dx%d weightedPixels=%d points=%d stratGrid=%dx%d gamma=%.2f gridScale=%.1f jitter=%.2f"),
 				*PixelSource,
 				SourceWidth,
 				SourceHeight,
@@ -1009,6 +1058,8 @@ namespace MetaAgentImageMask
 				MaskHeight,
 				CandidateCount,
 				OutOutput.LocalPointsCm.Num(),
+				StratGridSize,
+				StratGridSize,
 				Params.GrayscaleGamma,
 				Params.DensityGridScale,
 				Params.TargetJitterNormalized);

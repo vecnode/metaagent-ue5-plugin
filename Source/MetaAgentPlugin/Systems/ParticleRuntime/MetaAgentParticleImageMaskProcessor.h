@@ -15,9 +15,9 @@ struct FMetaAgentImageMaskBuildParams
 	float EdgeThreshold = 0.12f;
 	bool bUseLuminance = true;
 	int32 SampleResolution = 1024;
-	float GrayscaleGamma = 1.2f;
-	float DensityGridScale = 2.5f;
-	float TargetJitterNormalized = 0.35f;
+	float GrayscaleGamma = 1.0f;
+	float DensityGridScale = 5.0f;
+	float TargetJitterNormalized = 0.7f;
 	int32 DesiredPointCount = 0;
 };
 

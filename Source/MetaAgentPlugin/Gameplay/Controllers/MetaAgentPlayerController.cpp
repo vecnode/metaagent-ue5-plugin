@@ -12,6 +12,8 @@
 #include "Systems/GUIRuntime/MetaAgentGUIRuntime.h"
 #include "Systems/CharacterRuntime/MetaAgentCharacterRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleInputRouter.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
 #include "Systems/ParticleRuntime/MetaAgentNiagaraExportHandler.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
@@ -230,9 +232,9 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		UpdateCinematicCamera(DeltaTime);
 	}
 
-	if (ParticleRuntime)
+	if (ParticleOrchestrator)
 	{
-		ParticleRuntime->TickRuntime(DeltaTime);
+		ParticleOrchestrator->TickOrchestrator(DeltaTime);
 	}
 
 	const bool bAggressiveRebindWindow = ParticleCallbackStartupFrameCounter < FMath::Max(0, ParticleCallbackAggressiveRebindFrames);
@@ -520,13 +522,10 @@ void AMetaAgentPlayerController::BeginPlay()
 
 	if (IsLocalPlayerController())
 	{
-		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
-		if (ParticleRuntime)
+		EnsureParticleOrchestrator();
+		if (ParticleOrchestrator)
 		{
-			ParticleRuntime->InitializeRuntime(this);
-			SyncParticlePatternConfigToRuntime();
-			BindParticleRuntimeDelegates();
-			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleRuntime->BuildStatusText());
+			UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleOrchestrator->BuildRuntimeStatusText());
 		}
 
 		ParticleExportHandler = NewObject<UMetaAgentNiagaraExportHandler>(this, TEXT("MetaAgentNiagaraExportHandler"));
@@ -589,17 +588,14 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		{
 			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMetaAgentPlayerController::HandleEscapePressed);
 			InputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleHelpPanelPressed);
-			InputComponent->BindKey(EKeys::F, IE_Pressed, this, &AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed);
 			InputComponent->BindKey(EKeys::H, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartAudioPressed);
 			InputComponent->BindKey(EKeys::G, IE_Pressed, this, &AMetaAgentPlayerController::HandleStartImagePressed);
 			InputComponent->BindKey(EKeys::I, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleAutopilotPressed);
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
-			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternPressed);
-			InputComponent->BindKey(EKeys::C, IE_Pressed, this, &AMetaAgentPlayerController::HandleRandomBoxPatternPressed);
-			InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternSlowPresetPressed);
-			InputComponent->BindKey(EKeys::N, IE_Pressed, this, &AMetaAgentPlayerController::HandleParticlePatternDramaticPresetPressed);
+			EnsureParticleOrchestrator();
+			FMetaAgentParticleInputRouter::BindKeyboardInput(this, InputComponent, ParticleOrchestrator);
 			InputFallback.bUtilityKeysBound = true;
 		}
 	}
@@ -728,144 +724,6 @@ void AMetaAgentPlayerController::HandleStartImagePressed()
 	}
 }
 
-void AMetaAgentPlayerController::HandleLoadLatestPngPreviewPressed()
-{
-	if (!IsLocalPlayerController())
-	{
-		return;
-	}
-
-	const FString PngPath = FMetaAgentImagePreviewRuntime::ResolveDefaultSdxlPngPath();
-	if (!FPaths::FileExists(PngPath))
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: file not found '%s'"), *PngPath);
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(TEXT("Preview PNG not found: sdxl_latest.png"), FColor::Yellow, 2.5f);
-		}
-		return;
-	}
-
-	UTexture2D* ImportedTexture = FMetaAgentImagePreviewRuntime::ImportPngTexture(PngPath);
-	if (!ImportedTexture)
-	{
-		UE_LOG(LogMetaAgent, Error, TEXT("F pressed: failed to import png '%s'"), *PngPath);
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(TEXT("Failed to import sdxl_latest.png"), FColor::Red, 2.5f);
-		}
-		return;
-	}
-
-	SetLatestPngPreviewTexture(ImportedTexture);
-	SetLastLoadedPreviewImagePath(PngPath);
-	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
-	PrepareParticlePatternShapeContext();
-
-	UStaticMeshComponent* PreviewMesh = GetExistingPreviewPlaneMesh();
-	if (!PreviewMesh && GetWorld())
-	{
-		PreviewMesh = FMetaAgentImagePreviewRuntime::FindPreviewPlaneMesh(
-			GetWorld(),
-			ExistingPreviewPlaneActorName,
-			ExistingPreviewPlaneComponentName,
-			nullptr);
-		CacheExistingPreviewPlaneMesh(PreviewMesh);
-	}
-
-	if (!PreviewMesh)
-	{
-		UE_LOG(LogMetaAgent, Warning,
-			TEXT("F pressed: no reusable preview plane found. Expected actor name '%s' or component name '%s'."),
-			*ExistingPreviewPlaneActorName.ToString(),
-			*ExistingPreviewPlaneComponentName.ToString());
-
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(
-				TEXT("No preview plane named 'Plane' found (image still loaded for particle shape)."),
-				FColor::Yellow,
-				3.0f);
-		}
-
-		if (GUI.bHelpPanelVisible)
-		{
-			ApplyGUIHelpPanelState();
-		}
-		return;
-	}
-
-	UMaterialInterface* BasePreviewMaterial = LoadObject<UMaterialInterface>(
-		nullptr,
-		TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
-	if (!BasePreviewMaterial)
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: failed loading Widget3D pass-through material for png preview."));
-		return;
-	}
-
-	UMaterialInstanceDynamic* PreviewMID = Cast<UMaterialInstanceDynamic>(PreviewMesh->GetMaterial(0));
-	if (!PreviewMID)
-	{
-		PreviewMID = UMaterialInstanceDynamic::Create(BasePreviewMaterial, this);
-		if (PreviewMID)
-		{
-			const int32 MaterialSlots = PreviewMesh->GetNumMaterials();
-			for (int32 SlotIndex = 0; SlotIndex < MaterialSlots; ++SlotIndex)
-			{
-				PreviewMesh->SetMaterial(SlotIndex, PreviewMID);
-			}
-		}
-	}
-
-	if (!PreviewMID)
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("F pressed: failed creating dynamic material for preview plane."));
-		return;
-	}
-
-	PreviewMID->SetTextureParameterValue(TEXT("SlateUI"), ImportedTexture);
-	PreviewMID->SetTextureParameterValue(TEXT("SpriteTexture"), ImportedTexture);
-	PreviewMID->SetTextureParameterValue(TEXT("Texture"), ImportedTexture);
-	const FLinearColor PreviewTint(PreviewPlaneBrightness, PreviewPlaneBrightness, PreviewPlaneBrightness, 1.0f);
-	PreviewMID->SetVectorParameterValue(TEXT("TintColorAndOpacity"), PreviewTint);
-	PreviewMID->SetVectorParameterValue(TEXT("ColorAndOpacity"), PreviewTint);
-	PreviewMID->SetVectorParameterValue(TEXT("TintColor"), PreviewTint);
-	PreviewMID->SetScalarParameterValue(TEXT("OpacityFromTexture"), 1.0f);
-	PreviewMID->SetScalarParameterValue(TEXT("EmissiveScale"), PreviewPlaneBrightness);
-	PreviewMID->SetScalarParameterValue(TEXT("Brightness"), PreviewPlaneBrightness);
-
-	PreviewMesh->SetHiddenInGame(false);
-	PreviewMesh->SetCastShadow(false);
-	PreviewMesh->MarkRenderStateDirty();
-
-	UE_LOG(LogMetaAgent, Log, TEXT("F pressed: loaded '%s' onto reusable scene preview plane."), *PngPath);
-	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-	{
-		MetaAgentHUD->AddTransientMessage(
-			FString::Printf(TEXT("Loaded sdxl_latest.png (%s)."), *GetParticlePatternShapeText()),
-			FColor::Green,
-			3.0f);
-	}
-
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-
-	if (ParticleRuntime)
-	{
-		ParticleRuntime->DiscoverNiagaraComponents(false);
-		const FString ParticleStatus = ParticleRuntime->BuildStatusText();
-		UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleStatus);
-
-		if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
-		{
-			MetaAgentHUD->AddTransientMessage(ParticleStatus, FColor::Cyan, 3.0f);
-		}
-	}
-}
-
 void AMetaAgentPlayerController::EnsureParticleExportCallbackBindings(const bool bLogBindings)
 {
 	if (!ParticleExportHandler)
@@ -886,22 +744,14 @@ void AMetaAgentPlayerController::EnsureParticleExportCallbackBindings(const bool
 		return;
 	}
 
-	if (!ParticleRuntime)
-	{
-		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
-		if (ParticleRuntime)
-		{
-			ParticleRuntime->InitializeRuntime(this);
-			SyncParticlePatternConfigToRuntime();
-		}
-	}
-
+	EnsureParticleOrchestrator();
+	UMetaAgentParticleRuntime* ParticleRuntime = GetParticleRuntime();
 	if (!ParticleRuntime)
 	{
 		return;
 	}
 
-	ParticleRuntime->DiscoverNiagaraComponents(false);
+	ParticleOrchestrator->DiscoverNiagaraComponents(false);
 
 	const TArray<UNiagaraComponent*> TrackedComponents = ParticleRuntime->GetTrackedNiagaraComponents();
 	int32 BoundComponentCount = 0;
@@ -953,22 +803,13 @@ void AMetaAgentPlayerController::SubmitNiagaraParticlePositions(
 	const FName SourceActorName,
 	const FName SourceComponentName)
 {
-	if (!ParticleRuntime)
-	{
-		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
-		if (ParticleRuntime)
-		{
-			ParticleRuntime->InitializeRuntime(this);
-			SyncParticlePatternConfigToRuntime();
-		}
-	}
-
-	if (!ParticleRuntime)
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
 	{
 		return;
 	}
 
-	ParticleRuntime->SubmitExportedParticlePositions(ParticlePositions, SourceActorName, SourceComponentName);
+	ParticleOrchestrator->SubmitExportedParticlePositions(ParticlePositions, SourceActorName, SourceComponentName);
 
 	if (GUI.bHelpPanelVisible)
 	{
@@ -978,23 +819,14 @@ void AMetaAgentPlayerController::SubmitNiagaraParticlePositions(
 
 void AMetaAgentPlayerController::RefreshParticleRuntimeTracking()
 {
-	if (!ParticleRuntime)
-	{
-		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
-		if (ParticleRuntime)
-		{
-			ParticleRuntime->InitializeRuntime(this);
-			SyncParticlePatternConfigToRuntime();
-		}
-	}
-
-	if (!ParticleRuntime)
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
 	{
 		return;
 	}
 
-	ParticleRuntime->DiscoverNiagaraComponents(true);
-	const FString ParticleStatus = ParticleRuntime->BuildStatusText();
+	ParticleOrchestrator->DiscoverNiagaraComponents(true);
+	const FString ParticleStatus = ParticleOrchestrator->BuildRuntimeStatusText();
 	UE_LOG(LogMetaAgent, Log, TEXT("%s"), *ParticleStatus);
 
 	if (AMetaAgentHUD* MetaAgentHUD = GetHUD<AMetaAgentHUD>())
@@ -1005,62 +837,43 @@ void AMetaAgentPlayerController::RefreshParticleRuntimeTracking()
 
 void AMetaAgentPlayerController::SetParticleSteeringTarget(const FVector TargetLocation, const float Strength)
 {
-	if (!ParticleRuntime)
+	EnsureParticleOrchestrator();
+	if (ParticleOrchestrator)
 	{
-		ParticleRuntime = NewObject<UMetaAgentParticleRuntime>(this, TEXT("MetaAgentParticleRuntime"));
-		if (ParticleRuntime)
-		{
-			ParticleRuntime->InitializeRuntime(this);
-			SyncParticlePatternConfigToRuntime();
-		}
+		ParticleOrchestrator->SetSteeringTarget(TargetLocation, Strength);
 	}
-
-	if (!ParticleRuntime)
-	{
-		return;
-	}
-
-	ParticleRuntime->SetSteeringTarget(TargetLocation, Strength);
 }
 
 void AMetaAgentPlayerController::ClearParticleSteeringTarget()
 {
-	if (!ParticleRuntime)
+	if (ParticleOrchestrator)
 	{
-		return;
+		ParticleOrchestrator->ClearSteeringTarget();
 	}
-
-	ParticleRuntime->ClearSteeringTarget();
 }
 
 TArray<FVector> AMetaAgentPlayerController::GetParticleSteeringDirections() const
 {
-	if (!ParticleRuntime)
-	{
-		return TArray<FVector>();
-	}
-
-	return ParticleRuntime->GetSuggestedSteeringDirections();
+	const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	return Runtime ? Runtime->GetSuggestedSteeringDirections() : TArray<FVector>();
 }
 
 bool AMetaAgentPlayerController::IsParticleCaptureActive() const
 {
-	return ParticleRuntime && ParticleRuntime->HasKnownParticleData();
+	const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	return Runtime && Runtime->HasKnownParticleData();
 }
 
 int32 AMetaAgentPlayerController::GetCapturedParticleCount() const
 {
-	if (!ParticleRuntime)
-	{
-		return 0;
-	}
-
-	return ParticleRuntime->GetKnownParticleCount();
+	const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	return Runtime ? Runtime->GetKnownParticleCount() : 0;
 }
 
 bool AMetaAgentPlayerController::HasReceivedParticleCallback() const
 {
-	return ParticleRuntime && ParticleRuntime->HasReceivedAnyCallback();
+	const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	return Runtime && Runtime->HasReceivedAnyCallback();
 }
 
 bool AMetaAgentPlayerController::ShouldUseTouchControls() const

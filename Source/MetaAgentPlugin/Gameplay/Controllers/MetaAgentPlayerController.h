@@ -7,6 +7,7 @@
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/SoftObjectPtr.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
 #include "MetaAgentPlayerController.generated.h"
@@ -18,6 +19,7 @@ class UTexture2D;
 class UUserWidget;
 class USkeletalMeshComponent;
 class UNiagaraComponent;
+class UMetaAgentParticleOrchestrator;
 class UMetaAgentParticleRuntime;
 class UMetaAgentParticlePatternAsset;
 class UMetaAgentNiagaraExportHandler;
@@ -469,21 +471,6 @@ protected:
 	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
 
-	/** Bound to V: plays square particle pattern choreography. */
-	void HandleParticlePatternPressed();
-
-	/** Bound to C: plays random 3D box sculpt pattern (Sculpt preset). */
-	void HandleRandomBoxPatternPressed();
-
-	/** Bound to B: applies the Slow particle pattern timing preset. */
-	void HandleParticlePatternSlowPresetPressed();
-
-	/** Bound to N: applies the Dramatic particle pattern timing preset. */
-	void HandleParticlePatternDramaticPresetPressed();
-
-	/** Bound to F: loads the latest PNG from disk and shows it in front of the camera. */
-	void HandleLoadLatestPngPreviewPressed();
-
 	/** Enables cinematic orbit camera mode around the active character. */
 	void EnableCinematicCameraMode();
 
@@ -527,6 +514,17 @@ protected:
 	void ApplyCameraModeToPawn(APawn* InPawn);
 
 public:
+
+	void HandleParticleLoadPreviewPressed();
+	void HandleParticleImageRevealPressed();
+	void HandleParticleBoxSculptPressed();
+	void HandleParticleSlowPresetPressed();
+	void HandleParticleDramaticPresetPressed();
+	void HandleParticlePlayNormalPressed();
+	void HandleParticlePlaySlowPressed();
+	void HandleParticlePlayDramaticPressed();
+	void HandleParticleReplayLastPressed();
+	void HandleParticleCycleSamplingPressed();
 
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
@@ -622,6 +620,8 @@ public:
 
 	/** Pushes controller pattern config into the transient particle runtime object. */
 	void SyncParticlePatternConfigToRuntime();
+	void EnsureParticleOrchestrator();
+	void SyncOrchestratorFromControllerDefaults();
 
 	/** Resolves and pushes shape context (texture, plane, baselines) into particle runtime. */
 	bool PrepareParticlePatternShapeContext();
@@ -644,8 +644,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void SetParticlePatternShapeWidth(float WidthCm);
 
+	/** Stratification grid scale (higher = particles scatter across more of the image). */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternDensityGridScale(float GridScale);
+
+	/** Per-particle jitter within a stratification cell (0-1, higher = more offset). */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternTargetJitter(float JitterNormalized);
+
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternShapeText() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Orchestrator")
+	UMetaAgentParticleOrchestrator* GetParticleOrchestrator() const { return ParticleOrchestrator; }
+
+	UMetaAgentParticleRuntime* GetParticleRuntime() const;
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator")
+	FMetaAgentParticleEffectResult TriggerParticleEffect(FName EffectId);
 
 	/** Resolves shape inputs (texture, plane, baselines) for the next pattern run. */
 	FMetaAgentParticleShapeContext BuildParticleShapeContext();
@@ -653,11 +669,11 @@ public:
 	/** Loads sdxl_latest.png when needed for image silhouette shapes. */
 	bool EnsureParticlePreviewTextureLoaded(FString& OutResolvedPath);
 
-	UTexture2D* GetLatestPngPreviewTexture() const { return LatestPngPreviewTexture; }
-	void SetLatestPngPreviewTexture(UTexture2D* Texture) { LatestPngPreviewTexture = Texture; }
-	FString GetLastLoadedPreviewImagePath() const { return LastLoadedPreviewImagePath; }
-	void SetLastLoadedPreviewImagePath(const FString& Path) { LastLoadedPreviewImagePath = Path; }
-	UStaticMeshComponent* GetExistingPreviewPlaneMesh() const { return ExistingPreviewPlaneMesh.Get(); }
+	UTexture2D* GetLatestPngPreviewTexture() const;
+	void SetLatestPngPreviewTexture(UTexture2D* Texture);
+	FString GetLastLoadedPreviewImagePath() const;
+	void SetLastLoadedPreviewImagePath(const FString& Path);
+	UStaticMeshComponent* GetExistingPreviewPlaneMesh() const;
 	void CacheExistingPreviewPlaneMesh(UStaticMeshComponent* Mesh);
 
 	/** Builds lines for the dedicated recording runtime GUI panel. */
@@ -724,30 +740,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
 	FMetaAgentGUIState GUI;
 
-	/** Actor name used to locate the reusable preview plane in the current level. */
-	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview")
-	FName ExistingPreviewPlaneActorName = TEXT("Plane");
+	/** Orchestrator class (subclass to extend particle effects). */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Orchestrator")
+	TSubclassOf<UMetaAgentParticleOrchestrator> ParticleOrchestratorClass;
 
-	/** Optional mesh component name used to locate a specific preview mesh in a Blueprint actor. */
-	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview")
-	FName ExistingPreviewPlaneComponentName = TEXT("Plane");
-
-	/** Brightness multiplier applied to preview material tint so the image reads clearly in-scene. */
-	UPROPERTY(EditAnywhere, Category = "UI|Runtime|Image Preview", meta = (ClampMin = "0.1", UIMin = "0.1", UIMax = "8.0"))
-	float PreviewPlaneBrightness = 3.5f;
-
-	/** Cached scene mesh that receives sdxl_latest.png at runtime. */
-	UPROPERTY(Transient)
-	TWeakObjectPtr<UStaticMeshComponent> ExistingPreviewPlaneMesh;
-
-	/** Keep a strong reference so the loaded runtime texture stays alive. */
-	UPROPERTY(Transient)
-	TObjectPtr<UTexture2D> LatestPngPreviewTexture;
-
-	UPROPERTY(Transient)
-	FString LastLoadedPreviewImagePath;
-
-	/** Square pattern choreography timings and grid spacing (Class Defaults). */
+	/** Default pattern config copied into the orchestrator at startup. */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticlePatternConfig ParticlePatternConfig;
 
@@ -770,9 +767,9 @@ protected:
 	UFUNCTION()
 	void HandleParticlePatternCompleted();
 
-	/** Runtime Niagara tracking and particle export cache. */
+	/** Particle capture, FSM choreography, and effect routing. */
 	UPROPERTY(Transient)
-	TObjectPtr<UMetaAgentParticleRuntime> ParticleRuntime;
+	TObjectPtr<UMetaAgentParticleOrchestrator> ParticleOrchestrator;
 
 	/** Niagara user object parameter bound to the C++ export handler (BP_NIAGARA_1 uses User.Export particle data). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")

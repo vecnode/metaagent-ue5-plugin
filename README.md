@@ -621,15 +621,19 @@ flowchart TB
 </details>
 
 
-### Module 7: MetaAgentParticleRuntime
+### Module 7: Particle orchestrator + runtime
 
 <details>
-<summary>ParticleRuntime Graph</summary>
+<summary>Particle orchestrator graph</summary>
 
+- **`UMetaAgentParticleOrchestrator`** (abstract, Blueprint-subclassable) owns capture runtime, preview texture, pattern config, and routes **`TriggerEffect(FName)`** through the shared FSM.
+- **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
+- **`UMetaAgentParticleRuntime`** still owns the master FSM and Niagara readback/writeback.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- `V` plays particle choreography: **Preparing → Forming → Holding → Returning → Idle** (image silhouette default; async mask when needed).
-- `C` plays **RandomParallelepiped** box sculpt: random 3D parallelepiped inside the particle bounding sphere — **Forming → Holding → Returning → Idle** with **Sculpt** preset (1.6 / 0.4 / 1.2 s), no async prepare step.
+- Keyboard map (no `P` / skip-hold bind): `F` preview, `V` image reveal, `C` box sculpt, `1/2/3` play Normal/Slow/Dramatic, `B/N` presets only, `R` replay, `T` cycle sampling.
+- Every effect uses **Preparing → Forming → Holding → Returning → Idle** (image silhouette may enter **Preparing** for async mask build).
+- `C` plays **RandomParallelepiped** box sculpt: random 3D parallelepiped inside the particle bounding sphere — **Sculpt** preset (1.6 / 0.4 / 1.2 s), no async prepare step.
 - **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** scatter at **1024px**; fallback: **SquareGrid**; **RandomParallelepiped** for C-key sculpt).
 - Default **ShapeAnchor = ParticleCentroid**: grayscale image is centered on the particle cloud and auto-fitted to its bounding sphere; preview plane (`F`) is texture-only unless `PreviewPlane` anchor is set.
 - **RandomParallelepiped** samples **volume** (40%), **surface** (40%), and **halo** (20%) targets inside the cloud sphere; nearest-neighbor assignment sends outer particles toward halo/surface and inner particles toward volume — trajectories cross inward/outward through the sphere.
@@ -639,9 +643,13 @@ flowchart TB
 - Help panel (`Q`) shows capture status, preset/timings, active shape, live pattern state, queue depth, and active gameplay tags.
 - Timings: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
 - Shape: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); box tuning under **Shape | RandomBox**.
-- `B` = Slow preset, `N` = Dramatic preset, `C` = Sculpt random box. Press `V` for image pattern after choosing timings.
+- `B` / `N` = Slow / Dramatic preset (then `V` or `1/2/3` to play). `C` = Sculpt random box.
 - Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.Box`, `.ImageSampling Gray|Fill|Sobel`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Ready`.
+- Effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `BoxSculpt`, `PlayNormal`, `PlaySlow`, `PlayDramatic`, `PresetSlow`, `PresetDramatic`, `ReplayLast`, `CycleSampling` (spline/mesh/attract remain available via console or `TriggerParticleEffect` only).
 - Implemented in:
+	- `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleInputRouter.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
@@ -687,22 +695,26 @@ flowchart LR
 - **NearestNeighbor** assignment: particles outside the core tend toward halo/face targets; inner particles toward volume — crossing trajectories through the sphere.
 - Tunables on `FMetaAgentParticleShapeDefinition` under **RandomBox** (`BoxMinSizeFractionOfSphere`, `BoxVolumeSampleFraction`, `BoxRandomSeed`, etc.).
 
-#### Particle runtime graph
+#### Orchestrator → runtime graph
 
 ```mermaid
 flowchart TB
     subgraph Triggers
-        V[V key image pattern]
-        C[C key random box]
-        F[F key PNG load]
-        BP[Blueprint API]
+        Keys[Keyboard F/V/C/1/2/3/B/N/R/T]
+        BP[Blueprint TriggerParticleEffect]
         Console[MetaAgent.Pattern.*]
     end
 
-    subgraph Controller
+    subgraph Host
         PC[AMetaAgentPlayerController]
-        Config[ParticlePatternConfig]
-        Ctx[BuildParticleShapeContext]
+        Router[FMetaAgentParticleInputRouter]
+    end
+
+    subgraph Orchestrator["UMetaAgentParticleOrchestrator — abstract"]
+        TE[TriggerEffect FName]
+        Spec[PopulateEffectSpec]
+        Preview[LoadDefaultPreviewPng]
+        Config[PatternConfig + preview state]
     end
 
     subgraph ParticleFSM["UMetaAgentParticleRuntime — master FSM"]
@@ -713,17 +725,18 @@ flowchart TB
         Act[ApplyPatternActuation]
     end
 
-    subgraph ReturnBlend["Returning — live trajectory follow"]
-        LiveRead[CaptureLiveSimPositions pre-write]
-        Lerp["Lerp live sim → shape by return phase"]
-        LiveRead --> Lerp
+    subgraph ReturnBlend["Returning — frozen release blend"]
+        Freeze[Freeze ReturnRest at return start]
+        Lerp["Lerp idle snapshot → hold by return phase"]
+        Release[Release sim when phase below threshold]
+        Freeze --> Lerp
         Lerp --> Act
+        Lerp --> Release
     end
 
     subgraph ShapePipeline
         Builder[FMetaAgentParticleShapeBuilder]
         Cache[FMetaAgentParticleShapeCache]
-        Preview[ImagePreviewRuntime]
     end
 
     subgraph Niagara
@@ -732,44 +745,41 @@ flowchart TB
         Write[Buffer write PushCPUBuffersToGPU]
     end
 
-    V --> PC
-    C --> PC
-    F --> PC
+    Keys --> Router
+    Router --> PC
     BP --> PC
     Console --> PC
-    PC --> Config
-    PC --> Ctx
-    PC --> Start
+    PC --> TE
+    TE --> Spec
+    Spec --> Config
+    TE --> Start
+    Preview --> Config
+    Config --> ParticleFSM
     Start --> Tick
-    F --> Preview
-    Ctx --> Preview
-    Ctx -->|form baselines| ParticleFSM
-    Preview -->|texture + path| Builder
     Tick --> Build
     Build --> Builder
     Builder --> Cache
     Builder -->|PatternWorldTargets| Act
     Tick -->|Forming → Holding| Traj
-    Traj -->|TrajectoryWorldPositions| ReturnBlend
+    Traj --> ReturnBlend
     Tick -->|Forming / Holding| Act
-    Tick -->|Returning| LiveRead
+    Tick -->|Returning| Freeze
     Discover --> Capture
-    Capture --> LiveRead
     Act --> Write
 ```
 
-#### Return blend (live sim follow)
+#### Return blend (stable release)
 
 ```mermaid
 flowchart LR
     FORM[Forming: lerp form baseline → shape] --> HOLD[Holding begins]
-    HOLD --> CAP[Capture live Niagara positions]
-    CAP --> TRAJ[TrajectoryWorldPositions]
+    HOLD --> TRAJ[TrajectoryWorldPositions snapshot]
     HOLD --> LOCK[Hold on shape phase = 1]
     LOCK --> RET[Returning phase 1 → 0]
-    RET --> LIVE[Each tick: read live sim]
-    LIVE --> OUT["Out = Lerp(live, shape, phase)"]
-    OUT --> IDLE[Idle when phase = 0]
+    RET --> FREEZE[Freeze ReturnRest from pattern baseline]
+    FREEZE --> OUT["Out = Lerp(idle snapshot, hold, phase)"]
+    OUT --> RELEASE[Stop Direct writes below release threshold]
+    RELEASE --> IDLE[Idle — Niagara sim resumes]
 ```
 
 #### Shape pipeline
@@ -810,52 +820,58 @@ flowchart LR
 2. Direct capture reads particle `Position` attributes into `UMetaAgentParticleRuntime` snapshot cache.
 3. Help panel reports `Particle Capture: TRUE (Count=N)` once data is available.
 4. Player presses `F` to load `sdxl_latest.png` (preview plane texture + shape source path).
-5. Player optionally presses `B` / `N` for timing presets.
-6. Player presses `V` to start the pattern.
+5. Player optionally presses `B` / `N` for timing presets, or `1` / `2` / `3` to play Normal / Slow / Dramatic directly.
+6. Player presses `V` (image reveal) or `C` for box sculpt.
 7. Runtime snapshots baselines and freezes timings + shape config for the run.
 8. `FMetaAgentParticleShapeCache` loads/decodes the PNG and runs the selected sampler (`GrayscaleDensity` default) on a worker thread (1024px by default). If not ready yet, state is **Preparing** and the game keeps running.
 9. `FMetaAgentParticleShapeBuilder` builds `PatternWorldTargets` (image silhouette centered on particle centroid, polar-matched assignment, or square grid fallback).
 10. State machine enters `Forming` and lerps baseline → targets (phase 0→1).
 11. GPU emitters: readback → modify CPU float buffer → `PushCPUBuffersToGPU`.
 12. `Holding` locks phase at 1 on the resolved shape.
-13. `Returning` drives phase 1→0 while blending from the shape toward **live Niagara positions** read each tick (not the pattern-start baseline).
-14. When **Holding** begins, live positions are captured into `TrajectoryWorldPositions` as the return reference fallback.
+13. `Returning` drives phase 1→0 while blending from the held shape toward a **frozen idle snapshot** (`BaselineWorldPositions` captured at pattern start). Rest targets are not refreshed each tick (avoids Direct-write feedback flicker).
+14. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**.
 15. On completion, state returns to `Idle` and normal capture resumes.
-16. Blueprint API: `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternQueue(Asset)`, plus legacy `StartParticleSquarePattern()`.
+16. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternQueue(Asset)`, plus legacy `StartParticleSquarePattern()`.
 
 </details>
 
 #### Command layer architecture
 
-`UMetaAgentParticleRuntime` owns the FSM. Blueprint, COMMS, and console issue **commands and config** only.
+`UMetaAgentParticleOrchestrator` routes external triggers; `UMetaAgentParticleRuntime` owns the FSM. Blueprint, COMMS, and console issue **effects, commands, and config** only.
 
 ```mermaid
 flowchart LR
     subgraph External
         BP[Blueprint]
+        Keys[Keyboard / InputRouter]
         COMMS[COMMS / Sequencer]
         Console[MetaAgent.Pattern.*]
     end
 
-    subgraph CommandLayer
+    subgraph OrchestratorLayer
+        ORCH[UMetaAgentParticleOrchestrator]
+        FX[TriggerEffect / PopulateEffectSpec]
         CMD[RequestPatternStart / Cancel / Queue]
         Asset[UMetaAgentParticlePatternAsset]
-        Events[OnPatternStateEntered delegates]
     end
 
     subgraph Master
-        FSM[TickPatternRuntime]
+        FSM[UMetaAgentParticleRuntime TickPatternRuntime]
+        Events[OnPatternStateEntered delegates]
     end
 
     subgraph Backends
         Shapes[IMetaAgentParticleShapeProvider registry]
         Act[IMetaAgentParticleActuator Direct / Parameters / Hybrid]
-        Traj[Live trajectory return blend]
+        Traj[Frozen return release blend]
     end
 
-    BP --> CMD
-    COMMS --> CMD
+    BP --> ORCH
+    Keys --> ORCH
+    COMMS --> ORCH
     Console --> CMD
+    ORCH --> FX
+    FX --> CMD
     Asset --> CMD
     CMD --> FSM
     FSM --> Events
