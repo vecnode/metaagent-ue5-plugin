@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "MetaAgentParticleActuation.generated.h"
 
@@ -37,15 +38,20 @@ struct FMetaAgentParticleActuationRequest
 	float HoldPulseScale = 1.0f;
 	FVector PatternCenter = FVector::ZeroVector;
 	bool bPatternActive = false;
-	/** Returning: lerp ReturnRestPositions ← ReturnHoldPositions by BlendAlpha (phase 1 = hold, 0 = rest). */
+	/** Returning: lerp live sim (ReturnRestPositions) → held shape (ReturnHoldPositions) by BlendAlpha (phase 1 = hold, 0 = live). */
 	bool bUseReturnHoldBlend = false;
 	const TArray<FVector>* ReturnHoldPositions = nullptr;
 	const TArray<FVector>* ReturnRestPositions = nullptr;
+	/** Optional forming steering offsets (first ~0.2s when steering target is active). */
+	const TArray<FVector>* FormingSteeringOffsets = nullptr;
+	float FormingSteeringWeight = 0.0f;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation
 {
 public:
+	static IMetaAgentParticleActuator& GetActuator(EMetaAgentParticleActuationMode Mode);
+
 	static int32 ApplyDirect(
 		const FMetaAgentParticleActuationRequest& Request,
 		TArray<FVector>& OutAppliedWorldPositions);

@@ -636,7 +636,7 @@ flowchart TB
 - PNG decode + shape sampling (**GrayscaleDensity** by default; Sobel/Fill optional) run on a **background thread** (`FMetaAgentParticleShapeCache`); the game thread stays responsive. Cache keys include PNG **file timestamp + size**, so replacing `sdxl_latest.png` on disk triggers a fresh build on the next `F`/`V`.
 - `F` loads `sdxl_latest.png` onto the preview plane and provides the shape texture.
 - Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
-- Help panel (`Q`) shows capture status, preset/timings, active shape, and live pattern state.
+- Help panel (`Q`) shows capture status, preset/timings, active shape, live pattern state, queue depth, and active gameplay tags.
 - Timings: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
 - Shape: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); box tuning under **Shape | RandomBox**.
 - `B` = Slow preset, `N` = Dramatic preset, `C` = Sculpt random box. Press `V` for image pattern after choosing timings.
@@ -650,6 +650,10 @@ flowchart TB
 	- `Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleShapeProvider.h`
+	- `Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h`
+	- `Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h/.cpp`
 
 #### Pattern state machine
 
@@ -774,16 +778,24 @@ flowchart LR
 flowchart LR
     F[F key PNG] --> TEX[LatestPngPreviewTexture]
     V[V key] --> SNAP[Snapshot baselines]
-    SNAP --> BUILD[FMetaAgentParticleShapeBuilder]
-    TEX --> BUILD
+    SNAP --> BUILDER[FMetaAgentParticleShapeBuilder]
+    TEX --> BUILDER
     CAM[Player camera ViewOrigin] --> FRAME[BuildShapeFrameFromCentroid]
     SNAP --> FRAME
-    FRAME --> BUILD
-    BUILD --> IMG[ImageSilhouette]
-    BUILD --> BOX[RandomParallelepiped]
-    BUILD --> GRID[SquareGrid fallback]
+    FRAME --> BUILDER
+    BUILDER --> REG[FMetaAgentParticleShapeRegistry]
+    REG --> IMG[ImageSilhouette provider]
+    REG --> BOX[RandomParallelepiped provider]
+    REG --> SPL[SplinePath provider]
+    REG --> MSH[MeshSilhouette provider]
+    REG --> GRID[SquareGrid fallback]
+    IMG --> CACHE[FMetaAgentParticleShapeCache]
+    CACHE --> IMG
     IMG --> ASSIGN[PolarMatched assign]
     ASSIGN --> TGT[PatternWorldTargets]
+    BOX --> TGT
+    SPL --> TGT
+    MSH --> TGT
     GRID --> TGT
     TGT --> CHOREO[Forming / Holding / Returning]
     CHOREO --> IDLE[Idle capture]
@@ -813,38 +825,37 @@ flowchart LR
 
 </details>
 
-<details>
-<summary>Module 7: Particle enhancement roadmap (Phase 0–4) — implemented</summary>
+#### Command layer architecture
 
-Design rule: **`UMetaAgentParticleRuntime` FSM remains the single choreography authority.** Gameplay, COMMS, Blueprint, and StateTree issue **commands and config**; they never advance phase or write Niagara buffers directly.
+`UMetaAgentParticleRuntime` owns the FSM. Blueprint, COMMS, and console issue **commands and config** only.
 
 ```mermaid
 flowchart LR
     subgraph External
         BP[Blueprint]
         COMMS[COMMS / Sequencer]
-        ST[StateTree tasks]
+        Console[MetaAgent.Pattern.*]
     end
 
-    subgraph Phase0to4["Particle command layer"]
+    subgraph CommandLayer
         CMD[RequestPatternStart / Cancel / Queue]
         Asset[UMetaAgentParticlePatternAsset]
         Events[OnPatternStateEntered delegates]
     end
 
-    subgraph Master["Master FSM — unchanged owner"]
+    subgraph Master
         FSM[TickPatternRuntime]
     end
 
-    subgraph Backends["Pluggable backends"]
-        Shapes[Shape providers]
-        Act[Actuators Direct / Niagara params]
+    subgraph Backends
+        Shapes[IMetaAgentParticleShapeProvider registry]
+        Act[IMetaAgentParticleActuator Direct / Parameters / Hybrid]
         Traj[Live trajectory return blend]
     end
 
     BP --> CMD
     COMMS --> CMD
-    ST --> CMD
+    Console --> CMD
     Asset --> CMD
     CMD --> FSM
     FSM --> Events
@@ -854,150 +865,8 @@ flowchart LR
     Traj --> Act
 ```
 
----
-
-#### Phase 0 — Foundation (commands, events, data asset)
-
-**Goal:** Blueprint and gameplay can trigger, observe, and interrupt patterns without changing shape math or FSM ownership.
-
-| # | Task | Files | Deliverable |
-|---|------|-------|-------------|
-| 0.1 | Add delegate types | `MetaAgentParticlePatternTypes.h` | `FOnMetaAgentPatternStateChanged`, `FOnMetaAgentPatternCompleted` |
-| 0.2 | Broadcast from `EnterPatternState` | `MetaAgentParticleRuntime.cpp` | BlueprintAssignable events on runtime |
-| 0.3 | Forward events on controller | `MetaAgentPlayerController.h/.cpp`, `MetaAgentPlayerControllerParticles.cpp` | BP hooks without touching runtime object |
-| 0.4 | `RequestPatternCancel(bSkipReturn)` | `MetaAgentParticleRuntime.h/.cpp` | Forming/Holding/Preparing → Returning or Idle |
-| 0.5 | `RequestSkipHold()` | same | Holding → Returning immediately |
-| 0.6 | `IsPatternReady(ImagePath)` | `MetaAgentParticleShapeCache.h/.cpp` | Query mask cache without starting pattern |
-| 0.7 | `CanStartPattern()` | `MetaAgentParticleRuntime` | True when Idle (or document Preparing policy) |
-| 0.8 | Rename API | `MetaAgentParticleRuntime.h`, controller | `StartPattern()` primary; `StartSquarePattern()` deprecated alias |
-| 0.9 | Create `UMetaAgentParticlePatternAsset` | new `.h/.cpp` | Primary Data Asset wrapping `FMetaAgentParticlePatternConfig` + optional soft image path |
-| 0.10 | `RequestPatternStart(Asset*)` | runtime + controller | Applies asset config, then existing start flow |
-| 0.11 | Console + help panel | `MetaAgentPlayerControllerParticles.cpp`, `MetaAgentGUIRuntime.cpp` | `MetaAgent.Pattern.Cancel`, `.SkipHold`, `.Ready` |
-| 0.12 | README + UHT | Build.cs if needed | Module 7 docs updated |
-
-**Exit criteria:** PIE test — start pattern, receive BP event on Holding, cancel mid-Forming, start from Data Asset.
-
----
-
-#### Phase 1 — Data-driven tuning and queue
-
-**Goal:** Designers author pattern libraries; multi-beat sequences and richer motion without new FSM states.
-
-| # | Task | Files | Deliverable |
-|---|------|-------|-------------|
-| 1.1 | Add `UCurveFloat*` to pattern asset | `MetaAgentParticlePatternAsset` | `FormCurve`, `ReturnCurve` (optional) |
-| 1.2 | Curve remap in actuation | `MetaAgentParticleRuntime.cpp` | Phase = `Curve->GetFloatValue(NormalizedTime)` instead of smoothstep only |
-| 1.3 | Add GameplayTags module dep | `MetaAgentPlugin.Build.cs`, `.uplugin` | `GameplayTags` |
-| 1.4 | Pattern tags on asset + runtime | asset + `FMetaAgentParticlePatternRuntime` | e.g. `Pattern.ImageReveal`, `Pattern.Active` |
-| 1.5 | `RequestPatternQueue(Asset*)` | runtime | FIFO max N (default 3); drain at Idle |
-| 1.6 | Block start when tag present | controller or runtime | Optional `BlockedPatternTags` on controller |
-| 1.7 | HUD queue + tag display | `MetaAgentGUIRuntime.cpp`, help panel | Show queue depth + active tag |
-| 1.8 | GPU actuation packaged fix | `MetaAgentParticleRuntime.cpp` | Remove or guard `#if WITH_EDITOR`; fallback path documented |
-| 1.9 | Asset Manager primary asset type | plugin settings or `DefaultGame.ini` snippet | `UMetaAgentParticlePatternAsset` registrable |
-| 1.10 | Sample content assets | `Content/MetaAgent/Patterns/` | Normal / Slow / Dramatic `.uasset` examples |
-
-**Exit criteria:** Queue 2 assets back-to-back; Form uses custom curve; packaged build actuates CPU emitters; tags visible in help panel.
-
----
-
-#### Phase 2 — Pluggable shape providers
-
-**Goal:** New formations ship as providers or assets; `BuildPatternTargets` switch replaced by registry.
-
-| # | Task | Files | Deliverable |
-|---|------|-------|-------------|
-| 2.1 | Define `IMetaAgentParticleShapeProvider` | new `MetaAgentParticleShapeProvider.h` | `CanBuild`, `BuildTargets`, `GetShapeId`, priority |
-| 2.2 | Shape registry singleton/module | `MetaAgentParticleShapeRegistry.h/.cpp` | Register / resolve by `EMetaAgentParticlePatternShape` or tag |
-| 2.3 | Migrate `BuildSquareGridTargets` | new `MetaAgentParticleShapeProviderGrid.cpp` | Existing logic unchanged, wrapped |
-| 2.4 | Migrate `BuildImageSilhouetteTargets` | new `MetaAgentParticleShapeProviderImage.cpp` | Existing mask cache path preserved |
-| 2.5 | Refactor builder dispatch | `MetaAgentParticleShapeBuilder.cpp` | Registry lookup + fallback provider |
-| 2.6 | **SplinePath provider** | new provider + enum value | Sample `USplineComponent` actor tag; points along arc length |
-| 2.7 | **MeshSilhouette provider** | new provider | Ortho projection of static mesh bounds → local points |
-| 2.8 | Async prepare hook on provider | provider interface optional | Mirror `bAwaitingAsyncMask` for heavy mesh bakes |
-| 2.9 | Shape selection on pattern asset | `UMetaAgentParticlePatternAsset` | Override shape type + provider-specific params struct |
-| 2.10 | Console `.Shape Spline|Mesh|Image|Grid` | `MetaAgentPlayerControllerParticles.cpp` | Runtime shape swap before V |
-
-**Exit criteria:** All four shape types run through registry; ImageSilhouette + SquareGrid behavior matches pre-refactor; one spline level demo.
-
----
-
-#### Phase 3 — Pluggable actuators (Niagara-native)
-
-**Goal:** Packaged GPU sims and VFX-authored motion; C++ buffer write becomes one actuator mode.
-
-| # | Task | Files | Deliverable |
-|---|------|-------|-------------|
-| 3.1 | Define `IMetaAgentParticleActuator` | new `MetaAgentParticleActuator.h` | `ApplyPhase`, `Reset`, `SupportsComponent` |
-| 3.2 | **DirectBufferActuator** | new `.cpp` | Move current `ApplyPatternActuation` logic |
-| 3.3 | **NiagaraParameterActuator** | new `.cpp` | Set `MetaAgentPatternPhase`, `MetaAgentPatternCenter`, `MetaAgentPatternActive` on tracked components |
-| 3.4 | Actuator selection on runtime | `MetaAgentParticleRuntime` | `EMetaAgentParticleActuationMode`: Direct, Parameters, Hybrid |
-| 3.5 | Niagara system module doc + sample | `Content/MetaAgent/Niagara/` | User parameter lerp module (artist-facing) |
-| 3.6 | Optional custom DI | C++ DI class + `.h` | Read target array or mask texture on GPU (stretch) |
-| 3.7 | Hybrid routing | runtime tick | PIE Direct + packaged Parameters auto-select |
-| 3.8 | Color / scale params during Holding | actuator + asset | Pulse emissive via `MetaAgentPatternHoldScale` |
-| 3.9 | Steering blend on Forming entry | `MetaAgentParticleRuntime.cpp` | Optional mix baseline→target with steering vectors first 0.2s |
-| 3.10 | Per-component index ranges | snapshot struct | Fix multi-emitter actuation scope (prerequisite for 3.2) |
-
-**Exit criteria:** Same pattern plays in PIE (Direct) and packaged (Parameters); Niagara asset controls lerp; multi-emitter actuation scoped correctly.
-
----
-
-#### Phase 4 — Live trajectory return (Returning → Idle blend)
-
-**Goal:** Return eases from the held shape back into idle Niagara motion in one continuous **Returning** phase — no extra post-return animation.
-
-| # | Task | Files | Deliverable |
-|---|------|-------|-------------|
-| 4.1 | Capture trajectory at Holding start | `MetaAgentParticleRuntime.cpp` | `TrajectoryWorldPositions` from live read |
-| 4.2 | Live sim read each Returning tick | same | `CaptureLiveSimPositions` before actuation |
-| 4.3 | Return actuation uses live blend | `MetaAgentParticleActuation.cpp` | `Lerp(live, shape, phase)` during Returning |
-| 4.4 | Forming still uses pattern-start baseline | actuation | Form vs return blend sources separated |
-| 4.5 | Remove separate Releasing handoff | runtime FSM | Returning → Idle directly |
-
-**Exit criteria:** PIE test — return follows ambient particle motion with no expand/compress pop at the end; FSM diagram unchanged (`Returning → Idle`).
-
----
-
-#### Cross-phase dependency order
-
-```mermaid
-flowchart TD
-    P0[Phase 0: events + commands + asset]
-    P1[Phase 1: curves + tags + queue]
-    P2[Phase 2: shape registry]
-    P3[Phase 3: actuators]
-    P4[Phase 4: sim release handoff]
-
-    P0 --> P1
-    P0 --> P2
-    P1 --> P2
-    P2 --> P3
-    P1 --> P3
-    P3 --> P4
-```
-
-- **Phase 0** must land first (events + asset are used everywhere).
-- **Phase 1** can partially parallel **Phase 2** after task 0.9 (asset exists).
-- **Phase 3** task 3.10 should start early (multi-emitter fix helps Direct actuator).
-- **Phase 4** (COMMS auto-pipeline, StateTree tasks) is out of scope here; hooks come from Phase 0 delegates + commands.
-
----
-
-#### Suggested implementation sprints
-
-| Sprint | Scope | Duration |
-|--------|-------|----------|
-| S1 | Phase 0.1–0.8 | ~3–4 days |
-| S2 | Phase 0.9–0.12 + Phase 1.1–1.2 | ~3–4 days |
-| S3 | Phase 1.3–1.10 | ~4–5 days |
-| S4 | Phase 2.1–2.5 (registry + migration) | ~4–5 days |
-| S5 | Phase 2.6–2.10 (new shapes) | ~4–5 days |
-| S6 | Phase 3.1–3.4 + 3.10 | ~5 days |
-| S7 | Phase 3.5–3.9 (Niagara content + polish) | ~5 days |
-
-**Total estimate:** ~5–7 weeks for one developer, end-to-end, with PIE validation after each sprint.
-
-</details>
+- **Pattern data assets:** primary type `MetaAgentParticlePattern` (see `Config/DefaultGame.ini`). In editor, run `MetaAgent.CreateSamplePatternAssets` to generate Normal / Slow / Dramatic samples under `/MetaAgentPlugin/MetaAgent/Patterns`.
+- **Packaged Niagara actuation:** see `Content/MetaAgent/Niagara/PARAMETERS.md` for required user parameters.
 
 ## License
 

@@ -23,6 +23,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticlePatternConfig PatternConfig;
 
+	/** When set, replaces PatternConfig.Shape for this asset only. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern|Shape")
+	bool bOverrideShape = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern|Shape", meta = (EditCondition = "bOverrideShape"))
+	FMetaAgentParticleShapeDefinition ShapeOverride;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	FGameplayTagContainer PatternTags;
 

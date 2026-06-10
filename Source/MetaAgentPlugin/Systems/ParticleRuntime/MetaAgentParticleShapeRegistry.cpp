@@ -2,16 +2,32 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h"
 
+#include "Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeCache.h"
 
 namespace
 {
-	class FMetaAgentSquareGridShapeProvider final : public FMetaAgentParticleShapeProviderBase
+	class FMetaAgentSquareGridShapeProvider final : public IMetaAgentParticleShapeProvider
 	{
 	public:
 		virtual EMetaAgentParticlePatternShape GetShapeType() const override
 		{
 			return EMetaAgentParticlePatternShape::SquareGrid;
+		}
+
+		virtual FName GetShapeId() const override
+		{
+			return TEXT("SquareGrid");
+		}
+
+		virtual int32 GetPriority() const override { return 0; }
+
+		virtual bool CanBuild(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			return ShapeContext.BaselineWorldPositions.Num() > 0;
 		}
 
 		virtual bool BuildTargets(
@@ -23,12 +39,44 @@ namespace
 		}
 	};
 
-	class FMetaAgentImageSilhouetteShapeProvider final : public FMetaAgentParticleShapeProviderBase
+	class FMetaAgentImageSilhouetteShapeProvider final : public IMetaAgentParticleShapeProvider
 	{
 	public:
 		virtual EMetaAgentParticlePatternShape GetShapeType() const override
 		{
 			return EMetaAgentParticlePatternShape::ImageSilhouette;
+		}
+
+		virtual FName GetShapeId() const override
+		{
+			return TEXT("ImageSilhouette");
+		}
+
+		virtual int32 GetPriority() const override { return 0; }
+
+		virtual bool CanBuild(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			return ShapeContext.BaselineWorldPositions.Num() > 0
+				&& (!ShapeContext.SourceImagePath.IsEmpty() || ShapeContext.bHasResolvedImage);
+		}
+
+		virtual bool RequiresAsyncPrepare(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			if (!CanBuild(PatternConfig, ShapeContext) || ShapeContext.SourceImagePath.IsEmpty())
+			{
+				return false;
+			}
+
+			const int32 DesiredPointCount = FMath::Max(1, ShapeContext.BaselineWorldPositions.Num());
+			const FMetaAgentImageMaskBuildParams Params = MetaAgentImageMask::MakeBuildParams(
+				ShapeContext.SourceImagePath,
+				PatternConfig.Shape,
+				DesiredPointCount);
+			return !FMetaAgentParticleShapeCache::IsMaskReady(Params);
 		}
 
 		virtual bool BuildTargets(
@@ -40,12 +88,26 @@ namespace
 		}
 	};
 
-	class FMetaAgentSplinePathShapeProvider final : public FMetaAgentParticleShapeProviderBase
+	class FMetaAgentSplinePathShapeProvider final : public IMetaAgentParticleShapeProvider
 	{
 	public:
 		virtual EMetaAgentParticlePatternShape GetShapeType() const override
 		{
 			return EMetaAgentParticlePatternShape::SplinePath;
+		}
+
+		virtual FName GetShapeId() const override
+		{
+			return TEXT("SplinePath");
+		}
+
+		virtual int32 GetPriority() const override { return 0; }
+
+		virtual bool CanBuild(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			return ShapeContext.BaselineWorldPositions.Num() > 0 && ShapeContext.World != nullptr;
 		}
 
 		virtual bool BuildTargets(
@@ -57,12 +119,26 @@ namespace
 		}
 	};
 
-	class FMetaAgentMeshSilhouetteShapeProvider final : public FMetaAgentParticleShapeProviderBase
+	class FMetaAgentMeshSilhouetteShapeProvider final : public IMetaAgentParticleShapeProvider
 	{
 	public:
 		virtual EMetaAgentParticlePatternShape GetShapeType() const override
 		{
 			return EMetaAgentParticlePatternShape::MeshSilhouette;
+		}
+
+		virtual FName GetShapeId() const override
+		{
+			return TEXT("MeshSilhouette");
+		}
+
+		virtual int32 GetPriority() const override { return 0; }
+
+		virtual bool CanBuild(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			return ShapeContext.BaselineWorldPositions.Num() > 0 && ShapeContext.World != nullptr;
 		}
 
 		virtual bool BuildTargets(
@@ -74,12 +150,26 @@ namespace
 		}
 	};
 
-	class FMetaAgentRandomParallelepipedShapeProvider final : public FMetaAgentParticleShapeProviderBase
+	class FMetaAgentRandomParallelepipedShapeProvider final : public IMetaAgentParticleShapeProvider
 	{
 	public:
 		virtual EMetaAgentParticlePatternShape GetShapeType() const override
 		{
 			return EMetaAgentParticlePatternShape::RandomParallelepiped;
+		}
+
+		virtual FName GetShapeId() const override
+		{
+			return TEXT("RandomParallelepiped");
+		}
+
+		virtual int32 GetPriority() const override { return 0; }
+
+		virtual bool CanBuild(
+			const FMetaAgentParticlePatternConfig& PatternConfig,
+			const FMetaAgentParticleShapeContext& ShapeContext) const override
+		{
+			return ShapeContext.BaselineWorldPositions.Num() > 0;
 		}
 
 		virtual bool BuildTargets(
@@ -92,15 +182,15 @@ namespace
 	};
 }
 
-TArray<TUniquePtr<FMetaAgentParticleShapeProviderBase>>& FMetaAgentParticleShapeRegistry::GetProviders()
+TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& FMetaAgentParticleShapeRegistry::GetProviders()
 {
-	static TArray<TUniquePtr<FMetaAgentParticleShapeProviderBase>> Providers;
+	static TArray<TUniquePtr<IMetaAgentParticleShapeProvider>> Providers;
 	return Providers;
 }
 
 void FMetaAgentParticleShapeRegistry::RegisterDefaults()
 {
-	TArray<TUniquePtr<FMetaAgentParticleShapeProviderBase>>& Providers = GetProviders();
+	TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& Providers = GetProviders();
 	if (Providers.Num() > 0)
 	{
 		return;
@@ -120,24 +210,46 @@ bool FMetaAgentParticleShapeRegistry::BuildPatternTargets(
 {
 	RegisterDefaults();
 
-	for (const TUniquePtr<FMetaAgentParticleShapeProviderBase>& Provider : GetProviders())
+	const EMetaAgentParticlePatternShape RequestedShape = PatternConfig.Shape.ShapeType;
+	IMetaAgentParticleShapeProvider* BestProvider = nullptr;
+	int32 BestPriority = MIN_int32;
+
+	for (const TUniquePtr<IMetaAgentParticleShapeProvider>& Provider : GetProviders())
 	{
-		if (!Provider || Provider->GetShapeType() != PatternConfig.Shape.ShapeType)
+		if (!Provider || Provider->GetShapeType() != RequestedShape)
 		{
 			continue;
 		}
 
-		if (Provider->BuildTargets(PatternConfig, ShapeContext, OutResult))
+		if (!Provider->CanBuild(PatternConfig, ShapeContext))
 		{
-			return true;
+			continue;
 		}
 
+		const int32 ProviderPriority = Provider->GetPriority();
+		if (!BestProvider || ProviderPriority > BestPriority)
+		{
+			BestProvider = Provider.Get();
+			BestPriority = ProviderPriority;
+		}
+	}
+
+	if (!BestProvider)
+	{
+		OutResult.bSuccess = false;
+		OutResult.DebugInfo = FString::Printf(
+			TEXT("No shape provider can build %s."),
+			*PatternConfig.Shape.GetShapeDisplayName());
 		return false;
 	}
 
-	OutResult.bSuccess = false;
-	OutResult.DebugInfo = FString::Printf(
-		TEXT("No shape provider registered for %s."),
-		*PatternConfig.Shape.GetShapeDisplayName());
-	return false;
+	if (BestProvider->RequiresAsyncPrepare(PatternConfig, ShapeContext))
+	{
+		OutResult.bAwaitingAsyncMask = true;
+		OutResult.bSuccess = false;
+		OutResult.DebugInfo = TEXT("Awaiting async mask prepare.");
+		return false;
+	}
+
+	return BestProvider->BuildTargets(PatternConfig, ShapeContext, OutResult);
 }

@@ -3,21 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleShapeProvider.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
-
-class FMetaAgentParticleShapeProviderBase
-{
-public:
-	virtual ~FMetaAgentParticleShapeProviderBase() = default;
-
-	virtual EMetaAgentParticlePatternShape GetShapeType() const = 0;
-
-	virtual bool BuildTargets(
-		const FMetaAgentParticlePatternConfig& PatternConfig,
-		const FMetaAgentParticleShapeContext& ShapeContext,
-		FMetaAgentParticleShapeBuildResult& OutResult) = 0;
-};
 
 class METAAGENTPLUGIN_API FMetaAgentParticleShapeRegistry
 {
@@ -30,5 +18,5 @@ public:
 		FMetaAgentParticleShapeBuildResult& OutResult);
 
 private:
-	static TArray<TUniquePtr<FMetaAgentParticleShapeProviderBase>>& GetProviders();
+	static TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& GetProviders();
 };

@@ -214,16 +214,12 @@ void UMetaAgentParticleRuntime::BeginReturnFromHold()
 		PatternRuntime.ReturnHoldPositions = PatternRuntime.PatternWorldTargets;
 	}
 
-	PatternRuntime.ReturnRestPositions = PatternRuntime.BaselineWorldPositions;
-	if (PatternRuntime.ReturnRestPositions.Num() <= 0)
-	{
-		PatternRuntime.ReturnRestPositions = PatternRuntime.TrajectoryWorldPositions;
-	}
+	// ReturnRestPositions is refreshed from live Niagara sim each Returning tick.
+	PatternRuntime.ReturnRestPositions.Reset();
 
 	UE_LOG(LogMetaAgent, Verbose,
-		TEXT("ParticleRuntime: return started hold=%d rest=%d."),
-		PatternRuntime.ReturnHoldPositions.Num(),
-		PatternRuntime.ReturnRestPositions.Num());
+		TEXT("ParticleRuntime: return started hold=%d (live rest refreshed each tick)."),
+		PatternRuntime.ReturnHoldPositions.Num());
 }
 
 void UMetaAgentParticleRuntime::DiscoverNiagaraComponents(const bool bLogSummary)
@@ -670,6 +666,10 @@ bool UMetaAgentParticleRuntime::ApplyPatternAsset(UMetaAgentParticlePatternAsset
 	}
 
 	PatternConfig = PatternAsset->PatternConfig;
+	if (PatternAsset->bOverrideShape)
+	{
+		PatternConfig.Shape = PatternAsset->ShapeOverride;
+	}
 	ActiveFormCurve = PatternAsset->FormCurve;
 	ActiveReturnCurve = PatternAsset->ReturnCurve;
 	ActiveHoldPulseAmplitude = PatternAsset->HoldPulseAmplitude;
@@ -696,7 +696,14 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 {
 	PatternRuntime.bAwaitingAsyncMask = false;
 	PatternRuntime.ActiveConfig = PatternConfig;
+	const FGameplayTagContainer AssetPatternTags = PatternRuntime.ActivePatternTags;
+	PatternRuntime.ActivePatternTags.Reset();
+	PatternRuntime.ActivePatternTags.AppendTags(AssetPatternTags);
 	PatternRuntime.ActivePatternTags.AddTag(MetaAgentParticleTags::Pattern_Active);
+	if (PatternConfig.Shape.ShapeType == EMetaAgentParticlePatternShape::ImageSilhouette)
+	{
+		PatternRuntime.ActivePatternTags.AddTag(MetaAgentParticleTags::Pattern_ImageReveal);
+	}
 	PatternRuntime.BaselineWorldPositions = LatestSnapshot.ExportedParticlePositions;
 
 	if (PatternShapeContext.BaselineWorldPositions.Num() <= 0)
@@ -846,25 +853,31 @@ FString UMetaAgentParticleRuntime::BuildPatternTimingsText() const
 FString UMetaAgentParticleRuntime::BuildPatternStatusText() const
 {
 	const int32 ParticleCount = PatternRuntime.BaselineWorldPositions.Num();
+	const FString TagsSuffix = PatternRuntime.ActivePatternTags.IsEmpty()
+		? FString()
+		: FString::Printf(TEXT(" | Tags: %s"), *PatternRuntime.ActivePatternTags.ToStringSimple());
+
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
 	{
 		return FString::Printf(
-			TEXT("Pattern State: Idle | Phase: 0.00 | Queue: %d | Particles: %d"),
+			TEXT("Pattern State: Idle | Phase: 0.00 | Queue: %d | Particles: %d%s"),
 			PendingPatternAssets.Num(),
-			LatestSnapshot.ExportedParticleCount);
+			LatestSnapshot.ExportedParticleCount,
+			*TagsSuffix);
 	}
 
 	const float StateDuration = GetActiveStateDurationSeconds();
 	const float TimeRemaining = GetActiveStateTimeRemainingSeconds();
 
 	return FString::Printf(
-		TEXT("Pattern State: %s | Phase: %.2f | In-state: %.2fs / %.1fs (%.1fs left) | Particles: %d"),
+		TEXT("Pattern State: %s | Phase: %.2f | In-state: %.2fs / %.1fs (%.1fs left) | Particles: %d%s"),
 		*GetPatternStateDisplayName(),
 		PatternRuntime.Phase,
 		PatternRuntime.StateElapsedSeconds,
 		StateDuration,
 		TimeRemaining,
-		ParticleCount);
+		ParticleCount,
+		*TagsSuffix);
 }
 
 void UMetaAgentParticleRuntime::ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config)
@@ -1016,18 +1029,7 @@ float UMetaAgentParticleRuntime::ComputeActuationBlendAlpha() const
 		return 1.0f;
 	}
 
-	float BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
-
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
-		&& FormingSteeringBlendDurationSeconds > KINDA_SMALL_NUMBER
-		&& LatestSnapshot.bSteeringTargetEnabled
-		&& FormingSteeringBlendElapsedSeconds < FormingSteeringBlendDurationSeconds)
-	{
-		const float SteeringWeight = 1.0f - (FormingSteeringBlendElapsedSeconds / FormingSteeringBlendDurationSeconds);
-		BlendAlpha = FMath::Lerp(BlendAlpha * 0.85f, BlendAlpha, 1.0f - SteeringWeight * 0.15f);
-	}
-
-	return BlendAlpha;
+	return FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
 }
 
 const FMetaAgentParticlePatternConfig& UMetaAgentParticleRuntime::GetTimingConfigForTick() const
@@ -1133,6 +1135,16 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 	float BlendAlpha = ComputeActuationBlendAlpha();
 	if (bReturning)
 	{
+		CaptureLiveSimPositions();
+		if (LiveSimWorldPositions.Num() > 0)
+		{
+			PatternRuntime.ReturnRestPositions = LiveSimWorldPositions;
+		}
+		else if (PatternRuntime.ReturnRestPositions.Num() <= 0)
+		{
+			PatternRuntime.ReturnRestPositions = PatternRuntime.TrajectoryWorldPositions;
+		}
+
 		BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
 	}
 
@@ -1155,18 +1167,38 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		Request.ReturnHoldPositions = &PatternRuntime.ReturnHoldPositions;
 		Request.ReturnRestPositions = &PatternRuntime.ReturnRestPositions;
 	}
+	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
+		&& LatestSnapshot.bSteeringTargetEnabled
+		&& FormingSteeringBlendDurationSeconds > KINDA_SMALL_NUMBER
+		&& LatestSnapshot.SuggestedSteeringDirections.Num() > 0)
+	{
+		Request.FormingSteeringWeight = FMath::Clamp(
+			1.0f - (FormingSteeringBlendElapsedSeconds / FormingSteeringBlendDurationSeconds),
+			0.0f,
+			1.0f);
+		if (Request.FormingSteeringWeight > KINDA_SMALL_NUMBER)
+		{
+			Request.FormingSteeringOffsets = &LatestSnapshot.SuggestedSteeringDirections;
+		}
+	}
 
 	const EMetaAgentParticleActuationMode EffectiveMode =
 		FMetaAgentParticleActuation::ResolveEffectiveMode(ActuationMode);
 
+	IMetaAgentParticleActuator& ParameterActuator =
+		FMetaAgentParticleActuation::GetActuator(EMetaAgentParticleActuationMode::Parameters);
+
 	if (EffectiveMode == EMetaAgentParticleActuationMode::Parameters)
 	{
-		FMetaAgentParticleActuation::ApplyParameters(Request);
+		ParameterActuator.ApplyParameters(Request);
 		return;
 	}
 
+	IMetaAgentParticleActuator& DirectActuator =
+		FMetaAgentParticleActuation::GetActuator(EMetaAgentParticleActuationMode::Direct);
+
 	TArray<FVector> AppliedWorldPositions;
-	if (FMetaAgentParticleActuation::ApplyDirect(Request, AppliedWorldPositions) > 0)
+	if (DirectActuator.ApplyPhase(Request, AppliedWorldPositions) > 0)
 	{
 		LastAppliedWorldPositions = AppliedWorldPositions;
 
@@ -1201,5 +1233,5 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		return;
 	}
 
-	FMetaAgentParticleActuation::ApplyParameters(Request);
+	ParameterActuator.ApplyParameters(Request);
 }

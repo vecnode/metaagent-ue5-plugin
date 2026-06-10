@@ -1,5 +1,10 @@
 #include "MetaAgentPluginEditor.h"
 
+namespace MetaAgentPatternAssetUtility
+{
+	void RegisterConsoleCommands();
+}
+
 #include "EditorModeRegistry.h"
 #include "EditorModeManager.h"
 #include "EditorModes.h"
@@ -43,6 +48,8 @@ void FMetaAgentPluginEditorModule::StartupModule()
 		FSlateIcon(),
 		true,
 		7000);
+
+	MetaAgentPatternAssetUtility::RegisterConsoleCommands();
 
 	UE_LOG(LogTemp, Log, TEXT("MetaAgentPluginEditor module startup."));
 }

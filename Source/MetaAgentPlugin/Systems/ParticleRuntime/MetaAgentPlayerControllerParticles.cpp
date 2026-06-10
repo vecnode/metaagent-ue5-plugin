@@ -14,6 +14,23 @@
 
 namespace MetaAgentParticlePatternConsole
 {
+	bool AreParticlePatternTagsBlocked(
+		const FGameplayTagContainer& BlockedTags,
+		const FGameplayTagContainer& PatternTags)
+	{
+		if (BlockedTags.IsEmpty())
+		{
+			return false;
+		}
+
+		if (BlockedTags.HasTag(MetaAgentParticleTags::Pattern_Blocked))
+		{
+			return true;
+		}
+
+		return !PatternTags.IsEmpty() && BlockedTags.HasAny(PatternTags);
+	}
+
 	AMetaAgentPlayerController* ResolveLocalMetaAgentController()
 	{
 		if (!GEngine)
@@ -228,7 +245,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette|RandomParallelepiped|Box"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette|SplinePath|MeshSilhouette|RandomParallelepiped|Box"));
 			return;
 		}
 
@@ -314,7 +331,7 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternShapeCmd(
 		TEXT("MetaAgent.Pattern.Shape"),
-		TEXT("Set particle pattern shape: SquareGrid or ImageSilhouette."),
+		TEXT("Set particle pattern shape: SquareGrid, ImageSilhouette, SplinePath, MeshSilhouette, or RandomParallelepiped."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetShape));
 
 	static FAutoConsoleCommand MetaAgentPatternImageThresholdCmd(
@@ -657,7 +674,10 @@ bool AMetaAgentPlayerController::StartParticleSquarePattern()
 
 bool AMetaAgentPlayerController::StartParticlePattern()
 {
-	if (BlockedPatternTags.HasTag(MetaAgentParticleTags::Pattern_Blocked))
+	const FGameplayTagContainer PatternTags = DefaultParticlePatternAsset
+		? DefaultParticlePatternAsset->PatternTags
+		: FGameplayTagContainer();
+	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(BlockedPatternTags, PatternTags))
 	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern start blocked by BlockedPatternTags."));
 		return false;
@@ -687,6 +707,19 @@ bool AMetaAgentPlayerController::StartParticlePattern()
 
 bool AMetaAgentPlayerController::RequestParticlePatternStart(UMetaAgentParticlePatternAsset* PatternAsset)
 {
+	if (!PatternAsset)
+	{
+		return false;
+	}
+
+	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(
+		BlockedPatternTags,
+		PatternAsset->PatternTags))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern start blocked by BlockedPatternTags."));
+		return false;
+	}
+
 	if (!ParticleRuntime)
 	{
 		return false;
@@ -710,6 +743,19 @@ bool AMetaAgentPlayerController::RequestParticleSkipHold()
 
 bool AMetaAgentPlayerController::RequestParticlePatternQueue(UMetaAgentParticlePatternAsset* PatternAsset)
 {
+	if (!PatternAsset)
+	{
+		return false;
+	}
+
+	if (MetaAgentParticlePatternConsole::AreParticlePatternTagsBlocked(
+		BlockedPatternTags,
+		PatternAsset->PatternTags))
+	{
+		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: pattern queue blocked by BlockedPatternTags."));
+		return false;
+	}
+
 	return ParticleRuntime ? ParticleRuntime->RequestPatternQueue(PatternAsset) : false;
 }
 

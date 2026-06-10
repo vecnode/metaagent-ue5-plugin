@@ -3,6 +3,7 @@
 #include "Systems/ParticleRuntime/MetaAgentParticleActuation.h"
 
 #include "NiagaraComponent.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h"
 #include "NiagaraDataSetAccessor.h"
 #include "NiagaraDataSet.h"
 #include "NiagaraComputeExecutionContext.h"
@@ -93,7 +94,9 @@ namespace MetaAgentParticleActuationInternal
 		const float BlendAlpha,
 		const bool bUseReturnHoldBlend,
 		const TArray<FVector>* ReturnHoldPositions,
-		const TArray<FVector>* ReturnRestPositions)
+		const TArray<FVector>* ReturnRestPositions,
+		const TArray<FVector>* FormingSteeringOffsets,
+		const float FormingSteeringWeight)
 	{
 		int32 FloatComponentStart = INDEX_NONE;
 		int32 NumFloatComponents = 0;
@@ -150,6 +153,13 @@ namespace MetaAgentParticleActuationInternal
 					BaselineWorldPositions[GlobalIndex],
 					PatternWorldTargets[GlobalIndex],
 					BlendAlpha);
+
+				if (FormingSteeringWeight > KINDA_SMALL_NUMBER
+					&& FormingSteeringOffsets != nullptr
+					&& FormingSteeringOffsets->IsValidIndex(GlobalIndex))
+				{
+					DesiredWorld += (*FormingSteeringOffsets)[GlobalIndex] * FormingSteeringWeight * (1.0f - BlendAlpha);
+				}
 			}
 
 			const FNiagaraPosition SimPosition = WorldToNiagaraPosition(
@@ -269,7 +279,9 @@ namespace MetaAgentParticleActuationInternal
 					Request.BlendAlpha,
 					Request.bUseReturnHoldBlend,
 					Request.ReturnHoldPositions,
-					Request.ReturnRestPositions))
+					Request.ReturnRestPositions,
+					Request.FormingSteeringOffsets,
+					Request.FormingSteeringWeight))
 				{
 					return;
 				}
@@ -321,12 +333,83 @@ namespace MetaAgentParticleActuationInternal
 			Request.BlendAlpha,
 			Request.bUseReturnHoldBlend,
 			Request.ReturnHoldPositions,
-			Request.ReturnRestPositions))
+			Request.ReturnRestPositions,
+			Request.FormingSteeringOffsets,
+			Request.FormingSteeringWeight))
 		{
 			return;
 		}
 
 		ExtractPositionsFromDataSet(EmitterInstance.GetParticleData(), EmitterInstance, NiagaraComponent, SystemInstance, OutAppliedWorldPositions);
+	}
+}
+
+namespace
+{
+	class FMetaAgentDirectBufferActuator final : public IMetaAgentParticleActuator
+	{
+	public:
+		virtual EMetaAgentParticleActuationMode GetActuationMode() const override
+		{
+			return EMetaAgentParticleActuationMode::Direct;
+		}
+
+		virtual int32 ApplyPhase(
+			const FMetaAgentParticleActuationRequest& Request,
+			TArray<FVector>& OutAppliedWorldPositions) override
+		{
+			return FMetaAgentParticleActuation::ApplyDirect(Request, OutAppliedWorldPositions);
+		}
+	};
+
+	class FMetaAgentNiagaraParameterActuator final : public IMetaAgentParticleActuator
+	{
+	public:
+		virtual EMetaAgentParticleActuationMode GetActuationMode() const override
+		{
+			return EMetaAgentParticleActuationMode::Parameters;
+		}
+
+		virtual void ApplyParameters(const FMetaAgentParticleActuationRequest& Request) override
+		{
+			FMetaAgentParticleActuation::ApplyParameters(Request);
+		}
+	};
+}
+
+bool IMetaAgentParticleActuator::SupportsComponent(const UNiagaraComponent& NiagaraComponent) const
+{
+	return NiagaraComponent.IsActive();
+}
+
+int32 IMetaAgentParticleActuator::ApplyPhase(
+	const FMetaAgentParticleActuationRequest& Request,
+	TArray<FVector>& OutAppliedWorldPositions)
+{
+	return 0;
+}
+
+void IMetaAgentParticleActuator::ApplyParameters(const FMetaAgentParticleActuationRequest& Request)
+{
+}
+
+void IMetaAgentParticleActuator::Reset()
+{
+}
+
+IMetaAgentParticleActuator& FMetaAgentParticleActuation::GetActuator(const EMetaAgentParticleActuationMode Mode)
+{
+	static FMetaAgentDirectBufferActuator DirectActuator;
+	static FMetaAgentNiagaraParameterActuator ParameterActuator;
+
+	switch (Mode)
+	{
+	case EMetaAgentParticleActuationMode::Parameters:
+		return ParameterActuator;
+	case EMetaAgentParticleActuationMode::Direct:
+	case EMetaAgentParticleActuationMode::Hybrid:
+	default:
+		return DirectActuator;
 	}
 }
 
