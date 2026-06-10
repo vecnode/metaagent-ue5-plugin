@@ -159,7 +159,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic|Sculpt"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic"));
 			return;
 		}
 
@@ -179,10 +179,6 @@ namespace MetaAgentParticlePatternConsole
 		else if (PresetName == TEXT("dramatic"))
 		{
 			Preset = EMetaAgentParticlePatternPreset::Dramatic;
-		}
-		else if (PresetName == TEXT("sculpt"))
-		{
-			Preset = EMetaAgentParticlePatternPreset::Sculpt;
 		}
 		else if (PresetName != TEXT("normal"))
 		{
@@ -248,7 +244,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette|SplinePath|MeshSilhouette|RandomParallelepiped|Box"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Shape SquareGrid|ImageSilhouette|SplinePath|MeshSilhouette"));
 			return;
 		}
 
@@ -274,10 +270,6 @@ namespace MetaAgentParticlePatternConsole
 		else if (ShapeName == TEXT("meshsilhouette") || ShapeName == TEXT("mesh"))
 		{
 			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::MeshSilhouette);
-		}
-		else if (ShapeName == TEXT("randomparallelepiped") || ShapeName == TEXT("randombox") || ShapeName == TEXT("box"))
-		{
-			Controller->SetParticlePatternShape(EMetaAgentParticlePatternShape::RandomParallelepiped);
 		}
 		else
 		{
@@ -334,7 +326,7 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternShapeCmd(
 		TEXT("MetaAgent.Pattern.Shape"),
-		TEXT("Set particle pattern shape: SquareGrid, ImageSilhouette, SplinePath, MeshSilhouette, or RandomParallelepiped."),
+		TEXT("Set particle pattern shape: SquareGrid, ImageSilhouette, SplinePath, or MeshSilhouette."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetShape));
 
 	static FAutoConsoleCommand MetaAgentPatternImageThresholdCmd(
@@ -562,34 +554,6 @@ namespace MetaAgentParticlePatternConsole
 			bReady ? FColor::Green : FColor::Orange);
 	}
 
-	void ExecRandomBox()
-	{
-		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
-		if (!Controller)
-		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.Box: no local MetaAgent player controller found."));
-			return;
-		}
-
-		if (Controller->PlayRandomBoxParticlePattern())
-		{
-			ShowTransientPatternMessage(
-				Controller,
-				FString::Printf(
-					TEXT("Random box sculpt started (%s | %s)."),
-					*Controller->GetParticlePatternShapeText(),
-					*Controller->GetParticlePatternStatusText()),
-				FColor::Green);
-		}
-		else
-		{
-			ShowTransientPatternMessage(
-				Controller,
-				TEXT("Random box pattern unavailable (busy or no captured particles)."),
-				FColor::Orange);
-		}
-	}
-
 	static FAutoConsoleCommand MetaAgentPatternCancelCmd(
 		TEXT("MetaAgent.Pattern.Cancel"),
 		TEXT("Cancel active particle pattern. Optional arg: SkipReturn"),
@@ -604,11 +568,6 @@ namespace MetaAgentParticlePatternConsole
 		TEXT("MetaAgent.Pattern.Ready"),
 		TEXT("Check whether image mask is cached. Optional: image path."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecReady));
-
-	static FAutoConsoleCommand MetaAgentPatternBoxCmd(
-		TEXT("MetaAgent.Pattern.Box"),
-		TEXT("Play random 3D box sculpt pattern (same as C key)."),
-		FConsoleCommandDelegate::CreateStatic(&ExecRandomBox));
 
 	static FAutoConsoleCommand MetaAgentPatternImageSamplingCmd(
 		TEXT("MetaAgent.Pattern.ImageSampling"),
@@ -745,11 +704,6 @@ void AMetaAgentPlayerController::HandleParticleImageRevealPressed()
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::ImageReveal);
 }
 
-void AMetaAgentPlayerController::HandleParticleBoxSculptPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::BoxSculpt);
-}
-
 void AMetaAgentPlayerController::HandleParticleSlowPresetPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetSlow);
@@ -796,11 +750,6 @@ void AMetaAgentPlayerController::HandleParticleCycleSamplingPressed()
 void AMetaAgentPlayerController::HandleParticleCycleFormingPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleForming);
-}
-
-bool AMetaAgentPlayerController::PlayRandomBoxParticlePattern()
-{
-	return TriggerParticleEffect(MetaAgentParticleEffectIds::BoxSculpt).bSuccess;
 }
 
 bool AMetaAgentPlayerController::StartParticleSquarePattern()

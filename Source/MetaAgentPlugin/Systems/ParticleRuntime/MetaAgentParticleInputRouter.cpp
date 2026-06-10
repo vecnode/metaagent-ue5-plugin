@@ -17,7 +17,6 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 
 	InputComponent->BindKey(EKeys::F, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleLoadPreviewPressed);
 	InputComponent->BindKey(EKeys::V, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleImageRevealPressed);
-	InputComponent->BindKey(EKeys::C, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleBoxSculptPressed);
 	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSlowPresetPressed);
 	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticlePlayNormalPressed);
@@ -34,7 +33,6 @@ TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
 	Lines.Add(TEXT("PARTICLES (orchestrator)"));
 	Lines.Add(TEXT("F       : Load sdxl_latest.png preview + image shape source"));
 	Lines.Add(TEXT("V       : Image reveal pattern"));
-	Lines.Add(TEXT("C       : Random 3D box sculpt"));
 	Lines.Add(TEXT("1/2/3   : Play Normal / Slow / Dramatic image patterns"));
 	Lines.Add(TEXT("B / N   : Apply Slow / Dramatic preset (then V)"));
 	Lines.Add(TEXT("R       : Replay last particle effect"));

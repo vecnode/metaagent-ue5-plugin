@@ -5,7 +5,6 @@
 namespace MetaAgentParticleEffectIds
 {
 	const FName ImageReveal(TEXT("ImageReveal"));
-	const FName BoxSculpt(TEXT("BoxSculpt"));
 	const FName SplinePath(TEXT("SplinePath"));
 	const FName MeshSilhouette(TEXT("MeshSilhouette"));
 	const FName GridSquare(TEXT("GridSquare"));

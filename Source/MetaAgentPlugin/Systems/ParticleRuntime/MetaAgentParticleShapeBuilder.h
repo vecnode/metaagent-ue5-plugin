@@ -43,11 +43,6 @@ public:
 		const FMetaAgentParticleShapeContext& ShapeContext,
 		FMetaAgentParticleShapeBuildResult& OutResult);
 
-	static bool BuildRandomParallelepipedTargets(
-		const FMetaAgentParticlePatternConfig& PatternConfig,
-		const FMetaAgentParticleShapeContext& ShapeContext,
-		FMetaAgentParticleShapeBuildResult& OutResult);
-
 	static FMetaAgentParticleShapeFrame ResolveShapeFrame(
 		const FMetaAgentParticlePatternConfig& PatternConfig,
 		const FMetaAgentParticleShapeContext& ShapeContext,

@@ -13,7 +13,6 @@ class UMetaAgentParticlePatternAsset;
 namespace MetaAgentParticleEffectIds
 {
 	METAAGENTPLUGIN_API extern const FName ImageReveal;
-	METAAGENTPLUGIN_API extern const FName BoxSculpt;
 	METAAGENTPLUGIN_API extern const FName SplinePath;
 	METAAGENTPLUGIN_API extern const FName MeshSilhouette;
 	METAAGENTPLUGIN_API extern const FName GridSquare;
@@ -66,10 +65,6 @@ struct FMetaAgentParticleEffectSpec
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Effect")
 	float SteeringStrength = 1.0f;
-
-	/** 0 = pick a new random seed for box sculpt. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Effect")
-	int32 BoxRandomSeed = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Effect")
 	TObjectPtr<UMetaAgentParticlePatternAsset> PatternAsset = nullptr;

@@ -517,7 +517,6 @@ public:
 
 	void HandleParticleLoadPreviewPressed();
 	void HandleParticleImageRevealPressed();
-	void HandleParticleBoxSculptPressed();
 	void HandleParticleSlowPresetPressed();
 	void HandleParticleDramaticPresetPressed();
 	void HandleParticlePlayNormalPressed();
@@ -572,10 +571,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	bool StartParticlePattern();
-
-	/** Applies Sculpt preset, random box shape, and starts pattern choreography (C key). */
-	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
-	bool PlayRandomBoxParticlePattern();
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	bool RequestParticlePatternStart(UMetaAgentParticlePatternAsset* PatternAsset);

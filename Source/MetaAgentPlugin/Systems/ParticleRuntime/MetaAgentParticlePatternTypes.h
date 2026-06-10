@@ -29,8 +29,6 @@ enum class EMetaAgentParticlePatternPreset : uint8
 	Normal,
 	Slow,
 	Dramatic,
-	/** Tuned for C-key random box sculpt (form / hold / return). */
-	Sculpt,
 	Custom
 };
 

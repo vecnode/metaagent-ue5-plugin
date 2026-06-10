@@ -32,13 +32,6 @@ namespace
 		return !PatternTags.IsEmpty() && BlockedTags.HasAny(PatternTags);
 	}
 
-	void ApplyBoxSculptShapeSettings(FMetaAgentParticlePatternConfig& Config, const int32 BoxRandomSeed)
-	{
-		Config.Shape.ShapeType = EMetaAgentParticlePatternShape::RandomParallelepiped;
-		Config.Shape.AssignmentMode = EMetaAgentParticleShapeAssignmentMode::NearestNeighbor;
-		Config.Shape.bOrientShapeToView = true;
-		Config.Shape.BoxRandomSeed = BoxRandomSeed;
-	}
 }
 
 void UMetaAgentParticleOrchestrator::InitializeOrchestrator(APlayerController* InHostController, UWorld* InWorld)
@@ -190,13 +183,6 @@ bool UMetaAgentParticleOrchestrator::PopulateEffectSpec(
 	if (EffectId == MetaAgentParticleEffectIds::ImageReveal)
 	{
 		OutSpec.PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
-		return true;
-	}
-
-	if (EffectId == MetaAgentParticleEffectIds::BoxSculpt)
-	{
-		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Sculpt);
-		ApplyBoxSculptShapeSettings(OutSpec.PatternConfig, 0);
 		return true;
 	}
 

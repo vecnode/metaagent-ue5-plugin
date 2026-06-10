@@ -150,36 +150,6 @@ namespace
 		}
 	};
 
-	class FMetaAgentRandomParallelepipedShapeProvider final : public IMetaAgentParticleShapeProvider
-	{
-	public:
-		virtual EMetaAgentParticlePatternShape GetShapeType() const override
-		{
-			return EMetaAgentParticlePatternShape::RandomParallelepiped;
-		}
-
-		virtual FName GetShapeId() const override
-		{
-			return TEXT("RandomParallelepiped");
-		}
-
-		virtual int32 GetPriority() const override { return 0; }
-
-		virtual bool CanBuild(
-			const FMetaAgentParticlePatternConfig& PatternConfig,
-			const FMetaAgentParticleShapeContext& ShapeContext) const override
-		{
-			return ShapeContext.BaselineWorldPositions.Num() > 0;
-		}
-
-		virtual bool BuildTargets(
-			const FMetaAgentParticlePatternConfig& PatternConfig,
-			const FMetaAgentParticleShapeContext& ShapeContext,
-			FMetaAgentParticleShapeBuildResult& OutResult) override
-		{
-			return FMetaAgentParticleShapeBuilder::BuildRandomParallelepipedTargets(PatternConfig, ShapeContext, OutResult);
-		}
-	};
 }
 
 TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& FMetaAgentParticleShapeRegistry::GetProviders()
@@ -200,7 +170,6 @@ void FMetaAgentParticleShapeRegistry::RegisterDefaults()
 	Providers.Add(MakeUnique<FMetaAgentImageSilhouetteShapeProvider>());
 	Providers.Add(MakeUnique<FMetaAgentSplinePathShapeProvider>());
 	Providers.Add(MakeUnique<FMetaAgentMeshSilhouetteShapeProvider>());
-	Providers.Add(MakeUnique<FMetaAgentRandomParallelepipedShapeProvider>());
 }
 
 bool FMetaAgentParticleShapeRegistry::BuildPatternTargets(

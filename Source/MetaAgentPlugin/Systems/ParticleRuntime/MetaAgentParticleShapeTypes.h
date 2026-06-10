@@ -15,9 +15,7 @@ enum class EMetaAgentParticlePatternShape : uint8
 	SquareGrid,
 	ImageSilhouette,
 	SplinePath,
-	MeshSilhouette,
-	/** Random 3D box inside the particle bounding sphere (C-key sculpt). */
-	RandomParallelepiped
+	MeshSilhouette
 };
 
 UENUM(BlueprintType)
@@ -69,13 +67,6 @@ struct FMetaAgentParticleShapeFrame
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Shape")
 	float ZOffsetCm = 2.0f;
 
-	/** Half-extents (cm) for volume shapes (RandomParallelepiped). */
-	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Shape")
-	FVector VolumeHalfExtentsCm = FVector(50.0f, 50.0f, 50.0f);
-
-	/** When true, local shape points use VolumeHalfExtentsCm on all three axes. */
-	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Shape")
-	bool bUseVolumeFrame = false;
 };
 
 /** Shape-specific tuning carried on the pattern config. */
@@ -148,37 +139,6 @@ struct FMetaAgentParticleShapeDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|Procedural", meta = (ClampMin = "4", ClampMax = "512"))
 	int32 ProceduralSampleCount = 64;
-
-	/** RandomParallelepiped: minimum half-axis as a fraction of cloud bounding radius. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.1", ClampMax = "1.0"))
-	float BoxMinSizeFractionOfSphere = 0.35f;
-
-	/** RandomParallelepiped: maximum half-axis as a fraction of cloud bounding radius. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.1", ClampMax = "1.0"))
-	float BoxMaxSizeFractionOfSphere = 0.85f;
-
-	/** RandomParallelepiped: max box corner distance as a fraction of bounding radius. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.5", ClampMax = "1.0"))
-	float BoxMaxCornerFractionOfSphere = 0.90f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float BoxVolumeSampleFraction = 0.40f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float BoxSurfaceSampleFraction = 0.40f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float BoxHaloSampleFraction = 0.20f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "1.0", ClampMax = "1.5"))
-	float BoxHaloOutwardScaleMin = 1.15f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox", meta = (ClampMin = "1.0", ClampMax = "1.5"))
-	float BoxHaloOutwardScaleMax = 1.35f;
-
-	/** 0 = pick a new random seed each pattern start. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Shape|RandomBox")
-	int32 BoxRandomSeed = 0;
 
 	FString GetShapeDisplayName() const;
 
