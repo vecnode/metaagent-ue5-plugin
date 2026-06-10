@@ -831,12 +831,13 @@ FString UMetaAgentParticleRuntime::BuildPatternShapeText() const
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Idle)
 	{
 		return FString::Printf(
-			TEXT("Pattern Shape: %s | Sampling=%s | Res=%dpx | ScatterGrid=%.1f Jitter=%.2f | ImageLoaded=%s"),
+			TEXT("Pattern Shape: %s | Sampling=%s | Res=%dpx | ScatterGrid=%.1f Jitter=%.2f | Forming=%s | ImageLoaded=%s"),
 			*ShapeName,
 			*DisplayShape.GetImageSamplingDisplayName(),
 			DisplayShape.SampleResolution,
 			DisplayShape.DensityGridScale,
 			DisplayShape.TargetJitterNormalized,
+			*PatternConfig.Forming.GetModeDisplayName(),
 			bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
 	}
 
@@ -864,11 +865,12 @@ FString UMetaAgentParticleRuntime::BuildPatternTimingsText() const
 			: PatternRuntime.ActiveConfig;
 
 	return FString::Printf(
-		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs"),
+		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs | Forming=%s"),
 		*DisplayConfig.GetPresetDisplayName(),
 		DisplayConfig.FormDurationSeconds,
 		DisplayConfig.HoldDurationSeconds,
-		DisplayConfig.ReturnDurationSeconds);
+		DisplayConfig.ReturnDurationSeconds,
+		*DisplayConfig.Forming.GetModeDisplayName());
 }
 
 FString UMetaAgentParticleRuntime::BuildPatternStatusText() const
@@ -903,7 +905,20 @@ FString UMetaAgentParticleRuntime::BuildPatternStatusText() const
 
 void UMetaAgentParticleRuntime::ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config)
 {
+	const EMetaAgentParticleFormingMode PreviousFormingMode = PatternConfig.Forming.Mode;
 	PatternConfig = Config;
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
+		|| PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
+	{
+		PatternRuntime.ActiveConfig.Forming = Config.Forming;
+		if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
+			&& Config.Forming.Mode == EMetaAgentParticleFormingMode::SpringChase
+			&& PreviousFormingMode != EMetaAgentParticleFormingMode::SpringChase)
+		{
+			ResetFormingSpringState();
+		}
+	}
 }
 
 void UMetaAgentParticleRuntime::SetPatternTimings(
@@ -959,9 +974,25 @@ void UMetaAgentParticleRuntime::ResetPatternRuntime()
 	ActiveReturnCurve = nullptr;
 	ActiveHoldPulseAmplitude = 0.0f;
 	FormingSteeringBlendElapsedSeconds = 0.0f;
+	LastPatternTickDeltaSeconds = 0.0f;
+	FormingSpringPositions.Reset();
+	FormingSpringVelocities.Reset();
 	bLoggedPatternStart = false;
 	LastAppliedWorldPositions.Reset();
 	LiveSimWorldPositions.Reset();
+}
+
+void UMetaAgentParticleRuntime::ResetFormingSpringState()
+{
+	const int32 Count = PatternRuntime.BaselineWorldPositions.Num();
+	FormingSpringPositions.SetNum(Count);
+	FormingSpringVelocities.SetNum(Count);
+
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		FormingSpringPositions[Index] = PatternRuntime.BaselineWorldPositions[Index];
+		FormingSpringVelocities[Index] = FVector::ZeroVector;
+	}
 }
 
 void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatternState NewState)
@@ -970,7 +1001,11 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 	PatternRuntime.State = NewState;
 	PatternRuntime.StateElapsedSeconds = 0.0f;
 
-	if (NewState == EMetaAgentParticlePatternState::Holding)
+	if (NewState == EMetaAgentParticlePatternState::Forming)
+	{
+		ResetFormingSpringState();
+	}
+	else if (NewState == EMetaAgentParticlePatternState::Holding)
 	{
 		RefreshTrajectoryBaselineAtHoldStart();
 	}
@@ -1067,7 +1102,8 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 		return;
 	}
 
-	PatternRuntime.StateElapsedSeconds += FMath::Max(0.0f, DeltaTimeSeconds);
+	LastPatternTickDeltaSeconds = FMath::Max(0.0f, DeltaTimeSeconds);
+	PatternRuntime.StateElapsedSeconds += LastPatternTickDeltaSeconds;
 
 	const FMetaAgentParticlePatternConfig& Timings = PatternRuntime.ActiveConfig;
 
@@ -1191,6 +1227,25 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		{
 			Request.FormingSteeringOffsets = &LatestSnapshot.SuggestedSteeringDirections;
 		}
+	}
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming)
+	{
+		Request.PatternState = EMetaAgentParticlePatternState::Forming;
+		Request.FormingSettings = &PatternRuntime.ActiveConfig.Forming;
+		Request.FormingStateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+		Request.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.FormDurationSeconds);
+		Request.FormingDeltaTimeSeconds = LastPatternTickDeltaSeconds;
+
+		if (PatternRuntime.ActiveConfig.Forming.Mode == EMetaAgentParticleFormingMode::SpringChase)
+		{
+			Request.FormingSpringPositions = &FormingSpringPositions;
+			Request.FormingSpringVelocities = &FormingSpringVelocities;
+		}
+	}
+	else
+	{
+		Request.FormingSettings = &GetTimingConfigForTick().Forming;
 	}
 
 	const EMetaAgentParticleActuationMode EffectiveMode =

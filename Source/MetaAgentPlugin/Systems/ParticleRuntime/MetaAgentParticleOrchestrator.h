@@ -42,6 +42,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Effects")
 	FMetaAgentParticleEffectResult CycleImageSamplingMode();
 
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Effects")
+	FMetaAgentParticleEffectResult CycleFormingMode();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	bool LoadDefaultPreviewPng(FString& OutUserMessage);
 

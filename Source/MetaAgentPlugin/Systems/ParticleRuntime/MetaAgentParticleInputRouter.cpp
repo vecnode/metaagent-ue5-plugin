@@ -25,6 +25,7 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	InputComponent->BindKey(EKeys::Three, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticlePlayDramaticPressed);
 	InputComponent->BindKey(EKeys::R, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleReplayLastPressed);
 	InputComponent->BindKey(EKeys::T, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleSamplingPressed);
+	InputComponent->BindKey(EKeys::Y, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleFormingPressed);
 }
 
 TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
@@ -38,7 +39,8 @@ TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
 	Lines.Add(TEXT("B / N   : Apply Slow / Dramatic preset (then V)"));
 	Lines.Add(TEXT("R       : Replay last particle effect"));
 	Lines.Add(TEXT("T       : Cycle image sampling (Gray / Fill / Sobel)"));
-	Lines.Add(TEXT("Console: MetaAgent.Pattern.ScatterGrid / .ScatterJitter"));
+	Lines.Add(TEXT("Y       : Cycle forming mode (Lerp / Arc / Spiral / Wave / Spring / Niagara)"));
+	Lines.Add(TEXT("Console: MetaAgent.Pattern.ScatterGrid / .ScatterJitter / .Forming"));
 	Lines.Add(TEXT("Console: MetaAgent.Pattern.Cancel / .SkipHold / .Ready"));
 	return Lines;
 }

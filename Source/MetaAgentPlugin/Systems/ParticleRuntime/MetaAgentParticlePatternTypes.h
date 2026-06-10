@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "MetaAgentParticlePatternTypes.generated.h"
 
@@ -70,6 +71,9 @@ struct FMetaAgentParticlePatternConfig
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticleShapeDefinition Shape;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Forming")
+	FMetaAgentParticleFormingSettings Forming;
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	EMetaAgentParticlePatternPreset ActivePreset = EMetaAgentParticlePatternPreset::Normal;

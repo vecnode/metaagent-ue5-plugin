@@ -249,6 +249,7 @@ private:
 	void CompletePatternRun();
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
+	void ResetFormingSpringState();
 	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
 
 	UPROPERTY(Transient)
@@ -294,6 +295,9 @@ private:
 
 	float ActiveHoldPulseAmplitude = 0.0f;
 	float FormingSteeringBlendElapsedSeconds = 0.0f;
+	float LastPatternTickDeltaSeconds = 0.0f;
+	TArray<FVector> FormingSpringPositions;
+	TArray<FVector> FormingSpringVelocities;
 	bool bLoggedPatternStart = false;
 
 	int32 DirectCaptureFrameCounter = 0;

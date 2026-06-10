@@ -406,6 +406,64 @@ namespace MetaAgentParticlePatternConsole
 			FColor::Cyan);
 	}
 
+	void ExecSetForming(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning,
+				TEXT("Usage: MetaAgent.Pattern.Forming Lerp|Arc|Spiral|Wave|Spring|Niagara|<0-5>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const FString ModeName = Args[0].ToLower();
+		EMetaAgentParticleFormingMode NewMode = EMetaAgentParticleFormingMode::DirectLerp;
+
+		if (ModeName == TEXT("lerp") || ModeName == TEXT("direct") || ModeName == TEXT("directlerp") || ModeName == TEXT("0"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::DirectLerp;
+		}
+		else if (ModeName == TEXT("arc") || ModeName == TEXT("arclift") || ModeName == TEXT("lift") || ModeName == TEXT("1"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::ArcLift;
+		}
+		else if (ModeName == TEXT("spiral") || ModeName == TEXT("spiralin") || ModeName == TEXT("2"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::SpiralIn;
+		}
+		else if (ModeName == TEXT("wave") || ModeName == TEXT("stagger") || ModeName == TEXT("staggeredwave") || ModeName == TEXT("3"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::StaggeredWave;
+		}
+		else if (ModeName == TEXT("spring") || ModeName == TEXT("springchase") || ModeName == TEXT("4"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::SpringChase;
+		}
+		else if (ModeName == TEXT("niagara") || ModeName == TEXT("forces") || ModeName == TEXT("niagaraforces") || ModeName == TEXT("5"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::NiagaraForces;
+		}
+		else if (ModeName == TEXT("cycle") || ModeName == TEXT("next"))
+		{
+			Controller->CycleParticlePatternFormingMode();
+			ShowTransientPatternMessage(Controller, Controller->GetParticlePatternTimingsText(), FColor::Cyan);
+			return;
+		}
+		else
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.Forming: unknown mode '%s'."), *Args[0]);
+			return;
+		}
+
+		Controller->SetParticlePatternFormingMode(NewMode);
+		ShowTransientPatternMessage(Controller, Controller->GetParticlePatternTimingsText(), FColor::Cyan);
+	}
+
 	void ExecSetScatterJitter(const TArray<FString>& Args)
 	{
 		if (Args.Num() < 1)
@@ -571,6 +629,11 @@ namespace MetaAgentParticlePatternConsole
 		TEXT("MetaAgent.Pattern.ScatterJitter"),
 		TEXT("Per-particle scatter jitter within grid cells (0-1). Higher = more random offset."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetScatterJitter));
+
+	static FAutoConsoleCommand MetaAgentPatternFormingCmd(
+		TEXT("MetaAgent.Pattern.Forming"),
+		TEXT("Set forming mode: Lerp, Arc, Spiral, Wave, Spring, Niagara, or Cycle."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetForming));
 }
 
 namespace MetaAgentParticleControllerInternal
@@ -730,6 +793,11 @@ void AMetaAgentPlayerController::HandleParticleCycleSamplingPressed()
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleSampling);
 }
 
+void AMetaAgentPlayerController::HandleParticleCycleFormingPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleForming);
+}
+
 bool AMetaAgentPlayerController::PlayRandomBoxParticlePattern()
 {
 	return TriggerParticleEffect(MetaAgentParticleEffectIds::BoxSculpt).bSuccess;
@@ -833,11 +901,12 @@ FString AMetaAgentPlayerController::GetParticlePatternTimingsText() const
 	}
 
 	return FString::Printf(
-		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs"),
+		TEXT("Pattern Preset: %s | Form=%.1fs Hold=%.1fs Return=%.1fs | Forming=%s"),
 		*ParticlePatternConfig.GetPresetDisplayName(),
 		ParticlePatternConfig.FormDurationSeconds,
 		ParticlePatternConfig.HoldDurationSeconds,
-		ParticlePatternConfig.ReturnDurationSeconds);
+		ParticlePatternConfig.ReturnDurationSeconds,
+		*ParticlePatternConfig.Forming.GetModeDisplayName());
 }
 
 void AMetaAgentPlayerController::ApplyParticlePatternPreset(const EMetaAgentParticlePatternPreset Preset)
@@ -920,6 +989,18 @@ void AMetaAgentPlayerController::SetParticlePatternTargetJitter(const float Jitt
 	ParticlePatternConfig.Shape.TargetJitterNormalized = FMath::Clamp(JitterNormalized, 0.0f, 1.0f);
 	SyncParticlePatternConfigToRuntime();
 	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternFormingMode(const EMetaAgentParticleFormingMode FormingMode)
+{
+	ParticlePatternConfig.Forming.Mode = FormingMode;
+	SyncParticlePatternConfigToRuntime();
+}
+
+void AMetaAgentPlayerController::CycleParticlePatternFormingMode()
+{
+	ParticlePatternConfig.Forming.CycleMode();
+	SyncParticlePatternConfigToRuntime();
 }
 
 FString AMetaAgentPlayerController::GetParticlePatternShapeText() const

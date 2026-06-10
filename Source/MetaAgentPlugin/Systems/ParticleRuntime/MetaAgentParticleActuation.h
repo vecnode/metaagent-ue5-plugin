@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "MetaAgentParticleActuation.generated.h"
 
@@ -45,6 +46,13 @@ struct FMetaAgentParticleActuationRequest
 	/** Optional forming steering offsets (first ~0.2s when steering target is active). */
 	const TArray<FVector>* FormingSteeringOffsets = nullptr;
 	float FormingSteeringWeight = 0.0f;
+	EMetaAgentParticlePatternState PatternState = EMetaAgentParticlePatternState::Idle;
+	const FMetaAgentParticleFormingSettings* FormingSettings = nullptr;
+	float FormingStateElapsedSeconds = 0.0f;
+	float FormingDurationSeconds = 1.0f;
+	float FormingDeltaTimeSeconds = 0.0f;
+	TArray<FVector>* FormingSpringPositions = nullptr;
+	TArray<FVector>* FormingSpringVelocities = nullptr;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation

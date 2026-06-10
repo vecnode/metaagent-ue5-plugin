@@ -4,6 +4,7 @@
 
 #include "NiagaraComponent.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h"
 #include "NiagaraDataSetAccessor.h"
 #include "NiagaraDataSet.h"
 #include "NiagaraComputeExecutionContext.h"
@@ -23,6 +24,13 @@ namespace MetaAgentParticleActuationInternal
 	static const FName PatternCenterParameterName(TEXT("MetaAgentPatternCenter"));
 	static const FName PatternActiveParameterName(TEXT("MetaAgentPatternActive"));
 	static const FName PatternHoldScaleParameterName(TEXT("MetaAgentPatternHoldScale"));
+	static const FName FormingModeParameterName(TEXT("MetaAgentFormingMode"));
+	static const FName FormingArcLiftParameterName(TEXT("MetaAgentFormingArcLift"));
+	static const FName FormingSpiralTurnsParameterName(TEXT("MetaAgentFormingSpiralTurns"));
+	static const FName FormingStaggerCyclesParameterName(TEXT("MetaAgentFormingStaggerCycles"));
+	static const FName FormingForceStrengthParameterName(TEXT("MetaAgentFormingForceStrength"));
+	static const FName FormingSpringStiffnessParameterName(TEXT("MetaAgentFormingSpringStiffness"));
+	static const FName FormingSpringDampingParameterName(TEXT("MetaAgentFormingSpringDamping"));
 
 	FVector NiagaraPositionToWorld(
 		const FNiagaraPosition& SimPosition,
@@ -87,16 +95,9 @@ namespace MetaAgentParticleActuationInternal
 		const FNiagaraEmitterInstance& EmitterInstance,
 		const UNiagaraComponent& NiagaraComponent,
 		const FNiagaraSystemInstance& SystemInstance,
-		const TArray<FVector>& BaselineWorldPositions,
-		const TArray<FVector>& PatternWorldTargets,
+		const FMetaAgentParticleActuationRequest& Request,
 		const int32 GlobalStartIndex,
-		const int32 LocalParticleCount,
-		const float BlendAlpha,
-		const bool bUseReturnHoldBlend,
-		const TArray<FVector>* ReturnHoldPositions,
-		const TArray<FVector>* ReturnRestPositions,
-		const TArray<FVector>* FormingSteeringOffsets,
-		const float FormingSteeringWeight)
+		const int32 LocalParticleCount)
 	{
 		int32 FloatComponentStart = INDEX_NONE;
 		int32 NumFloatComponents = 0;
@@ -115,11 +116,26 @@ namespace MetaAgentParticleActuationInternal
 			LocalParticleCount,
 			static_cast<int32>(NumInstances)) - 1;
 
-		const bool bReturnBlend = bUseReturnHoldBlend
-			&& ReturnHoldPositions != nullptr
-			&& ReturnHoldPositions->Num() > 0
-			&& ReturnRestPositions != nullptr
-			&& ReturnRestPositions->Num() > 0;
+		if (!Request.BaselineWorldPositions || !Request.PatternWorldTargets)
+		{
+			return false;
+		}
+
+		const TArray<FVector>& BaselineWorldPositions = *Request.BaselineWorldPositions;
+		const TArray<FVector>& PatternWorldTargets = *Request.PatternWorldTargets;
+		const float BlendAlpha = Request.BlendAlpha;
+
+		const bool bReturnBlend = Request.bUseReturnHoldBlend
+			&& Request.ReturnHoldPositions != nullptr
+			&& Request.ReturnHoldPositions->Num() > 0
+			&& Request.ReturnRestPositions != nullptr
+			&& Request.ReturnRestPositions->Num() > 0;
+
+		const bool bUseFormingSolver = !bReturnBlend
+			&& Request.PatternState == EMetaAgentParticlePatternState::Forming
+			&& Request.FormingSettings != nullptr;
+
+		const int32 TotalParticleCount = BaselineWorldPositions.Num();
 
 		for (int32 LocalIndex = 0; LocalIndex <= MaxLocalIndex; ++LocalIndex)
 		{
@@ -132,14 +148,14 @@ namespace MetaAgentParticleActuationInternal
 			}
 			if (bReturnBlend)
 			{
-				if (!ReturnHoldPositions->IsValidIndex(GlobalIndex)
-					|| !ReturnRestPositions->IsValidIndex(GlobalIndex))
+				if (!Request.ReturnHoldPositions->IsValidIndex(GlobalIndex)
+					|| !Request.ReturnRestPositions->IsValidIndex(GlobalIndex))
 				{
 					continue;
 				}
 
-				const FVector HoldPos = (*ReturnHoldPositions)[GlobalIndex];
-				const FVector RestPos = (*ReturnRestPositions)[GlobalIndex];
+				const FVector HoldPos = (*Request.ReturnHoldPositions)[GlobalIndex];
+				const FVector RestPos = (*Request.ReturnRestPositions)[GlobalIndex];
 				DesiredWorld = FMath::Lerp(RestPos, HoldPos, BlendAlpha);
 			}
 			else
@@ -150,16 +166,45 @@ namespace MetaAgentParticleActuationInternal
 					continue;
 				}
 
-				DesiredWorld = FMath::Lerp(
-					BaselineWorldPositions[GlobalIndex],
-					PatternWorldTargets[GlobalIndex],
-					BlendAlpha);
-
-				if (FormingSteeringWeight > KINDA_SMALL_NUMBER
-					&& FormingSteeringOffsets != nullptr
-					&& FormingSteeringOffsets->IsValidIndex(GlobalIndex))
+				if (bUseFormingSolver)
 				{
-					DesiredWorld += (*FormingSteeringOffsets)[GlobalIndex] * FormingSteeringWeight * (1.0f - BlendAlpha);
+					FMetaAgentParticleFormingContext FormingContext;
+					FormingContext.GlobalIndex = GlobalIndex;
+					FormingContext.TotalParticleCount = TotalParticleCount;
+					FormingContext.Baseline = BaselineWorldPositions[GlobalIndex];
+					FormingContext.Target = PatternWorldTargets[GlobalIndex];
+					FormingContext.PatternCenter = Request.PatternCenter;
+					FormingContext.BlendAlpha = BlendAlpha;
+					FormingContext.StateElapsedSeconds = Request.FormingStateElapsedSeconds;
+					FormingContext.FormDurationSeconds = Request.FormingDurationSeconds;
+					FormingContext.DeltaTimeSeconds = Request.FormingDeltaTimeSeconds;
+					FormingContext.Settings = Request.FormingSettings;
+					FormingContext.SpringPositions = Request.FormingSpringPositions;
+					FormingContext.SpringVelocities = Request.FormingSpringVelocities;
+					FormingContext.FormingSteeringWeight = Request.FormingSteeringWeight;
+					if (Request.FormingSteeringOffsets != nullptr
+						&& Request.FormingSteeringOffsets->IsValidIndex(GlobalIndex))
+					{
+						FormingContext.FormingSteeringOffset = (*Request.FormingSteeringOffsets)[GlobalIndex];
+					}
+
+					DesiredWorld = FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+				}
+				else
+				{
+					DesiredWorld = FMath::Lerp(
+						BaselineWorldPositions[GlobalIndex],
+						PatternWorldTargets[GlobalIndex],
+						BlendAlpha);
+
+					if (Request.FormingSteeringWeight > KINDA_SMALL_NUMBER
+						&& Request.FormingSteeringOffsets != nullptr
+						&& Request.FormingSteeringOffsets->IsValidIndex(GlobalIndex))
+					{
+						DesiredWorld += (*Request.FormingSteeringOffsets)[GlobalIndex]
+							* Request.FormingSteeringWeight
+							* (1.0f - BlendAlpha);
+					}
 				}
 			}
 
@@ -273,16 +318,9 @@ namespace MetaAgentParticleActuationInternal
 					EmitterInstance,
 					NiagaraComponent,
 					SystemInstance,
-					*Request.BaselineWorldPositions,
-					*Request.PatternWorldTargets,
+					Request,
 					GlobalStartIndex,
-					LocalParticleCount,
-					Request.BlendAlpha,
-					Request.bUseReturnHoldBlend,
-					Request.ReturnHoldPositions,
-					Request.ReturnRestPositions,
-					Request.FormingSteeringOffsets,
-					Request.FormingSteeringWeight))
+					LocalParticleCount))
 				{
 					return;
 				}
@@ -327,16 +365,9 @@ namespace MetaAgentParticleActuationInternal
 			EmitterInstance,
 			NiagaraComponent,
 			SystemInstance,
-			*Request.BaselineWorldPositions,
-			*Request.PatternWorldTargets,
+			Request,
 			GlobalStartIndex,
-			LocalParticleCount,
-			Request.BlendAlpha,
-			Request.bUseReturnHoldBlend,
-			Request.ReturnHoldPositions,
-			Request.ReturnRestPositions,
-			Request.FormingSteeringOffsets,
-			Request.FormingSteeringWeight))
+			LocalParticleCount))
 		{
 			return;
 		}
@@ -517,5 +548,17 @@ void FMetaAgentParticleActuation::ApplyParameters(const FMetaAgentParticleActuat
 		NiagaraComponent->SetVariableVec3(PatternCenterParameterName, Request.PatternCenter);
 		NiagaraComponent->SetVariableBool(PatternActiveParameterName, Request.bPatternActive);
 		NiagaraComponent->SetVariableFloat(PatternHoldScaleParameterName, Request.HoldPulseScale);
+
+		const FMetaAgentParticleFormingSettings& FormingSettings = Request.FormingSettings
+			? *Request.FormingSettings
+			: FMetaAgentParticleFormingSettings();
+
+		NiagaraComponent->SetVariableInt(FormingModeParameterName, static_cast<int32>(FormingSettings.Mode));
+		NiagaraComponent->SetVariableFloat(FormingArcLiftParameterName, FormingSettings.ArcLiftHeightCm);
+		NiagaraComponent->SetVariableFloat(FormingSpiralTurnsParameterName, FormingSettings.SpiralTurns);
+		NiagaraComponent->SetVariableFloat(FormingStaggerCyclesParameterName, FormingSettings.StaggerWaveCycles);
+		NiagaraComponent->SetVariableFloat(FormingForceStrengthParameterName, FormingSettings.NiagaraForceStrength);
+		NiagaraComponent->SetVariableFloat(FormingSpringStiffnessParameterName, FormingSettings.SpringStiffness);
+		NiagaraComponent->SetVariableFloat(FormingSpringDampingParameterName, FormingSettings.SpringDamping);
 	}
 }

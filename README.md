@@ -631,7 +631,7 @@ flowchart TB
 - **`UMetaAgentParticleRuntime`** still owns the master FSM and Niagara readback/writeback.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- Keyboard map (no `P` / skip-hold bind): `F` preview, `V` image reveal, `C` box sculpt, `1/2/3` play Normal/Slow/Dramatic, `B/N` presets only, `R` replay, `T` cycle sampling.
+- Keyboard map (no `P` / skip-hold bind): `F` preview, `V` image reveal, `C` box sculpt, `1/2/3` play Normal/Slow/Dramatic, `B/N` presets only, `R` replay, `T` cycle sampling, `Y` cycle forming mode.
 - Every effect uses **Preparing → Forming → Holding → Returning → Idle** (image silhouette may enter **Preparing** for async mask build).
 - `C` plays **RandomParallelepiped** box sculpt: random 3D parallelepiped inside the particle bounding sphere — **Sculpt** preset (1.6 / 0.4 / 1.2 s), no async prepare step.
 - **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** scatter at **1024px**; fallback: **SquareGrid**; **RandomParallelepiped** for C-key sculpt).
@@ -644,8 +644,9 @@ flowchart TB
 - Timings: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`).
 - Shape: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); box tuning under **Shape | RandomBox**.
 - `B` / `N` = Slow / Dramatic preset (then `V` or `1/2/3` to play). `C` = Sculpt random box.
-- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.Box`, `.ImageSampling Gray|Fill|Sobel`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Ready`.
-- Effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `BoxSculpt`, `PlayNormal`, `PlaySlow`, `PlayDramatic`, `PresetSlow`, `PresetDramatic`, `ReplayLast`, `CycleSampling` (spline/mesh/attract remain available via console or `TriggerParticleEffect` only).
+- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.Box`, `.ImageSampling Gray|Fill|Sobel`, `.Forming Lerp|Arc|Spiral|Wave|Spring|Niagara`, `.ScatterGrid`, `.ScatterJitter`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Ready`.
+- **Forming solvers** (`FMetaAgentParticleFormingSolverRegistry`): DirectLerp (default), ArcLift, SpiralIn, StaggeredWave, SpringChase (C++ spring state), NiagaraForces (GPU params). Cycle with `Y` or `MetaAgent.Pattern.Forming Cycle`.
+- Effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `BoxSculpt`, `PlayNormal`, `PlaySlow`, `PlayDramatic`, `PresetSlow`, `PresetDramatic`, `ReplayLast`, `CycleSampling`, `CycleForming` (spline/mesh/attract remain available via console or `TriggerParticleEffect` only).
 - Implemented in:
 	- `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
@@ -661,6 +662,8 @@ flowchart TB
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeProvider.h`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h`
+	- `Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h/.cpp`
 
 #### Pattern state machine
@@ -700,7 +703,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph Triggers
-        Keys[Keyboard F/V/C/1/2/3/B/N/R/T]
+        Keys[Keyboard F/V/C/1/2/3/B/N/R/T/Y]
         BP[Blueprint TriggerParticleEffect]
         Console[MetaAgent.Pattern.*]
     end
@@ -772,7 +775,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    FORM[Forming: lerp form baseline → shape] --> HOLD[Holding begins]
+    FORM[Forming: solver registry baseline → shape] --> HOLD[Holding begins]
     HOLD --> TRAJ[TrajectoryWorldPositions snapshot]
     HOLD --> LOCK[Hold on shape phase = 1]
     LOCK --> RET[Returning phase 1 → 0]

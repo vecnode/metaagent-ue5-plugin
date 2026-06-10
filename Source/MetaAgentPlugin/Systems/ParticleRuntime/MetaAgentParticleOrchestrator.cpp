@@ -379,6 +379,11 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 		return CycleImageSamplingMode();
 	}
 
+	if (EffectId == MetaAgentParticleEffectIds::CycleForming)
+	{
+		return CycleFormingMode();
+	}
+
 	FMetaAgentParticleEffectSpec Spec;
 	if (!PopulateEffectSpec(EffectId, Spec))
 	{
@@ -431,6 +436,19 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleImageSamplin
 	Result.bSuccess = true;
 	Result.UserMessage = FText::FromString(
 		FString::Printf(TEXT("Image sampling: %s"), *PatternConfig.Shape.GetImageSamplingDisplayName()));
+	return Result;
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleFormingMode()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::CycleForming;
+
+	PatternConfig.Forming.CycleMode();
+	SyncConfigToRuntime();
+	Result.bSuccess = true;
+	Result.UserMessage = FText::FromString(
+		FString::Printf(TEXT("Forming mode: %s"), *PatternConfig.Forming.GetModeDisplayName()));
 	return Result;
 }
 
@@ -607,11 +625,12 @@ FString UMetaAgentParticleOrchestrator::BuildPatternShapeText() const
 	}
 
 	return FString::Printf(
-		TEXT("Pattern Shape: %s | Sampling=%s | ScatterGrid=%.1f Jitter=%.2f | ImageLoaded=%s"),
+		TEXT("Pattern Shape: %s | Sampling=%s | ScatterGrid=%.1f Jitter=%.2f | Forming=%s | ImageLoaded=%s"),
 		*PatternConfig.Shape.GetShapeDisplayName(),
 		*PatternConfig.Shape.GetImageSamplingDisplayName(),
 		PatternConfig.Shape.DensityGridScale,
 		PatternConfig.Shape.TargetJitterNormalized,
+		*PatternConfig.Forming.GetModeDisplayName(),
 		LatestPngPreviewTexture ? TEXT("TRUE") : TEXT("FALSE"));
 }
 

@@ -525,6 +525,7 @@ public:
 	void HandleParticlePlayDramaticPressed();
 	void HandleParticleReplayLastPressed();
 	void HandleParticleCycleSamplingPressed();
+	void HandleParticleCycleFormingPressed();
 
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
@@ -651,6 +652,12 @@ public:
 	/** Per-particle jitter within a stratification cell (0-1, higher = more offset). */
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void SetParticlePatternTargetJitter(float JitterNormalized);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternFormingMode(EMetaAgentParticleFormingMode FormingMode);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void CycleParticlePatternFormingMode();
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternShapeText() const;
