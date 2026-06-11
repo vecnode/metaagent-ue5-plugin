@@ -50,6 +50,8 @@ public:
 
 	FMetaAgentParticleEffectResult StepPatternStateBackward();
 
+	FMetaAgentParticleEffectResult PlayFullImageRevealCycle();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	bool LoadDefaultPreviewPng(FString& OutUserMessage);
 

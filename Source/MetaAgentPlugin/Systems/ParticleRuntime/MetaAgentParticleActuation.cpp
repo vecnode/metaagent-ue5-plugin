@@ -131,7 +131,13 @@ namespace MetaAgentParticleActuationInternal
 			&& Request.PatternState == EMetaAgentParticlePatternState::Forming
 			&& Request.FormingSettings != nullptr;
 
+		const bool bAnticipatingMotion = !bReturnBlend
+			&& Request.bAnticipatingMotion
+			&& Request.PatternState == EMetaAgentParticlePatternState::Anticipating;
+
 		const int32 TotalParticleCount = BaselineWorldPositions.Num();
+		const float AnticipationRadians = Request.AnticipationElapsedSeconds
+			* TWO_PI * FMath::Max(0.1f, Request.AnticipationFrequencyHz);
 
 		for (int32 LocalIndex = 0; LocalIndex <= MaxLocalIndex; ++LocalIndex)
 		{
@@ -162,7 +168,32 @@ namespace MetaAgentParticleActuationInternal
 					continue;
 				}
 
-				if (bUseFormingSolver)
+				if (bAnticipatingMotion)
+				{
+					const FVector Baseline = BaselineWorldPositions[GlobalIndex];
+					FVector ToCenter = Request.PatternCenter - Baseline;
+					if (ToCenter.SizeSquared() < KINDA_SMALL_NUMBER)
+					{
+						ToCenter = FVector::UpVector;
+					}
+					const FVector RadialDir = ToCenter.GetSafeNormal();
+					FVector TangentDir = FVector::CrossProduct(RadialDir, FVector::UpVector);
+					if (!TangentDir.Normalize())
+					{
+						TangentDir = FVector::RightVector;
+					}
+
+					const float IndexPhase = static_cast<float>(GlobalIndex) * 0.37f;
+					const float Amplitude = FMath::Max(0.0f, Request.AnticipationAmplitudeCm);
+					const float RadialPulse = FMath::Sin(AnticipationRadians + IndexPhase) * Amplitude * 0.55f;
+					const float OrbitPulse = FMath::Cos(AnticipationRadians * 0.85f + IndexPhase * 1.7f) * Amplitude * 0.45f;
+					const float VerticalPulse = FMath::Sin(AnticipationRadians * 1.35f + IndexPhase * 0.61f) * Amplitude * 0.18f;
+					DesiredWorld = Baseline
+						+ RadialDir * RadialPulse
+						+ TangentDir * OrbitPulse
+						+ FVector::UpVector * VerticalPulse;
+				}
+				else if (bUseFormingSolver)
 				{
 					FMetaAgentParticleFormingContext FormingContext;
 					FormingContext.GlobalIndex = GlobalIndex;

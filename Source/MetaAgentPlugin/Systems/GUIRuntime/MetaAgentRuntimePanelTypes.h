@@ -38,6 +38,7 @@ namespace MetaAgentRuntimeIds
 	static const FName StartAudio(TEXT("StartAudio"));
 	static const FName StartImage(TEXT("StartImage"));
 	static const FName ParticleLoadPreview(TEXT("ParticleLoadPreview"));
+	static const FName ParticlePlayFullCycle(TEXT("ParticlePlayFullCycle"));
 	static const FName ParticleStepBackward(TEXT("ParticleStepBackward"));
 	static const FName ParticleStepForward(TEXT("ParticleStepForward"));
 	static const FName ParticleSlowPreset(TEXT("ParticleSlowPreset"));

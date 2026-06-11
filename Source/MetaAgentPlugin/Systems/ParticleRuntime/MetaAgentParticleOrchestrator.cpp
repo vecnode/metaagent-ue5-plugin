@@ -290,7 +290,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::ApplyEffectSpec(
 	{
 		Result.bSuccess = true;
 		Result.UserMessage = FText::FromString(
-			FString::Printf(TEXT("Preset applied (%s). Press >> to step pattern."), *PatternConfig.GetPresetDisplayName()));
+			FString::Printf(TEXT("Preset applied (%s). Press >> or Play Full Cycle."), *PatternConfig.GetPresetDisplayName()));
 		LastTriggeredEffectId = EffectId;
 		LastEffectSpec = Spec;
 		bHasLastEffectSpec = true;
@@ -332,7 +332,8 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::ApplyEffectSpec(
 
 	Result.bSuccess = true;
 	Result.bAwaitingAsyncPrepare =
-		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing;
+		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+		&& ParticleRuntime->IsAwaitingAsyncMask();
 	LastTriggeredEffectId = EffectId;
 	LastEffectSpec = Spec;
 	bHasLastEffectSpec = true;
@@ -340,7 +341,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::ApplyEffectSpec(
 	if (Result.bAwaitingAsyncPrepare)
 	{
 		Result.UserMessage = FText::FromString(
-			FString::Printf(TEXT("Preparing image shape (%s)."), *ParticleRuntime->BuildPatternStatusText()));
+			FString::Printf(TEXT("Anticipating (loading mask) — %s"), *ParticleRuntime->BuildPatternStatusText()));
 	}
 	else
 	{
@@ -476,7 +477,8 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 	const bool bAdvanced = ParticleRuntime->AdvancePatternStateForward();
 	Result.bSuccess = bAdvanced;
 	Result.bAwaitingAsyncPrepare =
-		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing;
+		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+		&& ParticleRuntime->IsAwaitingAsyncMask();
 	Result.UserMessage = FText::FromString(
 		bAdvanced
 			? FString::Printf(TEXT("Pattern >> %s"), *ParticleRuntime->BuildPatternStatusText())
@@ -502,6 +504,35 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateB
 			? FString::Printf(TEXT("Pattern << %s"), *ParticleRuntime->BuildPatternStatusText())
 			: TEXT("Pattern step backward unavailable (already idle)."));
 	return Result;
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::PlayFullImageRevealCycle()
+{
+	if (!ParticleRuntime)
+	{
+		FMetaAgentParticleEffectResult Result;
+		Result.EffectId = MetaAgentParticleEffectIds::ImageReveal;
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	if (ParticleRuntime->IsPatternActive())
+	{
+		ParticleRuntime->RequestPatternCancel(true);
+	}
+
+	ParticleRuntime->SetManualPatternStateAdvance(false);
+
+	FMetaAgentParticleEffectSpec Spec;
+	if (!PopulateEffectSpec(MetaAgentParticleEffectIds::ImageReveal, Spec))
+	{
+		FMetaAgentParticleEffectResult Result;
+		Result.EffectId = MetaAgentParticleEffectIds::ImageReveal;
+		Result.UserMessage = FText::FromString(TEXT("Image reveal effect unavailable."));
+		return Result;
+	}
+
+	return ApplyEffectSpec(Spec, MetaAgentParticleEffectIds::ImageReveal);
 }
 
 bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessage)

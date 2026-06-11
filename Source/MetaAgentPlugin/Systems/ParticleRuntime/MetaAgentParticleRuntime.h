@@ -218,6 +218,12 @@ public:
 
 	bool RetreatPatternStateBackward();
 
+	void SetManualPatternStateAdvance(bool bEnabled) { bManualPatternStateAdvance = bEnabled; }
+
+	bool IsAwaitingAsyncMask() const { return PatternRuntime.bAwaitingAsyncMask; }
+
+	bool IsManualPatternStateAdvance() const { return bManualPatternStateAdvance; }
+
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticlePatternConfig GetPatternConfig() const { return PatternConfig; }
 

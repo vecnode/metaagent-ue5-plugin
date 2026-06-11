@@ -16,6 +16,8 @@ enum class EMetaAgentParticlePatternState : uint8
 {
 	Idle,
 	Preparing,
+	/** Small attraction/orbit motion on baselines before forming begins. */
+	Anticipating,
 	Forming,
 	Holding,
 	Returning,
@@ -63,6 +65,14 @@ struct FMetaAgentParticlePatternConfig
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
 	float ReturnDurationSeconds = 1.5f;
+
+	/** Peak pull toward pattern center during Anticipating (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.0"))
+	float AnticipationAmplitudeCm = 12.0f;
+
+	/** Orbit/twitch frequency during Anticipating (Hz). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.1"))
+	float AnticipationFrequencyHz = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "1.0"))
 	float GridSpacingCm = 12.0f;

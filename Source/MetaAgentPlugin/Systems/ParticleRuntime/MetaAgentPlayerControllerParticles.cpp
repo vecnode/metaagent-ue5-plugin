@@ -590,10 +590,8 @@ namespace MetaAgentParticleControllerInternal
 
 		if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
 		{
-			const FColor Color = Result.bSuccess
-				? (Result.bAwaitingAsyncPrepare ? FColor::Yellow : FColor::Cyan)
-				: FColor::Orange;
-			HUD->AddTransientMessage(Result.UserMessage.ToString(), Color, Result.bAwaitingAsyncPrepare ? 4.0f : 3.0f);
+			const FColor Color = Result.bSuccess ? FColor::Cyan : FColor::Orange;
+			HUD->AddTransientMessage(Result.UserMessage.ToString(), Color, 3.0f);
 		}
 	}
 
@@ -687,6 +685,33 @@ void AMetaAgentPlayerController::HandleParticleLoadPreviewPressed()
 	else if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
 	{
 		HUD->AddTransientMessage(Message, FColor::Yellow, 2.5f);
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticlePlayFullCyclePressed()
+{
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		return;
+	}
+
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
+	{
+		return;
+	}
+
+	const FMetaAgentParticleEffectResult Result = ParticleOrchestrator->PlayFullImageRevealCycle();
+	if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+	{
+		HUD->AddTransientMessage(
+			Result.UserMessage.ToString(),
+			Result.bSuccess ? FColor::Cyan : FColor::Yellow,
+			2.5f);
+	}
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
 	}
 }
 
@@ -877,11 +902,13 @@ TArray<FString> AMetaAgentPlayerController::BuildParticleRuntimePanelStatusLines
 
 	if (const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime())
 	{
+		const FString MaskSuffix = Runtime->IsAwaitingAsyncMask() ? TEXT(" | loading mask") : FString();
 		Lines.Add(FString::Printf(
-			TEXT("State=%s | Phase=%.2f | Queue=%d"),
+			TEXT("State=%s | Phase=%.2f | Queue=%d%s"),
 			*Runtime->GetPatternStateDisplayName(),
 			Runtime->GetPatternPhase(),
-			GetParticlePatternQueueDepth()));
+			GetParticlePatternQueueDepth(),
+			*MaskSuffix));
 	}
 	else
 	{

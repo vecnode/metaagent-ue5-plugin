@@ -169,6 +169,7 @@ void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 	if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
 	{
 		if (ActionId == MetaAgentRuntimeIds::ParticleLoadPreview) { HandleParticleLoadPreviewPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticlePlayFullCycle) { HandleParticlePlayFullCyclePressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleStepBackward) { HandleParticleStepPatternBackwardPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleStepForward) { HandleParticleStepPatternForwardPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset) { HandleParticleSlowPresetPressed(); return; }

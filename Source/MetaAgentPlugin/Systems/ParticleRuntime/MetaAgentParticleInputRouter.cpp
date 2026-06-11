@@ -53,9 +53,10 @@ TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActi
 {
 	TArray<FMetaAgentGUIActionRow> Rows;
 	Rows.Add(MakeParticleRow(TEXT("F"), TEXT("Load sdxl_latest.png preview + image shape source"), MetaAgentRuntimeIds::ParticleLoadPreview));
+	Rows.Add(MakeParticleRow(TEXT("Play"), TEXT("Full image reveal cycle (auto state machine)"), MetaAgentRuntimeIds::ParticlePlayFullCycle));
 	Rows.Add(MakeParticleRow(TEXT("<<"), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
 	Rows.Add(MakeParticleRow(TEXT(">>"), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
-	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset (then >>)"), MetaAgentRuntimeIds::ParticleSlowPreset));
+	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
 	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
 	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral)"), MetaAgentRuntimeIds::ParticleCycleForming));
 	return Rows;

@@ -545,6 +545,7 @@ protected:
 public:
 
 	void HandleParticleLoadPreviewPressed();
+	void HandleParticlePlayFullCyclePressed();
 	void HandleParticleStepPatternBackwardPressed();
 	void HandleParticleStepPatternForwardPressed();
 	void HandleParticleSlowPresetPressed();

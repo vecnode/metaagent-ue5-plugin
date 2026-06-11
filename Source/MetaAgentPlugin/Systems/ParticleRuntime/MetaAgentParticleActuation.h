@@ -51,6 +51,10 @@ struct FMetaAgentParticleActuationRequest
 	float FormingStateElapsedSeconds = 0.0f;
 	float FormingDurationSeconds = 1.0f;
 	float FormingDeltaTimeSeconds = 0.0f;
+	bool bAnticipatingMotion = false;
+	float AnticipationElapsedSeconds = 0.0f;
+	float AnticipationAmplitudeCm = 12.0f;
+	float AnticipationFrequencyHz = 1.2f;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation

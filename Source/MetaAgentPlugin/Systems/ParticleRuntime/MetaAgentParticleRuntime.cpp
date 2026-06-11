@@ -36,6 +36,7 @@ namespace
 		switch (State)
 		{
 		case EMetaAgentParticlePatternState::Preparing: return TEXT("Preparing");
+		case EMetaAgentParticlePatternState::Anticipating: return TEXT("Anticipating");
 		case EMetaAgentParticlePatternState::Forming: return TEXT("Forming");
 		case EMetaAgentParticlePatternState::Holding: return TEXT("Holding");
 		case EMetaAgentParticlePatternState::Returning: return TEXT("Returning");
@@ -623,7 +624,7 @@ bool UMetaAgentParticleRuntime::RequestPatternCancel(const bool bSkipReturn)
 	}
 
 	if (bSkipReturn
-		|| PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
+		|| PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
 	{
 		CompletePatternRun();
 		return true;
@@ -736,38 +737,43 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 	}
 
 	FormingSteeringBlendElapsedSeconds = 0.0f;
-
-	if (!BuildPatternTargets())
+	PatternRuntime.PatternWorldTargets = PatternRuntime.BaselineWorldPositions;
+	PatternRuntime.PatternColumns = 0;
+	PatternRuntime.PatternCenter = FVector::ZeroVector;
+	for (const FVector& Position : PatternRuntime.BaselineWorldPositions)
 	{
-		if (PatternRuntime.bAwaitingAsyncMask)
-		{
-			EnterPatternState(EMetaAgentParticlePatternState::Preparing);
-			PatternRuntime.Phase = 0.0f;
-			bLoggedPatternStart = false;
-			UE_LOG(LogMetaAgent, Log, TEXT("ParticleRuntime: pattern preparing image mask asynchronously."));
-			return true;
-		}
+		PatternRuntime.PatternCenter += Position;
+	}
+	if (PatternRuntime.BaselineWorldPositions.Num() > 0)
+	{
+		PatternRuntime.PatternCenter /= static_cast<float>(PatternRuntime.BaselineWorldPositions.Num());
+	}
 
+	const bool bTargetsReady = BuildPatternTargets();
+	if (!bTargetsReady && !PatternRuntime.bAwaitingAsyncMask)
+	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: failed to build pattern targets."));
 		PatternRuntime.ActivePatternTags.Reset();
 		return false;
 	}
 
-	EnterPatternState(EMetaAgentParticlePatternState::Forming);
-	PatternRuntime.Phase = 0.0f;
+	if (bTargetsReady)
+	{
+		PatternRuntime.ShapeDebugInfo = FString::Printf(
+			TEXT("Anticipating toward %s"),
+			*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName());
+	}
+	else
+	{
+		PatternRuntime.PatternWorldTargets = PatternRuntime.BaselineWorldPositions;
+		PatternRuntime.ShapeDebugInfo = FString::Printf(
+			TEXT("Anticipating while loading mask @ %dpx"),
+			PatternRuntime.ActiveConfig.Shape.SampleResolution);
+		UE_LOG(LogMetaAgent, Log, TEXT("ParticleRuntime: anticipating while image mask builds asynchronously."));
+	}
+
 	bLoggedPatternStart = false;
-
-	UE_LOG(LogMetaAgent, Log,
-		TEXT("ParticleRuntime: pattern started requested=%s resolved=%s preset=%s particles=%d timings form=%.1fs hold=%.1fs return=%.1fs | %s"),
-		*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName(),
-		*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName(),
-		*PatternRuntime.ActiveConfig.GetPresetDisplayName(),
-		PatternRuntime.BaselineWorldPositions.Num(),
-		PatternRuntime.ActiveConfig.FormDurationSeconds,
-		PatternRuntime.ActiveConfig.HoldDurationSeconds,
-		PatternRuntime.ActiveConfig.ReturnDurationSeconds,
-		*PatternRuntime.ShapeDebugInfo);
-
+	EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
 	return true;
 }
 
@@ -790,6 +796,7 @@ void UMetaAgentParticleRuntime::CompletePatternRun()
 {
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
 	ResetPatternRuntime();
+	bManualPatternStateAdvance = true;
 	if (PreviousState != EMetaAgentParticlePatternState::Idle)
 	{
 		OnPatternCompleted.Broadcast();
@@ -841,12 +848,11 @@ FString UMetaAgentParticleRuntime::BuildPatternShapeText() const
 			bImageLoaded ? TEXT("TRUE") : TEXT("FALSE"));
 	}
 
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
 	{
 		return FString::Printf(
-			TEXT("Pattern Shape: %s | Preparing async mask @ %dpx | %s"),
+			TEXT("Pattern Shape: %s | %s"),
 			*ShapeName,
-			DisplayShape.SampleResolution,
 			*PatternRuntime.ShapeDebugInfo);
 	}
 
@@ -909,7 +915,7 @@ void UMetaAgentParticleRuntime::ApplyPatternConfig(const FMetaAgentParticlePatte
 	PatternConfig.Forming.Mode = FMetaAgentParticleFormingSettings::SanitizeMode(PatternConfig.Forming.Mode);
 
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
-		|| PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
+		|| PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
 	{
 		PatternRuntime.ActiveConfig.Forming = PatternConfig.Forming;
 	}
@@ -939,6 +945,8 @@ float UMetaAgentParticleRuntime::GetActiveStateDurationSeconds() const
 	{
 	case EMetaAgentParticlePatternState::Preparing:
 		return 60.0f;
+	case EMetaAgentParticlePatternState::Anticipating:
+		return 0.0f;
 	case EMetaAgentParticlePatternState::Forming:
 		return FMath::Max(0.1f, Timings.FormDurationSeconds);
 	case EMetaAgentParticlePatternState::Holding:
@@ -980,7 +988,11 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 	PatternRuntime.State = NewState;
 	PatternRuntime.StateElapsedSeconds = 0.0f;
 
-	if (NewState == EMetaAgentParticlePatternState::Forming)
+	if (NewState == EMetaAgentParticlePatternState::Anticipating)
+	{
+		PatternRuntime.Phase = 0.0f;
+	}
+	else if (NewState == EMetaAgentParticlePatternState::Forming)
 	{
 		PatternRuntime.Phase = 0.0f;
 		FormingSteeringBlendElapsedSeconds = 0.0f;
@@ -1006,9 +1018,16 @@ bool UMetaAgentParticleRuntime::AdvancePatternStateForward()
 	case EMetaAgentParticlePatternState::Idle:
 		return BeginPatternStart();
 	case EMetaAgentParticlePatternState::Preparing:
-		if (!BuildPatternTargets())
+		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
+		return true;
+	case EMetaAgentParticlePatternState::Anticipating:
+		if (PatternRuntime.bAwaitingAsyncMask && !BuildPatternTargets())
 		{
-			return PatternRuntime.bAwaitingAsyncMask;
+			return true;
+		}
+		if (PatternRuntime.PatternWorldTargets.Num() <= 0)
+		{
+			return false;
 		}
 		EnterPatternState(EMetaAgentParticlePatternState::Forming);
 		bLoggedPatternStart = false;
@@ -1038,6 +1057,9 @@ bool UMetaAgentParticleRuntime::RetreatPatternStateBackward()
 		EnterPatternState(EMetaAgentParticlePatternState::Forming);
 		return true;
 	case EMetaAgentParticlePatternState::Forming:
+		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
+		return true;
+	case EMetaAgentParticlePatternState::Anticipating:
 	case EMetaAgentParticlePatternState::Preparing:
 		CompletePatternRun();
 		return true;
@@ -1139,32 +1161,48 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 	switch (PatternRuntime.State)
 	{
 	case EMetaAgentParticlePatternState::Preparing:
+		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
+		break;
+	case EMetaAgentParticlePatternState::Anticipating:
 	{
-		if (!bManualPatternStateAdvance && BuildPatternTargets())
+		const float Frequency = FMath::Max(0.1f, Timings.AnticipationFrequencyHz);
+		PatternRuntime.Phase = 0.5f + 0.5f * FMath::Sin(PatternRuntime.StateElapsedSeconds * TWO_PI * Frequency);
+
+		if (PatternRuntime.bAwaitingAsyncMask)
+		{
+			if (BuildPatternTargets())
+			{
+				PatternRuntime.ShapeDebugInfo = FString::Printf(
+					TEXT("Anticipating toward %s"),
+					*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName());
+				UE_LOG(LogMetaAgent, Log,
+					TEXT("ParticleRuntime: async mask ready during anticipating (%s)."),
+					*PatternRuntime.ShapeDebugInfo);
+			}
+			else if (!bManualPatternStateAdvance
+				&& !PatternRuntime.bAwaitingAsyncMask
+				&& PatternRuntime.StateElapsedSeconds > 0.25f)
+			{
+				UE_LOG(LogMetaAgent, Warning,
+					TEXT("ParticleRuntime: async mask build failed (%s)."),
+					*PatternRuntime.ShapeDebugInfo);
+				CompletePatternRun();
+				break;
+			}
+			else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds > 60.0f)
+			{
+				UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: async mask build timed out after 60s."));
+				CompletePatternRun();
+				break;
+			}
+		}
+
+		if (!bManualPatternStateAdvance
+			&& !PatternRuntime.bAwaitingAsyncMask
+			&& PatternRuntime.PatternWorldTargets.Num() > 0)
 		{
 			EnterPatternState(EMetaAgentParticlePatternState::Forming);
 			bLoggedPatternStart = false;
-
-			const FString ResolvedShapeName = PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName();
-
-			UE_LOG(LogMetaAgent, Log,
-				TEXT("ParticleRuntime: pattern started after async mask build requested=%s resolved=%s particles=%d | %s"),
-				*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName(),
-				*ResolvedShapeName,
-				PatternRuntime.BaselineWorldPositions.Num(),
-				*PatternRuntime.ShapeDebugInfo);
-		}
-		else if (!bManualPatternStateAdvance && !PatternRuntime.bAwaitingAsyncMask && PatternRuntime.StateElapsedSeconds > 0.25f)
-		{
-			UE_LOG(LogMetaAgent, Warning,
-				TEXT("ParticleRuntime: async mask build failed (%s)."),
-				*PatternRuntime.ShapeDebugInfo);
-			CompletePatternRun();
-		}
-		else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds > 60.0f)
-		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: async mask build timed out after 60s."));
-			CompletePatternRun();
 		}
 		break;
 	}
@@ -1228,7 +1266,13 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 
 void UMetaAgentParticleRuntime::ApplyPatternActuation()
 {
-	if (PatternRuntime.BaselineWorldPositions.Num() <= 0 || PatternRuntime.PatternWorldTargets.Num() <= 0)
+	if (PatternRuntime.BaselineWorldPositions.Num() <= 0)
+	{
+		return;
+	}
+
+	if (PatternRuntime.PatternWorldTargets.Num() <= 0
+		&& PatternRuntime.State != EMetaAgentParticlePatternState::Anticipating)
 	{
 		return;
 	}
@@ -1274,7 +1318,16 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		}
 	}
 
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming)
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	{
+		Request.PatternState = EMetaAgentParticlePatternState::Anticipating;
+		Request.bAnticipatingMotion = true;
+		Request.AnticipationElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+		Request.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
+		Request.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
+		Request.BlendAlpha = 0.0f;
+	}
+	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming)
 	{
 		Request.PatternState = EMetaAgentParticlePatternState::Forming;
 		Request.FormingSettings = &PatternRuntime.ActiveConfig.Forming;
