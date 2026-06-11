@@ -158,6 +158,15 @@ TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& FMetaAgentParticleShapeRegi
 	return Providers;
 }
 
+void FMetaAgentParticleShapeRegistry::RegisterProvider(TUniquePtr<IMetaAgentParticleShapeProvider> Provider)
+{
+	RegisterDefaults();
+	if (Provider)
+	{
+		GetProviders().Add(MoveTemp(Provider));
+	}
+}
+
 void FMetaAgentParticleShapeRegistry::RegisterDefaults()
 {
 	TArray<TUniquePtr<IMetaAgentParticleShapeProvider>>& Providers = GetProviders();

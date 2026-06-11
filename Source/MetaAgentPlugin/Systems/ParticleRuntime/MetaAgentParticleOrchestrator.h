@@ -11,6 +11,7 @@
 #include "MetaAgentParticleOrchestrator.generated.h"
 
 class APlayerController;
+class UMetaAgentNiagaraSystemProfile;
 class UMetaAgentParticlePatternAsset;
 class UMetaAgentParticleRuntime;
 class UStaticMeshComponent;
@@ -70,6 +71,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator")
 	void SetActuationMode(EMetaAgentParticleActuationMode NewMode);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Niagara")
+	void SetNiagaraSystemProfile(UMetaAgentNiagaraSystemProfile* Profile);
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Orchestrator|Niagara")
+	UMetaAgentNiagaraSystemProfile* GetNiagaraSystemProfile() const { return NiagaraSystemProfile; }
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator")
 	void SetBlockedPatternTags(const FGameplayTagContainer& Tags) { BlockedPatternTags = Tags; }
@@ -165,6 +172,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Orchestrator|Pattern")
 	EMetaAgentParticleActuationMode ActuationMode = EMetaAgentParticleActuationMode::Hybrid;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Orchestrator|Niagara")
+	TObjectPtr<UMetaAgentNiagaraSystemProfile> NiagaraSystemProfile = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Orchestrator|Pattern")
 	TObjectPtr<UMetaAgentParticlePatternAsset> DefaultPatternAsset = nullptr;

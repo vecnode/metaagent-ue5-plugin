@@ -634,9 +634,16 @@ flowchart TB
 - **`FMetaAgentParticleInputRouter`** centralizes keyboard binds and GUI help lines.
 - **`FMetaAgentParticleEffectSpec`** and **`MetaAgentParticleEffectIds`** define the built-in effect catalog.
 - **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
-- **`UMetaAgentParticleRuntime`** owns the master FSM, shape build, and actuation tick.
+- **`UMetaAgentParticleRuntime`** is the **representation scheduler**: each tick it builds **`FMetaAgentParticleRepresentationFrame`** (macro phase, phase weights, targets, solver settings) and **`FMetaAgentParticleRepresentationDriverRegistry`** applies it to Niagara.
+- Macro phases: **Prepare → Express → Sustain → Release** (map to Anticipating / Forming / Holding / Returning | Dissipating).
+- **`FMetaAgentParticleTransitionGraph`** is a trigger-based FSM (`Advance`, `Retreat`, `Timeout`, `Cancel`, `Morph`, `Ready`, `Dissipate`, …). Extend at module startup via **`RegisterTransition()`** or replace rows for game-specific flows.
+- **`FMetaAgentParticleRepresentationDriverRegistry`** exposes pluggable drivers: **Direct** (C++ position buffer writes) and **Parameters** (Niagara User params + optional target object). **`RegisterDriver()`** adds more backends.
+- **Actuation modes:** **Direct** (editor default), **Parameters** (packaged default), **Hybrid** (Direct write **and** parameter push — editor PIE keeps Niagara contract in sync).
+- **`UMetaAgentNiagaraSystemProfile`** data asset declares capabilities and validates User-parameter contracts; assign on orchestrator/runtime.
+- **`UMetaAgentNiagaraTargetData`** is a reused CPU payload (`SetVariableObject`) for pattern targets + baselines when the profile enables **TargetArrayUpload** — avoids per-frame UObject churn.
+- **Extension registries** (registered in `MetaAgentPlugin.cpp` by default, overridable at startup): **`FMetaAgentParticleShapeRegistry::RegisterProvider()`**, **`FMetaAgentParticleFormingSolverRegistry::RegisterSolver()`**, **`FMetaAgentParticleRepresentationDriverRegistry::RegisterDriver()`**.
 - Subclass **`UMetaAgentDefaultParticleOrchestrator`** (or your own) to register custom effect ids via `PopulateEffectSpec`.
-- Controls: `F`, `,`/`<<`, `.`/`>>`, `B/N`, `T`, `Y`; GUI **Play**, **<<**, **>>** mirror the step controls.
+- Controls: `F`, `,`/`<<`, `.`/`>>`, `B/N`, `T`, `Y` (forming), `U` (returning); GUI **Play**, **<<**, **>>**, **Cycle forming / returning** mirror step controls.
 
 #### Image scatter grid
 
@@ -682,6 +689,8 @@ Targets are scattered across a **stratification grid** over the image mask — t
 - Cycle with **`U`** or `MetaAgent.Pattern.Returning Cycle` (`CycleReturning` effect). Live switch mid-run updates `ActiveConfig.Return`.
 - When **DissipateToCenter** is selected, **SkipHold**, **Cancel** (with return), auto hold timeout, and **`>>`** from **Holding** trigger dissipate instead of **Returning**.
 - Arc / Spiral reuse **`FMetaAgentParticleFormingSolverRegistry`** with frozen rest/hold targets (phase 1 → 0).
+- **Cancel semantics:** `bSkipReturnOnCancel` (or Anticipating) → immediate **Idle**; otherwise **BeginConfiguredReturn** from Forming/Holding/Returning. Dissipating cancel always completes the run.
+- **Morph:** `RequestPatternMorph()` from **Holding** re-enters **Forming** using the **current held pose** as baseline (not the idle snapshot), so live target swaps feel continuous.
 
 ```mermaid
 flowchart LR
@@ -698,15 +707,16 @@ flowchart LR
     end
 
     subgraph Runtime["UMetaAgentParticleRuntime"]
-        FSM[FSM Anticipating → Forming → Hold → Return]
-        BUILD[BuildPatternTargets]
-        ACT[ApplyPatternActuation]
+        FSM[FMetaAgentParticleTransitionGraph]
+        BUILD[BuildRepresentationFrame]
+        ACT[ApplyRepresentationFrame]
     end
 
     subgraph Backends
         MASK[ImageMaskProcessor stratified scatter]
         FORM[FMetaAgentParticleFormingSolverRegistry]
-        NIAG[Niagara Direct / Parameters]
+        DRV[RepresentationDriverRegistry]
+        NIAG[Niagara Direct / Parameters / Hybrid]
     end
 
     Y --> ORCH
@@ -718,8 +728,9 @@ flowchart LR
     FSM --> BUILD
     BUILD --> MASK
     FSM --> ACT
-    ACT --> FORM
-    FORM --> NIAG
+    ACT --> DRV
+    FORM --> DRV
+    DRV --> NIAG
 ```
 
 </details>
@@ -729,17 +740,17 @@ flowchart LR
 
 - **`UMetaAgentParticleOrchestrator`** (abstract, Blueprint-subclassable) owns capture runtime, preview texture, pattern config, and routes **`TriggerEffect(FName)`** through the shared FSM.
 - **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
-- **`UMetaAgentParticleRuntime`** owns the master FSM and Niagara readback/writeback.
+- **`UMetaAgentParticleRuntime`** owns pattern runtime state, builds representation frames each tick, and dispatches transitions through **`FMetaAgentParticleTransitionGraph`**.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
 - Keyboard: `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode, `U` cycle returning mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, **Cycle forming / returning mode**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
 - Every pattern start enters **Anticipating** first (attraction/orbit motion toward the shape center). Async PNG mask builds run during **Anticipating** — particles keep moving while the mask loads. Manual stepping is the default (`bManualPatternStateAdvance = true`); **Play** runs the full auto chain.
-- State chain: **Anticipating → Forming → Holding → Returning → Idle**.
+- State chain: **Anticipating → Forming → Holding → Returning → Idle** (or **Dissipating → Idle** when return mode is **DissipateToCenter**). **Morph** jumps **Holding → Forming** without idling.
 - **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** stratified scatter; mask analyzed at **1024px** `SampleResolution`; fallback: **SquareGrid**).
 - Default **ShapeAnchor = ParticleCentroid**: grayscale image is centered on the particle cloud and auto-fitted to its bounding sphere; preview plane (`F`) is texture-only unless `PreviewPlane` anchor is set.
 - PNG decode + shape sampling (**GrayscaleDensity** by default; **SobelEdges** optional) run on a **background thread** (`FMetaAgentParticleShapeCache`); the game thread stays responsive. Cache keys include PNG **file timestamp + size**, so replacing `sdxl_latest.png` on disk triggers a fresh build on the next `F` / pattern start.
 - `F` loads `sdxl_latest.png` onto the preview plane and provides the shape texture.
-- Pattern actuation writes blended positions back into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters).
+- **Direct / Hybrid** actuation writes blended positions into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters). **Parameters / Hybrid** also pushes User params and optional **`UMetaAgentNiagaraTargetData`** (see `PARAMETERS.md`).
 - Help panel (`Q`) shows capture status, consolidated Particle Runtime status (`State`, `Phase`, `Queue`, optional `loading mask`), preset/timings, active shape, and active gameplay tags.
 - Timings + forming: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`); forming tunables under **Pattern | Forming**.
 - Shape + scatter: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); `DensityGridScale`, `TargetJitterNormalized`, `GrayscaleGamma`.
@@ -756,6 +767,11 @@ flowchart LR
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleRepresentationTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleTransitionGraph.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleRepresentationDriver.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentNiagaraSystemProfile.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentNiagaraTargetData.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeCache.h/.cpp`
@@ -779,7 +795,11 @@ stateDiagram-v2
     Anticipating --> Forming: mask ready + advance (>> manual, or auto on Play)
     Forming --> Holding: elapsed >= FormDuration, phase 0→1
     Holding --> Returning: elapsed >= HoldDuration, phase = 1
+    Holding --> Forming: Morph (baseline = held pose)
+    Holding --> Dissipating: advance when DissipateToCenter configured
     Returning --> Idle: elapsed >= ReturnDuration, phase 1→0
+    Returning --> Dissipating: Dissipate trigger
+    Dissipating --> Idle: elapsed >= DissipateDuration
     note right of Anticipating
         Attraction/orbit motion runs
         while async mask may load
@@ -809,12 +829,13 @@ flowchart TB
         Config[PatternConfig + preview state]
     end
 
-    subgraph ParticleFSM["UMetaAgentParticleRuntime — master FSM"]
+    subgraph ParticleFSM["UMetaAgentParticleRuntime — scheduler"]
         Start[StartPattern / RequestPatternStart]
         Tick[TickPatternRuntime]
-        Build[BuildPatternTargets]
+        Trans[FMetaAgentParticleTransitionGraph]
+        Build[BuildRepresentationFrame]
         Traj[RefreshTrajectoryBaselineAtHoldStart]
-        Act[ApplyPatternActuation]
+        Act[ApplyRepresentationFrame]
     end
 
     subgraph ReturnBlend["Returning — frozen release blend"]
@@ -853,7 +874,8 @@ flowchart TB
     Preview --> Config
     Config --> ParticleFSM
     Start --> Tick
-    Tick --> Build
+    Tick --> Trans
+    Trans --> Build
     Build --> Builder
     Builder --> Cache
     Cache --> Mask
@@ -924,13 +946,14 @@ flowchart LR
 7. Runtime snapshots baselines and freezes timings + shape config for the run; state enters **Anticipating** with attraction/orbit actuation (`AnticipationAmplitudeCm`, `AnticipationFrequencyHz`).
 8. `FMetaAgentParticleShapeCache` loads/decodes the PNG and runs the selected sampler (`GrayscaleDensity` default) on a worker thread at `SampleResolution` (1024px default). If the mask is not ready yet, **Anticipating** continues with visible motion and panel status shows `loading mask`.
 9. `FMetaAgentParticleImageMaskProcessor` stratifies targets across the mask (`DensityGridScale` × `TargetJitterNormalized`); Gray and Sobel share `ScatterStratifiedFromMaskWeights`. `FMetaAgentParticleShapeBuilder` assigns targets (polar-matched on image silhouettes, or square grid fallback).
-10. On advance to **Forming**, `FMetaAgentParticleFormingSolverRegistry` moves particles baseline → targets by active mode (`DirectLerp` default; cycle with `Y`). Optional `FormCurve` remaps phase.
-11. GPU emitters: readback → solver/blend → modify CPU float buffer → `PushCPUBuffersToGPU` (Parameters/Hybrid also push `MetaAgentForming*` user params).
-12. `Holding` locks phase at 1 on the resolved shape.
-13. `Returning` drives phase 1→0 while blending from the held shape toward a **frozen idle snapshot** (`BaselineWorldPositions` captured at pattern start). Rest targets are not refreshed each tick (avoids Direct-write feedback flicker).
-14. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**.
-15. On completion, state returns to `Idle` and normal capture resumes.
-16. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternQueue(Asset)`.
+10. Each tick, `BuildRepresentationFrame()` assembles macro phase, targets, and solver settings; `FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame()` dispatches to Direct / Parameters / Hybrid drivers.
+11. On **Forming**, `FMetaAgentParticleFormingSolverRegistry` moves particles baseline → targets by active mode (`DirectLerp` default; cycle with `Y`). Optional `FormCurve` remaps phase.
+12. GPU emitters (Direct/Hybrid): readback → solver/blend → modify CPU float buffer → `PushCPUBuffersToGPU`. Parameters/Hybrid also push `MetaAgentPattern*` / `MetaAgentForming*` user params and reuse **`UMetaAgentNiagaraTargetData`** for target arrays.
+13. `Holding` locks phase at 1 on the resolved shape. **`RequestPatternMorph()`** can re-enter **Forming** from the held pose when targets change.
+14. `Returning` drives phase 1→0 while blending from the held shape toward a **frozen idle snapshot** (`BaselineWorldPositions` captured at pattern start). Rest targets are not refreshed each tick (avoids Direct-write feedback flicker).
+15. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**. **Dissipating** fades/collapses via `MetaAgentPatternDissipate*` params instead of positional return.
+16. On completion, state returns to `Idle` and normal capture resumes.
+17. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternMorph()`, `RequestPatternQueue(Asset)`.
 
 </details>
 
@@ -963,7 +986,9 @@ flowchart LR
         Shapes[IMetaAgentParticleShapeProvider registry]
         Scatter[Stratified mask scatter Gray / Sobel]
         Forming[IMetaAgentParticleFormingSolver registry]
-        Act[IMetaAgentParticleActuator Direct / Parameters / Hybrid]
+        Graph[FMetaAgentParticleTransitionGraph]
+        Drivers[IMetaAgentParticleRepresentationDriver registry]
+        Profile[UMetaAgentNiagaraSystemProfile]
         Traj[Frozen return release blend]
     end
 
@@ -975,18 +1000,57 @@ flowchart LR
     FX --> CMD
     Asset --> CMD
     CMD --> FSM
-    FSM --> Events
+    FSM --> Graph
+    Graph --> Events
     FSM --> Shapes
     Shapes --> Scatter
     FSM --> Forming
-    FSM --> Act
-    Forming --> Act
+    FSM --> Drivers
+    Profile --> Drivers
+    Forming --> Drivers
     FSM --> Traj
-    Traj --> Act
+    Traj --> Drivers
 ```
 
 - **Pattern data assets:** primary type `MetaAgentParticlePattern` (see `Config/DefaultGame.ini`). In editor, run `MetaAgent.CreateSamplePatternAssets` to generate Normal / Slow / Dramatic samples under `/MetaAgentPlugin/MetaAgent/Patterns`.
 - **Packaged Niagara actuation:** see `Content/MetaAgent/Niagara/PARAMETERS.md` for `MetaAgentPattern*` and `MetaAgentForming*` user parameters.
+
+#### Possible next steps (pick what matters most)
+
+Use this as a menu — each item is independent unless noted.
+
+**Niagara authoring (fastest path to “nice” in packaged builds)**
+
+1. **Reference Niagara system** — Author `Content/MetaAgent/Niagara/NS_MetaAgentPatternLerp` implementing every parameter in `PARAMETERS.md` (phase lerp, forming mode branches, dissipate fade). Assign a matching **`UMetaAgentNiagaraSystemProfile`** on the orchestrator.
+2. **Hold polish** — Animate `MetaAgentPatternHoldScale` in Niagara during **Sustain** (subtle breathe / pulse) so the held silhouette feels alive without moving targets.
+3. **Dissipate VFX** — Tie particle size, opacity, and stretch to `MetaAgentPatternDissipateVisibility` for a soft collapse instead of a hard snap.
+4. **Return handoff tuning** — Adjust `ReturnReleaseAuthorityThreshold` and a Niagara blend-out curve so sim control resumes without a visible pop when Direct authority ends.
+
+**Gameplay / orchestration**
+
+5. **Morph hotkey + effect** — Wire `RequestPatternMorph()` to a GUI row, key bind, and `MetaAgentParticleEffectIds` entry so swapping PNG / pattern assets while **Holding** morphs smoothly (baseline = current pose).
+6. **Preset library** — Expand Slow / Dramatic into a small mood set (Snappy, Dreamy, Aggressive) as `UMetaAgentParticlePatternAsset` variants with different `FormCurve`, durations, and scatter.
+7. **Audio-reactive hold** — Drive `MetaAgentPatternHoldScale` or anticipation amplitude from mic/beat for performance moments.
+
+**Motion solvers (C++ — more character in forming/return)**
+
+8. **StaggeredWave forming** — Implement reserved mode 3: per-particle phase offset so the shape “fills in” as a wave rather than moving as one block.
+9. **SpringChase forming** — Implement reserved mode 4: slight overshoot + settle on arrival for softer landings.
+10. **Per-mode return curves** — Separate `ReturnCurve` assets (or curves on `FMetaAgentParticleReturnSettings`) so Arc/Spiral returns ease differently than forming.
+
+**Scatter & shape quality**
+
+11. **Scatter pass** — Tune `DensityGridScale`, `TargetJitterNormalized`, and `GrayscaleGamma` per content type; add a console preset that saves “portrait vs logo vs sketch” scatter profiles.
+12. **Edge-weighted scatter** — Bias Sobel targets toward strong edges only (`EdgeThreshold` + mask erosion) for crisper line-art reveals.
+13. **New shape providers** — `AttractToView`, `SplinePath`, or `MeshSilhouette` via **`RegisterProvider()`** for non-image choreography.
+
+**Infrastructure / scale**
+
+14. **Profile validation on discover** — One-shot warning per Niagara component when required User params are missing (catches miswired systems early in PIE).
+15. **Per-component profiles** — Map component name / tag → `UMetaAgentNiagaraSystemProfile` when multiple Niagara systems coexist.
+16. **GPU target NDIC** — Custom Niagara Data Interface for large GPU sims that should read targets without CPU `UMetaAgentNiagaraTargetData` round-trips.
+
+**Suggested order if unsure:** **1 → 2 → 4 → 5** gets packaged builds looking good quickly; add **8** or **9** when forming feels too mechanical.
 
 ## License
 

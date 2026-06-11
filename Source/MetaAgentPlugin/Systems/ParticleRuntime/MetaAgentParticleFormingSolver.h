@@ -34,6 +34,9 @@ class METAAGENTPLUGIN_API FMetaAgentParticleFormingSolverRegistry
 {
 public:
 	static void RegisterDefaults();
+
+	static void RegisterSolver(TUniquePtr<IMetaAgentParticleFormingSolver> Solver);
+
 	static const IMetaAgentParticleFormingSolver& GetSolver(EMetaAgentParticleFormingMode Mode);
 	static FVector SolveFormingPosition(FMetaAgentParticleFormingContext& Context);
 

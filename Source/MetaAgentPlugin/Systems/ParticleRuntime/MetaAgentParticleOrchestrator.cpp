@@ -2,6 +2,8 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h"
 
+#include "Systems/ParticleRuntime/MetaAgentNiagaraSystemProfile.h"
+
 #include "Camera/PlayerCameraManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "Core/MetaAgent.h"
@@ -70,6 +72,13 @@ void UMetaAgentParticleOrchestrator::SyncConfigToRuntime()
 
 	ParticleRuntime->ApplyPatternConfig(PatternConfig);
 	ParticleRuntime->SetActuationMode(ActuationMode);
+	ParticleRuntime->SetNiagaraSystemProfile(NiagaraSystemProfile);
+}
+
+void UMetaAgentParticleOrchestrator::SetNiagaraSystemProfile(UMetaAgentNiagaraSystemProfile* Profile)
+{
+	NiagaraSystemProfile = Profile;
+	SyncConfigToRuntime();
 }
 
 void UMetaAgentParticleOrchestrator::ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config)

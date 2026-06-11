@@ -12,6 +12,8 @@ class METAAGENTPLUGIN_API FMetaAgentParticleShapeRegistry
 public:
 	static void RegisterDefaults();
 
+	static void RegisterProvider(TUniquePtr<IMetaAgentParticleShapeProvider> Provider);
+
 	static bool BuildPatternTargets(
 		const FMetaAgentParticlePatternConfig& PatternConfig,
 		const FMetaAgentParticleShapeContext& ShapeContext,

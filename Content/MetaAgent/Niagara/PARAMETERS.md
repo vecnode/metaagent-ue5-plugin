@@ -2,37 +2,59 @@
 
 Use these **User** parameters on Niagara systems driven by `UMetaAgentParticleRuntime` when actuation mode is **Parameters** or **Hybrid** (packaged builds default to Parameters).
 
+Assign a **`UMetaAgentNiagaraSystemProfile`** on the orchestrator/runtime to validate required parameters at bind time.
+
+## Scalar / bool contract (always pushed)
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `MetaAgentPatternPhase` | Float | Blend phase 0–1 (Forming 0→1, Holding 1, Returning 1→0) |
 | `MetaAgentPatternCenter` | Vec3 | Pattern centroid in world space |
 | `MetaAgentPatternActive` | Bool | True while a pattern run is active |
-| `MetaAgentPatternHoldScale` | Float | Hold pulse scale (1 + sinusoidal amplitude from pattern asset) |
-| `MetaAgentPatternDissipateActive` | Bool | True during **Dissipating** (DissipateToCenter effect) |
-| `MetaAgentPatternDissipateVisibility` | Float | Fade 1→0 while particles collapse to `MetaAgentPatternCenter` |
-| `MetaAgentFormingMode` | Int | Forming solver id (0=DirectLerp, 1=ArcLift, 2=SpiralIn, 3=StaggeredWave, 4=SpringChase, 5=NiagaraForces) |
+| `MetaAgentPatternHoldScale` | Float | Hold pulse / emphasis scale |
+| `MetaAgentPatternDissipateActive` | Bool | True during **Dissipating** |
+| `MetaAgentPatternDissipateVisibility` | Float | Fade 1→0 while particles collapse to center |
+| `MetaAgentFormingMode` | Int | 0=DirectLerp, 1=ArcLift, 2=SpiralIn |
 | `MetaAgentFormingArcLift` | Float | Arc lift height (cm) when mode is ArcLift |
 | `MetaAgentFormingSpiralTurns` | Float | Spiral revolutions when mode is SpiralIn |
-| `MetaAgentFormingStaggerCycles` | Float | Wave cycles when mode is StaggeredWave |
-| `MetaAgentFormingForceStrength` | Float | Attraction/force scale when mode is NiagaraForces |
-| `MetaAgentFormingSpringStiffness` | Float | Spring stiffness hint for GPU modules |
-| `MetaAgentFormingSpringDamping` | Float | Spring damping hint for GPU modules |
+
+## Target data contract (Parameters mode parity)
+
+When the Niagara profile enables **TargetArrayUpload**, C++ also pushes:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `MetaAgentPatternTargetCount` | Int | Number of pattern targets |
+| `MetaAgentPatternTargetData` | Object (`UMetaAgentNiagaraTargetData`) | CPU-readable baselines + targets arrays |
+
+In Niagara CPU modules / Blueprint bindings, read:
+
+```text
+Target = MetaAgentPatternTargetData.GetPatternTargets()[ID]
+Baseline = MetaAgentPatternTargetData.GetBaselines()[ID]
+Position = lerp(Baseline, Target, MetaAgentPatternPhase)
+```
+
+## Representation macro phases
+
+The runtime scheduler emits **`FMetaAgentParticleRepresentationFrame`** each tick with macro phase:
+
+| Macro | Micro-states |
+|-------|----------------|
+| **Prepare** | Anticipating |
+| **Express** | Forming |
+| **Sustain** | Holding |
+| **Release** | Returning, Dissipating |
 
 ## Minimal lerp module (artist-facing)
 
-In a Niagara **Particle Update** stack, lerp simulated position toward a target using the phase parameter:
-
-1. Add **User** floats/ints: `MetaAgentPatternPhase`, `MetaAgentPatternActive`, `MetaAgentFormingMode`.
-2. When `MetaAgentPatternActive` is true, blend `Position` toward your authored target by `MetaAgentPatternPhase`.
-3. Branch on `MetaAgentFormingMode` for alternate motion (arc offset, spiral, staggered phase, force field).
+1. Add User parameters from the tables above.
+2. When `MetaAgentPatternActive` is true, blend toward targets using `MetaAgentPatternPhase`.
+3. Branch on `MetaAgentFormingMode` for arc/spiral offsets, or read pre-solved targets from the array contract.
 4. For packaged GPU sims, keep motion on the GPU path — do not rely on C++ buffer writes.
 
-## Niagara Forces recipe (mode 5)
+## Reserved forming modes (not yet implemented in C++)
 
-When forming mode is **NiagaraForces**, C++ still pushes phase/center but leaves detailed motion to Niagara:
+Modes 3–5 (`StaggeredWave`, `SpringChase`, `NiagaraForces`) are reserved for future solver/driver plugins. Implement via `FMetaAgentParticleFormingSolverRegistry::RegisterSolver()` or a custom representation driver.
 
-1. Read `MetaAgentFormingForceStrength` and `MetaAgentPatternCenter`.
-2. Apply a **Curl Noise Force** or **Point Attraction** toward pattern targets sampled from your authored module.
-3. Gate forces with `MetaAgentPatternPhase` so particles settle by phase 1.0.
-
-Sample systems can be saved under `/MetaAgentPlugin/MetaAgent/Niagara/` after authoring in the editor.
+Sample systems can be saved under `Content/MetaAgent/Niagara/` after authoring in the editor.

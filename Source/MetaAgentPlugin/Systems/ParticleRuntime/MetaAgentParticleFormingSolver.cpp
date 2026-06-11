@@ -103,6 +103,15 @@ TArray<TUniquePtr<IMetaAgentParticleFormingSolver>>& FMetaAgentParticleFormingSo
 	return Solvers;
 }
 
+void FMetaAgentParticleFormingSolverRegistry::RegisterSolver(TUniquePtr<IMetaAgentParticleFormingSolver> Solver)
+{
+	RegisterDefaults();
+	if (Solver)
+	{
+		GetSolvers().Add(MoveTemp(Solver));
+	}
+}
+
 void FMetaAgentParticleFormingSolverRegistry::RegisterDefaults()
 {
 	TArray<TUniquePtr<IMetaAgentParticleFormingSolver>>& Solvers = GetSolvers();

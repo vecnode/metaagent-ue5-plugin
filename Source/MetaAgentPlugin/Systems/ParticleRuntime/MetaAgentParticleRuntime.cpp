@@ -12,8 +12,12 @@
 #include "NiagaraSystemInstanceController.h"
 #include "NiagaraTypes.h"
 #include "Core/MetaAgent.h"
+#include "Systems/ParticleRuntime/MetaAgentNiagaraSystemProfile.h"
+#include "Systems/ParticleRuntime/MetaAgentNiagaraTargetData.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleActuation.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleRepresentationDriver.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleTransitionGraph.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeCache.h"
@@ -628,14 +632,31 @@ bool UMetaAgentParticleRuntime::RequestPatternCancel(const bool bSkipReturn)
 		return false;
 	}
 
-	if (bSkipReturn
-		|| PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	return DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Cancel, bSkipReturn);
+}
+
+bool UMetaAgentParticleRuntime::RequestPatternMorph()
+{
+	if (PatternRuntime.State != EMetaAgentParticlePatternState::Holding)
 	{
-		CompletePatternRun();
-		return true;
+		return false;
 	}
 
-	return BeginConfiguredReturn();
+	if (PatternRuntime.PatternWorldTargets.Num() <= 0)
+	{
+		return false;
+	}
+
+	if (LastAppliedWorldPositions.Num() > 0)
+	{
+		PatternRuntime.BaselineWorldPositions = LastAppliedWorldPositions;
+	}
+	else if (PatternRuntime.TrajectoryWorldPositions.Num() > 0)
+	{
+		PatternRuntime.BaselineWorldPositions = PatternRuntime.TrajectoryWorldPositions;
+	}
+
+	return DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Morph);
 }
 
 bool UMetaAgentParticleRuntime::RequestSkipHold()
@@ -879,6 +900,11 @@ FString UMetaAgentParticleRuntime::GetPatternStateDisplayName() const
 	return PatternStateToString(PatternRuntime.State);
 }
 
+EMetaAgentRepresentationMacroPhase UMetaAgentParticleRuntime::GetRepresentationMacroPhase() const
+{
+	return FMetaAgentParticleRepresentationMapping::MacroPhaseFromPatternState(PatternRuntime.State);
+}
+
 void UMetaAgentParticleRuntime::SetPatternShapeContext(const FMetaAgentParticleShapeContext& ShapeContext)
 {
 	PatternShapeContext = ShapeContext;
@@ -965,8 +991,9 @@ FString UMetaAgentParticleRuntime::BuildPatternStatusText() const
 	const float TimeRemaining = GetActiveStateTimeRemainingSeconds();
 
 	return FString::Printf(
-		TEXT("Pattern State: %s | Phase: %.2f | In-state: %.2fs / %.1fs (%.1fs left) | Particles: %d%s"),
+		TEXT("Pattern State: %s | Macro: %s | Phase: %.2f | In-state: %.2fs / %.1fs (%.1fs left) | Particles: %d%s"),
 		*GetPatternStateDisplayName(),
+		*FMetaAgentParticleRepresentationMapping::GetMacroPhaseDisplayName(GetRepresentationMacroPhase()),
 		PatternRuntime.Phase,
 		PatternRuntime.StateElapsedSeconds,
 		StateDuration,
@@ -1131,69 +1158,100 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 
 bool UMetaAgentParticleRuntime::AdvancePatternStateForward()
 {
-	switch (PatternRuntime.State)
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating && PatternRuntime.bAwaitingAsyncMask)
 	{
-	case EMetaAgentParticlePatternState::Idle:
+		BuildPatternTargets();
+	}
+
+	const bool bHandled = DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Advance);
+	if (!bHandled && PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	{
+		return PatternRuntime.bAwaitingAsyncMask;
+	}
+
+	return bHandled;
+}
+
+bool UMetaAgentParticleRuntime::RetreatPatternStateBackward()
+{
+	return DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Retreat);
+}
+
+FMetaAgentPatternTransitionContext UMetaAgentParticleRuntime::BuildTransitionContext(
+	const bool bSkipReturnOnCancel) const
+{
+	FMetaAgentPatternTransitionContext Context;
+	Context.State = PatternRuntime.State;
+	Context.bAwaitingAsyncMask = PatternRuntime.bAwaitingAsyncMask;
+	Context.PatternTargetCount = PatternRuntime.PatternWorldTargets.Num();
+	Context.bManualStateAdvance = bManualPatternStateAdvance;
+	Context.bSkipReturnOnCancel = bSkipReturnOnCancel;
+	Context.StateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+
+	const FMetaAgentParticlePatternConfig& Timings =
+		PatternRuntime.State == EMetaAgentParticlePatternState::Idle
+			? PatternConfig
+			: PatternRuntime.ActiveConfig;
+
+	Context.FormDurationSeconds = Timings.FormDurationSeconds;
+	Context.HoldDurationSeconds = Timings.HoldDurationSeconds;
+	Context.ReturnDurationSeconds = Timings.ReturnDurationSeconds;
+	Context.DissipateDurationSeconds = Timings.DissipateDurationSeconds;
+	Context.bDissipateReturnMode =
+		Timings.Return.Mode == EMetaAgentParticleReturnMode::DissipateToCenter;
+	return Context;
+}
+
+bool UMetaAgentParticleRuntime::ApplyTransitionResult(const FMetaAgentPatternTransitionResult& Result)
+{
+	if (!Result.bHandled)
+	{
+		return false;
+	}
+
+	switch (Result.Action)
+	{
+	case EMetaAgentPatternTransitionAction::None:
+		return true;
+	case EMetaAgentPatternTransitionAction::BeginPatternStart:
 		return BeginPatternStart();
-	case EMetaAgentParticlePatternState::Preparing:
-		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
+	case EMetaAgentPatternTransitionAction::CompleteRun:
+		CompletePatternRun();
 		return true;
-	case EMetaAgentParticlePatternState::Anticipating:
-		if (PatternRuntime.bAwaitingAsyncMask && !BuildPatternTargets())
-		{
-			return true;
-		}
-		if (PatternRuntime.PatternWorldTargets.Num() <= 0)
-		{
-			return false;
-		}
-		EnterPatternState(EMetaAgentParticlePatternState::Forming);
-		bLoggedPatternStart = false;
-		return true;
-	case EMetaAgentParticlePatternState::Forming:
-		EnterPatternState(EMetaAgentParticlePatternState::Holding);
-		return true;
-	case EMetaAgentParticlePatternState::Holding:
+	case EMetaAgentPatternTransitionAction::BeginConfiguredReturn:
 		return BeginConfiguredReturn();
-	case EMetaAgentParticlePatternState::Returning:
-		CompletePatternRun();
-		return true;
-	case EMetaAgentParticlePatternState::Dissipating:
-		CompletePatternRun();
+	case EMetaAgentPatternTransitionAction::RequestDissipate:
+		return RequestDissipateToCenter();
+	case EMetaAgentPatternTransitionAction::EnterState:
+		if (Result.bRestoreIdleBaselineOnEnter && PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
+		{
+			PatternRuntime.BaselineWorldPositions = PatternRuntime.IdleBaselineWorldPositions;
+		}
+		EnterPatternState(Result.NewState);
+		if (Result.bClearPatternStartLog)
+		{
+			bLoggedPatternStart = false;
+		}
 		return true;
 	default:
 		return false;
 	}
 }
 
-bool UMetaAgentParticleRuntime::RetreatPatternStateBackward()
+bool UMetaAgentParticleRuntime::DispatchPatternTransition(
+	const EMetaAgentPatternTransitionTrigger Trigger,
+	const bool bSkipReturnOnCancel)
 {
-	switch (PatternRuntime.State)
+	FMetaAgentPatternTransitionResult Result;
+	if (!FMetaAgentParticleTransitionGraph::EvaluateTransition(
+		BuildTransitionContext(bSkipReturnOnCancel),
+		Trigger,
+		Result))
 	{
-	case EMetaAgentParticlePatternState::Dissipating:
-		EnterPatternState(EMetaAgentParticlePatternState::Holding);
-		return true;
-	case EMetaAgentParticlePatternState::Returning:
-		EnterPatternState(EMetaAgentParticlePatternState::Holding);
-		return true;
-	case EMetaAgentParticlePatternState::Holding:
-		EnterPatternState(EMetaAgentParticlePatternState::Forming);
-		return true;
-	case EMetaAgentParticlePatternState::Forming:
-		if (PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
-		{
-			PatternRuntime.BaselineWorldPositions = PatternRuntime.IdleBaselineWorldPositions;
-		}
-		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
-		return true;
-	case EMetaAgentParticlePatternState::Anticipating:
-	case EMetaAgentParticlePatternState::Preparing:
-		CompletePatternRun();
-		return true;
-	case EMetaAgentParticlePatternState::Idle:
-	default:
 		return false;
 	}
+
+	return ApplyTransitionResult(Result);
 }
 
 bool UMetaAgentParticleRuntime::BuildPatternTargets()
@@ -1288,7 +1346,7 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 	switch (PatternRuntime.State)
 	{
 	case EMetaAgentParticlePatternState::Preparing:
-		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
+		DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Timeout);
 		break;
 	case EMetaAgentParticlePatternState::Anticipating:
 	{
@@ -1328,8 +1386,7 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 			&& !PatternRuntime.bAwaitingAsyncMask
 			&& PatternRuntime.PatternWorldTargets.Num() > 0)
 		{
-			EnterPatternState(EMetaAgentParticlePatternState::Forming);
-			bLoggedPatternStart = false;
+			DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Ready);
 		}
 		break;
 	}
@@ -1348,8 +1405,7 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 		}
 		else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds >= FormDuration)
 		{
-			EnterPatternState(EMetaAgentParticlePatternState::Holding);
-			PatternRuntime.Phase = 1.0f;
+			DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Timeout);
 		}
 		break;
 	}
@@ -1363,7 +1419,7 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 		}
 		else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds >= HoldDuration)
 		{
-			BeginConfiguredReturn();
+			DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Timeout);
 		}
 		break;
 	}
@@ -1382,7 +1438,7 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 		}
 		else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds >= ReturnDuration)
 		{
-			CompletePatternRun();
+			DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Timeout);
 		}
 		break;
 	}
@@ -1402,13 +1458,112 @@ void UMetaAgentParticleRuntime::TickPatternRuntime(const float DeltaTimeSeconds)
 		}
 		else if (!bManualPatternStateAdvance && PatternRuntime.StateElapsedSeconds >= DissipateDuration)
 		{
-			CompletePatternRun();
+			DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Timeout);
 		}
 		break;
 	}
 	default:
 		break;
 	}
+}
+
+void UMetaAgentParticleRuntime::BuildRepresentationFrame(FMetaAgentParticleRepresentationFrame& OutFrame) const
+{
+	OutFrame = FMetaAgentParticleRepresentationFrame();
+	OutFrame.PatternState = PatternRuntime.State;
+	OutFrame.MacroPhase = FMetaAgentParticleRepresentationMapping::MacroPhaseFromPatternState(PatternRuntime.State);
+	OutFrame.PatternCenter = PatternRuntime.PatternCenter;
+	OutFrame.bPatternActive = true;
+
+	OutFrame.BaselineWorldPositions = PatternRuntime.BaselineWorldPositions;
+	OutFrame.PatternWorldTargets = PatternRuntime.PatternWorldTargets;
+	OutFrame.IdleBaselineWorldPositions = PatternRuntime.IdleBaselineWorldPositions;
+	OutFrame.ReturnHoldPositions = PatternRuntime.ReturnHoldPositions;
+	OutFrame.ReturnRestPositions = PatternRuntime.ReturnRestPositions;
+	OutFrame.DissipateStartPositions = PatternRuntime.DissipateStartPositions;
+
+	const bool bReturning = PatternRuntime.State == EMetaAgentParticlePatternState::Returning;
+	const bool bDissipating = PatternRuntime.State == EMetaAgentParticlePatternState::Dissipating;
+
+	float BlendAlpha = ComputeActuationBlendAlpha();
+	if (bReturning)
+	{
+		BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
+	}
+
+	const float HoldPulseScale = PatternRuntime.State == EMetaAgentParticlePatternState::Holding
+		? (1.0f + FMath::Sin(PatternRuntime.StateElapsedSeconds * 4.0f) * ActiveHoldPulseAmplitude)
+		: 1.0f;
+
+	OutFrame.bUseReturnHoldBlend = bReturning;
+	OutFrame.FormingSettings = PatternRuntime.ActiveConfig.Forming;
+	OutFrame.FormingStateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+	OutFrame.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.FormDurationSeconds);
+	OutFrame.FormingDeltaTimeSeconds = LastPatternTickDeltaSeconds;
+
+	if (bReturning)
+	{
+		const FMetaAgentParticleReturnSettings& ReturnSettings = PatternRuntime.ActiveConfig.Return;
+		OutFrame.bReturnUsesMotionSolver = ReturnSettings.UsesMotionSolver();
+		if (OutFrame.bReturnUsesMotionSolver)
+		{
+			OutFrame.ReturnMotionSettings = ReturnSettings.AsFormingSettings();
+		}
+		OutFrame.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.ReturnDurationSeconds);
+	}
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
+		&& LatestSnapshot.bSteeringTargetEnabled
+		&& FormingSteeringBlendDurationSeconds > KINDA_SMALL_NUMBER
+		&& LatestSnapshot.SuggestedSteeringDirections.Num() > 0)
+	{
+		OutFrame.FormingSteeringWeight = FMath::Clamp(
+			1.0f - (FormingSteeringBlendElapsedSeconds / FormingSteeringBlendDurationSeconds),
+			0.0f,
+			1.0f);
+		if (OutFrame.FormingSteeringWeight > KINDA_SMALL_NUMBER)
+		{
+			OutFrame.FormingSteeringOffsets = LatestSnapshot.SuggestedSteeringDirections;
+		}
+	}
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	{
+		OutFrame.bAnticipatingMotion = true;
+		OutFrame.AnticipationElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+		OutFrame.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
+		OutFrame.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
+		OutFrame.AnticipationIdleBlendDurationSeconds =
+			FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
+		BlendAlpha = 0.0f;
+	}
+	else if (bDissipating)
+	{
+		OutFrame.bDissipatingMotion = true;
+		OutFrame.DissipateVisibility = FMath::Clamp(1.0f - PatternRuntime.Phase, 0.0f, 1.0f);
+		BlendAlpha = PatternRuntime.Phase;
+	}
+	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
+		&& PatternRuntime.AnticipationHandoffElapsedSeconds >= 0.0f
+		&& PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
+	{
+		OutFrame.AnticipationHandoffElapsedSeconds = PatternRuntime.AnticipationHandoffElapsedSeconds;
+		OutFrame.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
+		OutFrame.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
+		OutFrame.AnticipationIdleBlendDurationSeconds =
+			FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
+		OutFrame.FormingAnticipationCarryoverDurationSeconds =
+			FMath::Max(0.05f, PatternRuntime.ActiveConfig.FormingAnticipationCarryoverDurationSeconds);
+	}
+
+	const float StateDuration = GetActiveStateDurationSeconds();
+	OutFrame.Phase.NormalizedTime = StateDuration > KINDA_SMALL_NUMBER
+		? FMath::Clamp(PatternRuntime.StateElapsedSeconds / StateDuration, 0.0f, 1.0f)
+		: 0.0f;
+	OutFrame.Phase.BlendAlpha = BlendAlpha;
+	OutFrame.Phase.Emphasis = bDissipating ? OutFrame.DissipateVisibility : HoldPulseScale;
+	OutFrame.Phase.Visibility = bDissipating ? OutFrame.DissipateVisibility : 1.0f;
+	OutFrame.Phase.AuthorityWeight = (bReturning && BlendAlpha <= ReturnReleaseAuthorityThreshold) ? 0.0f : 1.0f;
 }
 
 void UMetaAgentParticleRuntime::ApplyPatternActuation()
@@ -1425,129 +1580,42 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		return;
 	}
 
-	const bool bReturning = PatternRuntime.State == EMetaAgentParticlePatternState::Returning;
-	const bool bDissipating = PatternRuntime.State == EMetaAgentParticlePatternState::Dissipating;
-	float BlendAlpha = ComputeActuationBlendAlpha();
-	if (bReturning)
+	BuildRepresentationFrame(LastRepresentationFrame);
+	if (LastRepresentationFrame.Phase.AuthorityWeight <= KINDA_SMALL_NUMBER)
 	{
-		BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
+		LastRepresentationFrame.bPatternActive = false;
+		LastRepresentationFrame.Phase.BlendAlpha = 0.0f;
 	}
-
-	const float HoldPulseScale = PatternRuntime.State == EMetaAgentParticlePatternState::Holding
-		? (1.0f + FMath::Sin(PatternRuntime.StateElapsedSeconds * 4.0f) * ActiveHoldPulseAmplitude)
-		: 1.0f;
 
 	FMetaAgentParticleActuationRequest Request;
-	Request.BaselineWorldPositions = &PatternRuntime.BaselineWorldPositions;
-	Request.PatternWorldTargets = &PatternRuntime.PatternWorldTargets;
+	FMetaAgentParticleRepresentationDriverRegistry::BuildActuationRequestFromFrame(
+		LastRepresentationFrame,
+		Request);
 	Request.ParticleBlocks = &LatestSnapshot.ParticleBlocks;
 	Request.TrackedComponents = TrackedNiagaraComponents;
-	Request.BlendAlpha = BlendAlpha;
-	Request.HoldPulseScale = HoldPulseScale;
-	Request.PatternCenter = PatternRuntime.PatternCenter;
-	Request.bPatternActive = true;
-	Request.bUseReturnHoldBlend = bReturning;
-	if (bReturning)
-	{
-		Request.PatternState = EMetaAgentParticlePatternState::Returning;
-		Request.ReturnHoldPositions = &PatternRuntime.ReturnHoldPositions;
-		Request.ReturnRestPositions = &PatternRuntime.ReturnRestPositions;
 
-		const FMetaAgentParticleReturnSettings& ReturnSettings = PatternRuntime.ActiveConfig.Return;
-		if (ReturnSettings.UsesMotionSolver())
-		{
-			ReturnFormingSolverSettings = ReturnSettings.AsFormingSettings();
-			Request.FormingSettings = &ReturnFormingSolverSettings;
-			Request.FormingStateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
-			Request.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.ReturnDurationSeconds);
-			Request.FormingDeltaTimeSeconds = LastPatternTickDeltaSeconds;
-		}
-	}
-	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming
-		&& LatestSnapshot.bSteeringTargetEnabled
-		&& FormingSteeringBlendDurationSeconds > KINDA_SMALL_NUMBER
-		&& LatestSnapshot.SuggestedSteeringDirections.Num() > 0)
-	{
-		Request.FormingSteeringWeight = FMath::Clamp(
-			1.0f - (FormingSteeringBlendElapsedSeconds / FormingSteeringBlendDurationSeconds),
-			0.0f,
-			1.0f);
-		if (Request.FormingSteeringWeight > KINDA_SMALL_NUMBER)
-		{
-			Request.FormingSteeringOffsets = &LatestSnapshot.SuggestedSteeringDirections;
-		}
-	}
+	const UMetaAgentNiagaraSystemProfile* EffectiveProfile =
+		NiagaraSystemProfile ? NiagaraSystemProfile : UMetaAgentNiagaraSystemProfile::GetDefaultProfile();
 
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	if (!SharedNiagaraTargetData)
 	{
-		Request.PatternState = EMetaAgentParticlePatternState::Anticipating;
-		Request.bAnticipatingMotion = true;
-		Request.AnticipationElapsedSeconds = PatternRuntime.StateElapsedSeconds;
-		Request.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
-		Request.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
-		Request.AnticipationIdleBlendDurationSeconds =
-			FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
-		Request.BlendAlpha = 0.0f;
+		SharedNiagaraTargetData = NewObject<UMetaAgentNiagaraTargetData>(this);
 	}
-	else if (bDissipating)
-	{
-		Request.PatternState = EMetaAgentParticlePatternState::Dissipating;
-		Request.bDissipatingMotion = true;
-		Request.DissipateStartPositions = &PatternRuntime.DissipateStartPositions;
-		Request.DissipateVisibility = FMath::Clamp(1.0f - PatternRuntime.Phase, 0.0f, 1.0f);
-		Request.BlendAlpha = PatternRuntime.Phase;
-		Request.HoldPulseScale = Request.DissipateVisibility;
-	}
-	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming)
-	{
-		Request.PatternState = EMetaAgentParticlePatternState::Forming;
-		Request.FormingSettings = &PatternRuntime.ActiveConfig.Forming;
-		Request.FormingStateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
-		Request.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.FormDurationSeconds);
-		Request.FormingDeltaTimeSeconds = LastPatternTickDeltaSeconds;
-		if (PatternRuntime.AnticipationHandoffElapsedSeconds >= 0.0f
-			&& PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
-		{
-			Request.IdleBaselineWorldPositions = &PatternRuntime.IdleBaselineWorldPositions;
-			Request.AnticipationHandoffElapsedSeconds = PatternRuntime.AnticipationHandoffElapsedSeconds;
-			Request.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
-			Request.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
-			Request.AnticipationIdleBlendDurationSeconds =
-				FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
-			Request.FormingAnticipationCarryoverDurationSeconds =
-				FMath::Max(0.05f, PatternRuntime.ActiveConfig.FormingAnticipationCarryoverDurationSeconds);
-		}
-	}
-	else
-	{
-		Request.FormingSettings = &GetTimingConfigForTick().Forming;
-	}
-
-	const EMetaAgentParticleActuationMode EffectiveMode =
-		FMetaAgentParticleActuation::ResolveEffectiveMode(ActuationMode);
-
-	IMetaAgentParticleActuator& ParameterActuator =
-		FMetaAgentParticleActuation::GetActuator(EMetaAgentParticleActuationMode::Parameters);
-
-	if (bReturning && BlendAlpha <= ReturnReleaseAuthorityThreshold)
-	{
-		Request.bPatternActive = false;
-		Request.BlendAlpha = 0.0f;
-		ParameterActuator.ApplyParameters(Request);
-		return;
-	}
-
-	if (EffectiveMode == EMetaAgentParticleActuationMode::Parameters)
-	{
-		ParameterActuator.ApplyParameters(Request);
-		return;
-	}
-
-	IMetaAgentParticleActuator& DirectActuator =
-		FMetaAgentParticleActuation::GetActuator(EMetaAgentParticleActuationMode::Direct);
+	SharedNiagaraTargetData->SetTargets(
+		LastRepresentationFrame.PatternWorldTargets,
+		LastRepresentationFrame.BaselineWorldPositions);
 
 	TArray<FVector> AppliedWorldPositions;
-	if (DirectActuator.ApplyPhase(Request, AppliedWorldPositions) > 0)
+	const int32 AppliedCount = FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
+		LastRepresentationFrame,
+		Request,
+		EffectiveProfile,
+		ActuationMode,
+		ReturnReleaseAuthorityThreshold,
+		SharedNiagaraTargetData,
+		AppliedWorldPositions);
+
+	if (AppliedCount > 0)
 	{
 		LastAppliedWorldPositions = AppliedWorldPositions;
 
@@ -1569,18 +1637,11 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		{
 			bLoggedPatternStart = true;
 			UE_LOG(LogMetaAgent, Log,
-				TEXT("ParticleRuntime: pattern actuation writing %d particle position(s), state=%s phase=%.2f liveReturn=%s."),
+				TEXT("ParticleRuntime: representation driver applied %d particle position(s), macro=%s state=%s phase=%.2f."),
 				AppliedWorldPositions.Num(),
+				*FMetaAgentParticleRepresentationMapping::GetMacroPhaseDisplayName(LastRepresentationFrame.MacroPhase),
 				*GetPatternStateDisplayName(),
-				PatternRuntime.Phase,
-				bReturning ? TEXT("yes") : TEXT("no"));
+				PatternRuntime.Phase);
 		}
 	}
-
-	if (EffectiveMode == EMetaAgentParticleActuationMode::Direct)
-	{
-		return;
-	}
-
-	ParameterActuator.ApplyParameters(Request);
 }

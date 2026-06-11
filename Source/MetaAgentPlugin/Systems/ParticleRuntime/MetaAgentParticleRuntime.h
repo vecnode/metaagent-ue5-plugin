@@ -5,11 +5,14 @@
 #include "CoreMinimal.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleActuation.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleRepresentationTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 
 class UNiagaraComponent;
+class UMetaAgentNiagaraSystemProfile;
+class UMetaAgentNiagaraTargetData;
 class UMetaAgentParticlePatternAsset;
 class UCurveFloat;
 
@@ -169,6 +172,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	bool RequestDissipateToCenter();
 
+	/** Re-enter Express from Sustain without returning to Idle (shape morph). */
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestPatternMorph();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	bool RequestPatternQueue(UMetaAgentParticlePatternAsset* PatternAsset);
 
@@ -242,6 +249,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	EMetaAgentParticleActuationMode GetActuationMode() const { return ActuationMode; }
 
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern|Niagara")
+	void SetNiagaraSystemProfile(UMetaAgentNiagaraSystemProfile* Profile) { NiagaraSystemProfile = Profile; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern|Niagara")
+	UMetaAgentNiagaraSystemProfile* GetNiagaraSystemProfile() const { return NiagaraSystemProfile; }
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Representation")
+	EMetaAgentRepresentationMacroPhase GetRepresentationMacroPhase() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Representation")
+	FMetaAgentParticleRepresentationFrame GetLastRepresentationFrame() const { return LastRepresentationFrame; }
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
 	void BuildComponentSnapshot();
@@ -256,6 +275,10 @@ private:
 	void TickPatternRuntime(float DeltaTimeSeconds);
 	bool BuildPatternTargets();
 	void ApplyPatternActuation();
+	void BuildRepresentationFrame(FMetaAgentParticleRepresentationFrame& OutFrame) const;
+	FMetaAgentPatternTransitionContext BuildTransitionContext(bool bSkipReturnOnCancel = false) const;
+	bool ApplyTransitionResult(const FMetaAgentPatternTransitionResult& Result);
+	bool DispatchPatternTransition(EMetaAgentPatternTransitionTrigger Trigger, bool bSkipReturnOnCancel = false);
 	float EvaluatePhaseForState(EMetaAgentParticlePatternState State, float NormalizedTimeInState) const;
 	float ComputeActuationBlendAlpha() const;
 	bool BeginPatternStart();
@@ -312,6 +335,15 @@ private:
 	TArray<FVector> LiveSimWorldPositions;
 	TArray<FVector> LastAppliedWorldPositions;
 	FMetaAgentParticleFormingSettings ReturnFormingSolverSettings;
+
+	UPROPERTY(Transient)
+	FMetaAgentParticleRepresentationFrame LastRepresentationFrame;
+
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern|Niagara")
+	TObjectPtr<UMetaAgentNiagaraSystemProfile> NiagaraSystemProfile = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMetaAgentNiagaraTargetData> SharedNiagaraTargetData = nullptr;
 
 	float ActiveHoldPulseAmplitude = 0.0f;
 	float FormingSteeringBlendElapsedSeconds = 0.0f;
