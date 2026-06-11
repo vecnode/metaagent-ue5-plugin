@@ -2,9 +2,23 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
 
-FString FMetaAgentParticleFormingSettings::GetModeDisplayName() const
+EMetaAgentParticleFormingMode FMetaAgentParticleFormingSettings::SanitizeMode(
+	const EMetaAgentParticleFormingMode Mode)
 {
 	switch (Mode)
+	{
+	case EMetaAgentParticleFormingMode::DirectLerp:
+	case EMetaAgentParticleFormingMode::ArcLift:
+	case EMetaAgentParticleFormingMode::SpiralIn:
+		return Mode;
+	default:
+		return EMetaAgentParticleFormingMode::DirectLerp;
+	}
+}
+
+FString FMetaAgentParticleFormingSettings::GetModeDisplayName() const
+{
+	switch (SanitizeMode(Mode))
 	{
 	case EMetaAgentParticleFormingMode::DirectLerp:
 		return TEXT("Direct Lerp");
@@ -12,20 +26,14 @@ FString FMetaAgentParticleFormingSettings::GetModeDisplayName() const
 		return TEXT("Arc Lift");
 	case EMetaAgentParticleFormingMode::SpiralIn:
 		return TEXT("Spiral In");
-	case EMetaAgentParticleFormingMode::StaggeredWave:
-		return TEXT("Staggered Wave");
-	case EMetaAgentParticleFormingMode::SpringChase:
-		return TEXT("Spring Chase");
-	case EMetaAgentParticleFormingMode::NiagaraForces:
-		return TEXT("Niagara Forces");
 	default:
-		return TEXT("Unknown");
+		return TEXT("Direct Lerp");
 	}
 }
 
 void FMetaAgentParticleFormingSettings::CycleMode()
 {
-	switch (Mode)
+	switch (SanitizeMode(Mode))
 	{
 	case EMetaAgentParticleFormingMode::DirectLerp:
 		Mode = EMetaAgentParticleFormingMode::ArcLift;
@@ -34,15 +42,6 @@ void FMetaAgentParticleFormingSettings::CycleMode()
 		Mode = EMetaAgentParticleFormingMode::SpiralIn;
 		break;
 	case EMetaAgentParticleFormingMode::SpiralIn:
-		Mode = EMetaAgentParticleFormingMode::StaggeredWave;
-		break;
-	case EMetaAgentParticleFormingMode::StaggeredWave:
-		Mode = EMetaAgentParticleFormingMode::SpringChase;
-		break;
-	case EMetaAgentParticleFormingMode::SpringChase:
-		Mode = EMetaAgentParticleFormingMode::NiagaraForces;
-		break;
-	case EMetaAgentParticleFormingMode::NiagaraForces:
 	default:
 		Mode = EMetaAgentParticleFormingMode::DirectLerp;
 		break;

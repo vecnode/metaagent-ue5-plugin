@@ -559,6 +559,7 @@ void AMetaAgentPlayerController::BeginPlay()
 	}
 
 	UpdateRecordingStatusHud();
+	ApplyInitialModularRuntimeStates();
 	ApplyGUIHelpPanelState();
 }
 

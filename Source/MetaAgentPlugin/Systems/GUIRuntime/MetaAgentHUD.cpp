@@ -19,6 +19,10 @@ namespace
 	constexpr float CollapseButtonWidth = 24.0f;
 	constexpr float PanelMinWidth = 460.0f;
 	constexpr float TextScale = 1.0f;
+	constexpr float PreviewSize = 64.0f;
+	constexpr float PreviewGap = 8.0f;
+	constexpr float PreviewLabelHeight = 14.0f;
+	constexpr float PreviewRowHeight = PreviewSize + PreviewLabelHeight + 8.0f;
 
 	void AddClickRegion(
 		TArray<FMetaAgentHUDClickRegion>& Regions,
@@ -169,6 +173,13 @@ void AMetaAgentHUD::DrawRuntimePanel()
 		{
 			MaxContentWidth = FMath::Max(MaxContentWidth, MeasureTextWidth(Canvas, PanelFont, StatusLine));
 		}
+		if (Section.PreviewThumbnails.Num() > 0)
+		{
+			const float PreviewRowWidth =
+				(Section.PreviewThumbnails.Num() * PreviewSize)
+				+ (FMath::Max(0, Section.PreviewThumbnails.Num() - 1) * PreviewGap);
+			MaxContentWidth = FMath::Max(MaxContentWidth, PreviewRowWidth);
+		}
 	}
 
 	const float PanelWidth = FMath::Max(PanelMinWidth, MaxContentWidth + (PanelPadding * 2.0f));
@@ -181,6 +192,10 @@ void AMetaAgentHUD::DrawRuntimePanel()
 		{
 			TotalHeight += Section.ActionRows.Num() * RowHeight;
 			TotalHeight += Section.StatusLines.Num() * StatusLineHeight;
+			if (Section.PreviewThumbnails.Num() > 0)
+			{
+				TotalHeight += PreviewRowHeight;
+			}
 		}
 		TotalHeight += SectionGap;
 	}
@@ -314,6 +329,44 @@ void AMetaAgentHUD::DrawRuntimePanel()
 		{
 			DrawText(StatusLine, FColor(180, 220, 255), PanelX + PanelPadding + 4.0f, DrawY, const_cast<UFont*>(PanelFont), TextScale, false);
 			DrawY += StatusLineHeight;
+		}
+
+		if (Section.PreviewThumbnails.Num() > 0)
+		{
+			float PreviewX = PanelX + PanelPadding + 4.0f;
+			const float PreviewY = DrawY + 2.0f;
+			for (const FMetaAgentGUIPreviewThumbnail& Thumbnail : Section.PreviewThumbnails)
+			{
+				if (Thumbnail.Texture)
+				{
+					DrawRect(
+						FLinearColor(0.08f, 0.08f, 0.10f, 0.95f),
+						PreviewX - 1.0f,
+						PreviewY - 1.0f,
+						PreviewSize + 2.0f,
+						PreviewSize + 2.0f);
+					DrawTexture(
+						Thumbnail.Texture,
+						PreviewX,
+						PreviewY,
+						PreviewSize,
+						PreviewSize,
+						0.0f,
+						0.0f,
+						1.0f,
+						1.0f);
+					DrawText(
+						Thumbnail.Label,
+						FColor(200, 200, 200),
+						PreviewX,
+						PreviewY + PreviewSize + 2.0f,
+						const_cast<UFont*>(PanelFont),
+						TextScale,
+						false);
+				}
+				PreviewX += PreviewSize + PreviewGap;
+			}
+			DrawY += PreviewRowHeight;
 		}
 
 		DrawY += SectionGap;

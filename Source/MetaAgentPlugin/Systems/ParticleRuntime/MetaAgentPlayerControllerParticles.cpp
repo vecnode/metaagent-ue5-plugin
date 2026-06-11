@@ -343,7 +343,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageSampling Gray|Fill|Sobel"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.ImageSampling Gray|Sobel"));
 			return;
 		}
 
@@ -357,10 +357,6 @@ namespace MetaAgentParticlePatternConsole
 		if (ModeName == TEXT("sobel") || ModeName == TEXT("edges") || ModeName == TEXT("sobeledges"))
 		{
 			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::SobelEdges);
-		}
-		else if (ModeName == TEXT("fill") || ModeName == TEXT("filled") || ModeName == TEXT("filledsilhouette"))
-		{
-			Controller->SetParticlePatternImageSamplingMode(EMetaAgentParticleImageSamplingMode::FilledSilhouette);
 		}
 		else if (ModeName == TEXT("gray") || ModeName == TEXT("grey") || ModeName == TEXT("density")
 			|| ModeName == TEXT("grayscale") || ModeName == TEXT("grayscaledensity"))
@@ -403,7 +399,7 @@ namespace MetaAgentParticlePatternConsole
 		if (Args.Num() < 1)
 		{
 			UE_LOG(LogMetaAgent, Warning,
-				TEXT("Usage: MetaAgent.Pattern.Forming Lerp|Arc|Spiral|Wave|Spring|Niagara|<0-5>"));
+				TEXT("Usage: MetaAgent.Pattern.Forming Lerp|Arc|Spiral|Cycle|<0-2>"));
 			return;
 		}
 
@@ -427,18 +423,6 @@ namespace MetaAgentParticlePatternConsole
 		else if (ModeName == TEXT("spiral") || ModeName == TEXT("spiralin") || ModeName == TEXT("2"))
 		{
 			NewMode = EMetaAgentParticleFormingMode::SpiralIn;
-		}
-		else if (ModeName == TEXT("wave") || ModeName == TEXT("stagger") || ModeName == TEXT("staggeredwave") || ModeName == TEXT("3"))
-		{
-			NewMode = EMetaAgentParticleFormingMode::StaggeredWave;
-		}
-		else if (ModeName == TEXT("spring") || ModeName == TEXT("springchase") || ModeName == TEXT("4"))
-		{
-			NewMode = EMetaAgentParticleFormingMode::SpringChase;
-		}
-		else if (ModeName == TEXT("niagara") || ModeName == TEXT("forces") || ModeName == TEXT("niagaraforces") || ModeName == TEXT("5"))
-		{
-			NewMode = EMetaAgentParticleFormingMode::NiagaraForces;
 		}
 		else if (ModeName == TEXT("cycle") || ModeName == TEXT("next"))
 		{
@@ -571,7 +555,7 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternImageSamplingCmd(
 		TEXT("MetaAgent.Pattern.ImageSampling"),
-		TEXT("Set image sampling: Gray (default), Fill, or Sobel (edges)."),
+		TEXT("Set image sampling: Gray (default) or Sobel (edges)."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetImageSampling));
 
 	static FAutoConsoleCommand MetaAgentPatternEdgeThresholdCmd(
@@ -591,7 +575,7 @@ namespace MetaAgentParticlePatternConsole
 
 	static FAutoConsoleCommand MetaAgentPatternFormingCmd(
 		TEXT("MetaAgent.Pattern.Forming"),
-		TEXT("Set forming mode: Lerp, Arc, Spiral, Wave, Spring, Niagara, or Cycle."),
+		TEXT("Set forming mode: Lerp, Arc, Spiral, or Cycle."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetForming));
 }
 
@@ -706,9 +690,36 @@ void AMetaAgentPlayerController::HandleParticleLoadPreviewPressed()
 	}
 }
 
-void AMetaAgentPlayerController::HandleParticleImageRevealPressed()
+void AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed()
 {
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::ImageReveal);
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		return;
+	}
+
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(
+		this,
+		MetaAgentParticleEffectIds::PatternStepBackward);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed()
+{
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		return;
+	}
+
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(
+		this,
+		MetaAgentParticleEffectIds::PatternStepForward);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
 }
 
 void AMetaAgentPlayerController::HandleParticleSlowPresetPressed()
@@ -729,34 +740,22 @@ void AMetaAgentPlayerController::HandleParticleDramaticPresetPressed()
 	}
 }
 
-void AMetaAgentPlayerController::HandleParticlePlayNormalPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlayNormal);
-}
-
-void AMetaAgentPlayerController::HandleParticlePlaySlowPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlaySlow);
-}
-
-void AMetaAgentPlayerController::HandleParticlePlayDramaticPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PlayDramatic);
-}
-
-void AMetaAgentPlayerController::HandleParticleReplayLastPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::ReplayLast);
-}
-
 void AMetaAgentPlayerController::HandleParticleCycleSamplingPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleSampling);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
 }
 
 void AMetaAgentPlayerController::HandleParticleCycleFormingPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleForming);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
 }
 
 bool AMetaAgentPlayerController::StartParticleSquarePattern()
@@ -865,6 +864,54 @@ FString AMetaAgentPlayerController::GetParticlePatternTimingsText() const
 		*ParticlePatternConfig.Forming.GetModeDisplayName());
 }
 
+TArray<FString> AMetaAgentPlayerController::BuildParticleRuntimePanelStatusLines() const
+{
+	TArray<FString> Lines;
+	const FMetaAgentParticlePatternConfig& Config = ParticlePatternConfig;
+
+	Lines.Add(FString::Printf(
+		TEXT("Callback=%s | Capture=%s | Particles=%d"),
+		HasReceivedParticleCallback() ? TEXT("yes") : TEXT("no"),
+		IsParticleCaptureActive() ? TEXT("yes") : TEXT("no"),
+		GetCapturedParticleCount()));
+
+	if (const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime())
+	{
+		Lines.Add(FString::Printf(
+			TEXT("State=%s | Phase=%.2f | Queue=%d"),
+			*Runtime->GetPatternStateDisplayName(),
+			Runtime->GetPatternPhase(),
+			GetParticlePatternQueueDepth()));
+	}
+	else
+	{
+		Lines.Add(TEXT("State=unavailable | Phase=0.00 | Queue=0"));
+	}
+
+	Lines.Add(FString::Printf(
+		TEXT("Preset=%s | Form=%.1fs | Hold=%.1fs | Return=%.1fs"),
+		*Config.GetPresetDisplayName(),
+		Config.FormDurationSeconds,
+		Config.HoldDurationSeconds,
+		Config.ReturnDurationSeconds));
+
+	const bool bImageLoaded = ParticleOrchestrator && ParticleOrchestrator->GetPreviewTexture() != nullptr;
+	Lines.Add(FString::Printf(
+		TEXT("Shape=%s | Sampling=%s | Forming=%s | Image=%s"),
+		*Config.Shape.GetShapeDisplayName(),
+		*Config.Shape.GetImageSamplingDisplayName(),
+		*Config.Forming.GetModeDisplayName(),
+		bImageLoaded ? TEXT("loaded") : TEXT("none")));
+
+	Lines.Add(FString::Printf(
+		TEXT("Res=%dpx | Grid=%.1f | Jitter=%.2f"),
+		Config.Shape.SampleResolution,
+		Config.Shape.DensityGridScale,
+		Config.Shape.TargetJitterNormalized));
+
+	return Lines;
+}
+
 void AMetaAgentPlayerController::ApplyParticlePatternPreset(const EMetaAgentParticlePatternPreset Preset)
 {
 	ParticlePatternConfig.ApplyPreset(Preset);
@@ -915,7 +962,8 @@ void AMetaAgentPlayerController::SetParticlePatternImageThreshold(const float Th
 void AMetaAgentPlayerController::SetParticlePatternImageSamplingMode(
 	const EMetaAgentParticleImageSamplingMode SamplingMode)
 {
-	ParticlePatternConfig.Shape.ImageSamplingMode = SamplingMode;
+	ParticlePatternConfig.Shape.ImageSamplingMode =
+		FMetaAgentParticleShapeDefinition::SanitizeImageSamplingMode(SamplingMode);
 	SyncParticlePatternConfigToRuntime();
 	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
 }
@@ -949,7 +997,7 @@ void AMetaAgentPlayerController::SetParticlePatternTargetJitter(const float Jitt
 
 void AMetaAgentPlayerController::SetParticlePatternFormingMode(const EMetaAgentParticleFormingMode FormingMode)
 {
-	ParticlePatternConfig.Forming.Mode = FormingMode;
+	ParticlePatternConfig.Forming.Mode = FMetaAgentParticleFormingSettings::SanitizeMode(FormingMode);
 	SyncParticlePatternConfigToRuntime();
 }
 

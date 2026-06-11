@@ -214,6 +214,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void ApplyPatternPreset(EMetaAgentParticlePatternPreset Preset);
 
+	bool AdvancePatternStateForward();
+
+	bool RetreatPatternStateBackward();
+
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FMetaAgentParticlePatternConfig GetPatternConfig() const { return PatternConfig; }
 
@@ -249,7 +253,6 @@ private:
 	void CompletePatternRun();
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
-	void ResetFormingSpringState();
 	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
 
 	UPROPERTY(Transient)
@@ -290,14 +293,16 @@ private:
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.0", ClampMax = "0.5"))
 	float ReturnReleaseAuthorityThreshold = 0.08f;
 
+	/** When true, pattern states animate but only advance on manual step input (>> / <<). */
+	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Pattern")
+	bool bManualPatternStateAdvance = true;
+
 	TArray<FVector> LiveSimWorldPositions;
 	TArray<FVector> LastAppliedWorldPositions;
 
 	float ActiveHoldPulseAmplitude = 0.0f;
 	float FormingSteeringBlendElapsedSeconds = 0.0f;
 	float LastPatternTickDeltaSeconds = 0.0f;
-	TArray<FVector> FormingSpringPositions;
-	TArray<FVector> FormingSpringVelocities;
 	bool bLoggedPatternStart = false;
 
 	int32 DirectCaptureFrameCounter = 0;

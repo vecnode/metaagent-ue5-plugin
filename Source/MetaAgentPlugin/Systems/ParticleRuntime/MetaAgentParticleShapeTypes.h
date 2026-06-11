@@ -143,6 +143,9 @@ struct FMetaAgentParticleShapeDefinition
 	FString GetShapeDisplayName() const;
 
 	FString GetImageSamplingDisplayName() const;
+
+	METAAGENTPLUGIN_API static EMetaAgentParticleImageSamplingMode SanitizeImageSamplingMode(
+		EMetaAgentParticleImageSamplingMode Mode);
 };
 
 /** Inputs resolved at pattern start (texture, plane, baselines). */

@@ -398,16 +398,16 @@ struct FMetaAgentGUIState
 	FString RecordingStatusLine = TEXT("Recording: OFF");
 
 	UPROPERTY(Transient)
-	bool bCameraRuntimeEnabled = true;
+	bool bCameraRuntimeEnabled = false;
 
 	UPROPERTY(Transient)
-	bool bAIRuntimeEnabled = true;
+	bool bAIRuntimeEnabled = false;
 
 	UPROPERTY(Transient)
-	bool bRecordingRuntimeEnabled = true;
+	bool bRecordingRuntimeEnabled = false;
 
 	UPROPERTY(Transient)
-	bool bNetworkingRuntimeEnabled = true;
+	bool bNetworkingRuntimeEnabled = false;
 
 	UPROPERTY(Transient)
 	bool bParticleRuntimeEnabled = true;
@@ -545,13 +545,10 @@ protected:
 public:
 
 	void HandleParticleLoadPreviewPressed();
-	void HandleParticleImageRevealPressed();
+	void HandleParticleStepPatternBackwardPressed();
+	void HandleParticleStepPatternForwardPressed();
 	void HandleParticleSlowPresetPressed();
 	void HandleParticleDramaticPresetPressed();
-	void HandleParticlePlayNormalPressed();
-	void HandleParticlePlaySlowPressed();
-	void HandleParticlePlayDramaticPressed();
-	void HandleParticleReplayLastPressed();
 	void HandleParticleCycleSamplingPressed();
 	void HandleParticleCycleFormingPressed();
 
@@ -633,6 +630,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternTimingsText() const;
+
+	TArray<FString> BuildParticleRuntimePanelStatusLines() const;
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void ApplyParticlePatternPreset(EMetaAgentParticlePatternPreset Preset);
@@ -726,6 +725,9 @@ public:
 
 	/** Applies character-input runtime enable/disable to Enhanced Input and ignore flags. */
 	void ApplyCharacterInputRuntimeState();
+
+	/** Applies default modular runtime OFF/ON state when play begins. */
+	void ApplyInitialModularRuntimeStates();
 
 	/** Expands or collapses a runtime section body in the controls panel. */
 	void ToggleRuntimeSectionExpanded(FName RuntimeId);

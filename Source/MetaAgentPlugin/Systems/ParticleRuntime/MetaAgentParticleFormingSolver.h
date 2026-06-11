@@ -17,8 +17,6 @@ struct FMetaAgentParticleFormingContext
 	float FormDurationSeconds = 1.0f;
 	float DeltaTimeSeconds = 0.0f;
 	const FMetaAgentParticleFormingSettings* Settings = nullptr;
-	TArray<FVector>* SpringPositions = nullptr;
-	TArray<FVector>* SpringVelocities = nullptr;
 	float FormingSteeringWeight = 0.0f;
 	FVector FormingSteeringOffset = FVector::ZeroVector;
 };
@@ -29,8 +27,6 @@ public:
 	virtual ~IMetaAgentParticleFormingSolver() = default;
 
 	virtual EMetaAgentParticleFormingMode GetMode() const = 0;
-	virtual bool NeedsSpringState() const { return false; }
-	virtual bool PrefersNiagaraParameters() const { return false; }
 	virtual FVector SolvePosition(FMetaAgentParticleFormingContext& Context) const = 0;
 };
 

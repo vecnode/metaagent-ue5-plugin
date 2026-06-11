@@ -9,6 +9,7 @@
 #include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleInputRouter.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h"
 
 namespace
 {
@@ -175,26 +176,20 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 			Rows.Add(ParticleRow);
 		}
 
-		TArray<FString> StatusLines;
-		StatusLines.Add(FString::Printf(
-			TEXT("Particle Callback Seen: %s"),
-			Controller.HasReceivedParticleCallback() ? TEXT("TRUE") : TEXT("FALSE")));
-		StatusLines.Add(FString::Printf(
-			TEXT("Particle Capture: %s (Count=%d)"),
-			Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
-			Controller.GetCapturedParticleCount()));
-		StatusLines.Add(Controller.GetParticlePatternTimingsText());
-		StatusLines.Add(Controller.GetParticlePatternShapeText());
-		StatusLines.Add(Controller.GetParticlePatternStatusText());
-		StatusLines.Add(FString::Printf(TEXT("Pattern Queue Depth: %d"), Controller.GetParticlePatternQueueDepth()));
+		TArray<FString> StatusLines = Controller.BuildParticleRuntimePanelStatusLines();
 
-		FinalizeSection(GUI, MakeSection(
+		FMetaAgentGUIRuntimeSection ParticleSection = MakeSection(
 			MetaAgentRuntimeIds::Particle,
 			TEXT("Particle Runtime"),
 			false,
 			GUI.bParticleRuntimeEnabled,
 			Rows,
-			StatusLines));
+			StatusLines);
+		if (const UMetaAgentParticleOrchestrator* Orchestrator = Controller.GetParticleOrchestrator())
+		{
+			ParticleSection.PreviewThumbnails = Orchestrator->GetPanelPreviewThumbnails();
+		}
+		FinalizeSection(GUI, ParticleSection);
 	}
 }
 

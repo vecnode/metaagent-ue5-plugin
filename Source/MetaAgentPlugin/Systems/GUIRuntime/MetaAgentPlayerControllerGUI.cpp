@@ -169,13 +169,10 @@ void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 	if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
 	{
 		if (ActionId == MetaAgentRuntimeIds::ParticleLoadPreview) { HandleParticleLoadPreviewPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleImageReveal) { HandleParticleImageRevealPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticlePlayNormal) { HandleParticlePlayNormalPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticlePlaySlow) { HandleParticlePlaySlowPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticlePlayDramatic) { HandleParticlePlayDramaticPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticleStepBackward) { HandleParticleStepPatternBackwardPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticleStepForward) { HandleParticleStepPatternForwardPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset) { HandleParticleSlowPresetPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleDramaticPreset) { HandleParticleDramaticPresetPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleReplay) { HandleParticleReplayLastPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleCycleSampling) { HandleParticleCycleSamplingPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleCycleForming) { HandleParticleCycleFormingPressed(); return; }
 	}

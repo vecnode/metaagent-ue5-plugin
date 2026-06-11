@@ -16,5 +16,7 @@ namespace MetaAgentParticleEffectIds
 	const FName ReplayLast(TEXT("ReplayLast"));
 	const FName CycleSampling(TEXT("CycleSampling"));
 	const FName CycleForming(TEXT("CycleForming"));
+	const FName PatternStepForward(TEXT("PatternStepForward"));
+	const FName PatternStepBackward(TEXT("PatternStepBackward"));
 	const FName AttractToView(TEXT("AttractToView"));
 }

@@ -29,12 +29,24 @@ FString FMetaAgentParticleShapeDefinition::GetShapeDisplayName() const
 	}
 }
 
+EMetaAgentParticleImageSamplingMode FMetaAgentParticleShapeDefinition::SanitizeImageSamplingMode(
+	const EMetaAgentParticleImageSamplingMode Mode)
+{
+	switch (Mode)
+	{
+	case EMetaAgentParticleImageSamplingMode::GrayscaleDensity:
+	case EMetaAgentParticleImageSamplingMode::SobelEdges:
+		return Mode;
+	case EMetaAgentParticleImageSamplingMode::FilledSilhouette:
+	default:
+		return EMetaAgentParticleImageSamplingMode::GrayscaleDensity;
+	}
+}
+
 FString FMetaAgentParticleShapeDefinition::GetImageSamplingDisplayName() const
 {
-	switch (ImageSamplingMode)
+	switch (SanitizeImageSamplingMode(ImageSamplingMode))
 	{
-	case EMetaAgentParticleImageSamplingMode::FilledSilhouette:
-		return TEXT("FilledSilhouette");
 	case EMetaAgentParticleImageSamplingMode::GrayscaleDensity:
 		return TEXT("GrayscaleDensity");
 	case EMetaAgentParticleImageSamplingMode::SobelEdges:

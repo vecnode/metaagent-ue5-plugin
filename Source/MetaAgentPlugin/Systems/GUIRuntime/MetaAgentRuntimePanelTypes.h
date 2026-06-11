@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/Texture2D.h"
 #include "MetaAgentRuntimePanelTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -37,16 +38,25 @@ namespace MetaAgentRuntimeIds
 	static const FName StartAudio(TEXT("StartAudio"));
 	static const FName StartImage(TEXT("StartImage"));
 	static const FName ParticleLoadPreview(TEXT("ParticleLoadPreview"));
-	static const FName ParticleImageReveal(TEXT("ParticleImageReveal"));
-	static const FName ParticlePlayNormal(TEXT("ParticlePlayNormal"));
-	static const FName ParticlePlaySlow(TEXT("ParticlePlaySlow"));
-	static const FName ParticlePlayDramatic(TEXT("ParticlePlayDramatic"));
+	static const FName ParticleStepBackward(TEXT("ParticleStepBackward"));
+	static const FName ParticleStepForward(TEXT("ParticleStepForward"));
 	static const FName ParticleSlowPreset(TEXT("ParticleSlowPreset"));
 	static const FName ParticleDramaticPreset(TEXT("ParticleDramaticPreset"));
-	static const FName ParticleReplay(TEXT("ParticleReplay"));
 	static const FName ParticleCycleSampling(TEXT("ParticleCycleSampling"));
 	static const FName ParticleCycleForming(TEXT("ParticleCycleForming"));
 }
+
+USTRUCT()
+struct FMetaAgentGUIPreviewThumbnail
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<UTexture2D> Texture = nullptr;
+
+	UPROPERTY()
+	FString Label;
+};
 
 USTRUCT()
 struct FMetaAgentGUIActionRow
@@ -85,6 +95,9 @@ struct FMetaAgentGUIRuntimeSection
 
 	UPROPERTY()
 	TArray<FString> StatusLines;
+
+	UPROPERTY()
+	TArray<FMetaAgentGUIPreviewThumbnail> PreviewThumbnails;
 
 	UPROPERTY()
 	bool bSectionExpanded = true;

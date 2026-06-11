@@ -102,6 +102,24 @@ void AMetaAgentPlayerController::ToggleRuntimeSectionExpanded(const FName Runtim
 	ApplyGUIHelpPanelState();
 }
 
+void AMetaAgentPlayerController::ApplyInitialModularRuntimeStates()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	ApplyCharacterInputRuntimeState();
+
+	if (!GUI.bNetworkingRuntimeEnabled)
+	{
+		if (UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
+		{
+			GI->StopNetworkingRuntime();
+		}
+	}
+}
+
 void AMetaAgentPlayerController::ToggleModularRuntime(const EMetaAgentModularRuntime Runtime)
 {
 	if (Runtime == EMetaAgentModularRuntime::GUI || Runtime == EMetaAgentModularRuntime::CharacterInput)

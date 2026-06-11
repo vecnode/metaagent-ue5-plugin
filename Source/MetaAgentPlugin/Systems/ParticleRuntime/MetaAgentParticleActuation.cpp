@@ -27,10 +27,6 @@ namespace MetaAgentParticleActuationInternal
 	static const FName FormingModeParameterName(TEXT("MetaAgentFormingMode"));
 	static const FName FormingArcLiftParameterName(TEXT("MetaAgentFormingArcLift"));
 	static const FName FormingSpiralTurnsParameterName(TEXT("MetaAgentFormingSpiralTurns"));
-	static const FName FormingStaggerCyclesParameterName(TEXT("MetaAgentFormingStaggerCycles"));
-	static const FName FormingForceStrengthParameterName(TEXT("MetaAgentFormingForceStrength"));
-	static const FName FormingSpringStiffnessParameterName(TEXT("MetaAgentFormingSpringStiffness"));
-	static const FName FormingSpringDampingParameterName(TEXT("MetaAgentFormingSpringDamping"));
 
 	FVector NiagaraPositionToWorld(
 		const FNiagaraPosition& SimPosition,
@@ -179,8 +175,6 @@ namespace MetaAgentParticleActuationInternal
 					FormingContext.FormDurationSeconds = Request.FormingDurationSeconds;
 					FormingContext.DeltaTimeSeconds = Request.FormingDeltaTimeSeconds;
 					FormingContext.Settings = Request.FormingSettings;
-					FormingContext.SpringPositions = Request.FormingSpringPositions;
-					FormingContext.SpringVelocities = Request.FormingSpringVelocities;
 					FormingContext.FormingSteeringWeight = Request.FormingSteeringWeight;
 					if (Request.FormingSteeringOffsets != nullptr
 						&& Request.FormingSteeringOffsets->IsValidIndex(GlobalIndex))
@@ -553,12 +547,10 @@ void FMetaAgentParticleActuation::ApplyParameters(const FMetaAgentParticleActuat
 			? *Request.FormingSettings
 			: FMetaAgentParticleFormingSettings();
 
-		NiagaraComponent->SetVariableInt(FormingModeParameterName, static_cast<int32>(FormingSettings.Mode));
+		NiagaraComponent->SetVariableInt(
+			FormingModeParameterName,
+			static_cast<int32>(FMetaAgentParticleFormingSettings::SanitizeMode(FormingSettings.Mode)));
 		NiagaraComponent->SetVariableFloat(FormingArcLiftParameterName, FormingSettings.ArcLiftHeightCm);
 		NiagaraComponent->SetVariableFloat(FormingSpiralTurnsParameterName, FormingSettings.SpiralTurns);
-		NiagaraComponent->SetVariableFloat(FormingStaggerCyclesParameterName, FormingSettings.StaggerWaveCycles);
-		NiagaraComponent->SetVariableFloat(FormingForceStrengthParameterName, FormingSettings.NiagaraForceStrength);
-		NiagaraComponent->SetVariableFloat(FormingSpringStiffnessParameterName, FormingSettings.SpringStiffness);
-		NiagaraComponent->SetVariableFloat(FormingSpringDampingParameterName, FormingSettings.SpringDamping);
 	}
 }

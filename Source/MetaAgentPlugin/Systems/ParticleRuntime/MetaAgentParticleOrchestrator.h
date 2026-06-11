@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h"
 #include "UObject/Object.h"
@@ -45,6 +46,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Effects")
 	FMetaAgentParticleEffectResult CycleFormingMode();
 
+	FMetaAgentParticleEffectResult StepPatternStateForward();
+
+	FMetaAgentParticleEffectResult StepPatternStateBackward();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	bool LoadDefaultPreviewPng(FString& OutUserMessage);
 
@@ -74,6 +79,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	FString GetPreviewImagePath() const { return LastLoadedPreviewImagePath; }
+
+	const TArray<FMetaAgentGUIPreviewThumbnail>& GetPanelPreviewThumbnails() const { return PanelPreviewThumbnails; }
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator")
 	void SubmitExportedParticlePositions(
@@ -133,6 +140,7 @@ protected:
 	virtual FMetaAgentParticleEffectResult ApplyEffectSpec(const FMetaAgentParticleEffectSpec& Spec, FName EffectId);
 	virtual void SyncConfigToRuntime();
 	virtual void RequestImageMaskBuild();
+	void RefreshPanelPreviewThumbnails();
 
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	FName PreviewPlaneActorName = TEXT("Plane");
@@ -169,6 +177,9 @@ protected:
 
 	UPROPERTY(Transient)
 	FString LastLoadedPreviewImagePath;
+
+	UPROPERTY(Transient)
+	TArray<FMetaAgentGUIPreviewThumbnail> PanelPreviewThumbnails;
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UStaticMeshComponent> CachedPreviewPlaneMesh;

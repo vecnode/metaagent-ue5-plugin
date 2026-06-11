@@ -29,13 +29,10 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	}
 
 	InputComponent->BindKey(EKeys::F, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleLoadPreviewPressed);
-	InputComponent->BindKey(EKeys::V, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleImageRevealPressed);
+	InputComponent->BindKey(EKeys::Comma, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed);
+	InputComponent->BindKey(EKeys::Period, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed);
 	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSlowPresetPressed);
 	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
-	InputComponent->BindKey(EKeys::One, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticlePlayNormalPressed);
-	InputComponent->BindKey(EKeys::Two, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticlePlaySlowPressed);
-	InputComponent->BindKey(EKeys::Three, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticlePlayDramaticPressed);
-	InputComponent->BindKey(EKeys::R, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleReplayLastPressed);
 	InputComponent->BindKey(EKeys::T, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleSamplingPressed);
 	InputComponent->BindKey(EKeys::Y, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleFormingPressed);
 }
@@ -56,11 +53,10 @@ TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActi
 {
 	TArray<FMetaAgentGUIActionRow> Rows;
 	Rows.Add(MakeParticleRow(TEXT("F"), TEXT("Load sdxl_latest.png preview + image shape source"), MetaAgentRuntimeIds::ParticleLoadPreview));
-	Rows.Add(MakeParticleRow(TEXT("V"), TEXT("Image reveal pattern"), MetaAgentRuntimeIds::ParticleImageReveal));
-	Rows.Add(MakeParticleRow(TEXT("1/2/3"), TEXT("Play Normal / Slow / Dramatic image patterns"), MetaAgentRuntimeIds::ParticlePlayNormal));
-	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset (then V)"), MetaAgentRuntimeIds::ParticleSlowPreset));
-	Rows.Add(MakeParticleRow(TEXT("R"), TEXT("Replay last particle effect"), MetaAgentRuntimeIds::ParticleReplay));
-	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Fill / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
-	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral / Wave / Spring / Niagara)"), MetaAgentRuntimeIds::ParticleCycleForming));
+	Rows.Add(MakeParticleRow(TEXT("<<"), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
+	Rows.Add(MakeParticleRow(TEXT(">>"), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
+	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset (then >>)"), MetaAgentRuntimeIds::ParticleSlowPreset));
+	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
+	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral)"), MetaAgentRuntimeIds::ParticleCycleForming));
 	return Rows;
 }

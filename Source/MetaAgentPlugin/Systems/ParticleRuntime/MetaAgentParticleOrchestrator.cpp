@@ -13,6 +13,7 @@
 #include "Systems/ParticleRuntime/MetaAgentParticleGameplayTags.h"
 #include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleRuntime.h"
+#include "Misc/Paths.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h"
 
 namespace
@@ -138,6 +139,7 @@ bool UMetaAgentParticleOrchestrator::PrepareShapeContextForPlay()
 		{
 			LatestPngPreviewTexture = ImportedTexture;
 			LastLoadedPreviewImagePath = PngPath;
+			RefreshPanelPreviewThumbnails();
 		}
 		else
 		{
@@ -288,7 +290,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::ApplyEffectSpec(
 	{
 		Result.bSuccess = true;
 		Result.UserMessage = FText::FromString(
-			FString::Printf(TEXT("Preset applied (%s). Press V or 1/2/3 to play."), *PatternConfig.GetPresetDisplayName()));
+			FString::Printf(TEXT("Preset applied (%s). Press >> to step pattern."), *PatternConfig.GetPresetDisplayName()));
 		LastTriggeredEffectId = EffectId;
 		LastEffectSpec = Spec;
 		bHasLastEffectSpec = true;
@@ -370,6 +372,16 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 		return CycleFormingMode();
 	}
 
+	if (EffectId == MetaAgentParticleEffectIds::PatternStepForward)
+	{
+		return StepPatternStateForward();
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::PatternStepBackward)
+	{
+		return StepPatternStateBackward();
+	}
+
 	FMetaAgentParticleEffectSpec Spec;
 	if (!PopulateEffectSpec(EffectId, Spec))
 	{
@@ -403,12 +415,9 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleImageSamplin
 	FMetaAgentParticleEffectResult Result;
 	Result.EffectId = MetaAgentParticleEffectIds::CycleSampling;
 
-	switch (PatternConfig.Shape.ImageSamplingMode)
+	switch (FMetaAgentParticleShapeDefinition::SanitizeImageSamplingMode(PatternConfig.Shape.ImageSamplingMode))
 	{
 	case EMetaAgentParticleImageSamplingMode::GrayscaleDensity:
-		PatternConfig.Shape.ImageSamplingMode = EMetaAgentParticleImageSamplingMode::FilledSilhouette;
-		break;
-	case EMetaAgentParticleImageSamplingMode::FilledSilhouette:
 		PatternConfig.Shape.ImageSamplingMode = EMetaAgentParticleImageSamplingMode::SobelEdges;
 		break;
 	case EMetaAgentParticleImageSamplingMode::SobelEdges:
@@ -438,6 +447,63 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleFormingMode(
 	return Result;
 }
 
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateForward()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::PatternStepForward;
+
+	if (!ParticleRuntime)
+	{
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Idle)
+	{
+		ParticleRuntime->ForceCaptureParticles();
+		PrepareShapeContextForPlay();
+		PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
+		SyncConfigToRuntime();
+
+		LastTriggeredEffectId = MetaAgentParticleEffectIds::ImageReveal;
+		LastEffectSpec = FMetaAgentParticleEffectSpec();
+		LastEffectSpec.PatternConfig = PatternConfig;
+		LastEffectSpec.bOverridePatternConfig = true;
+		LastEffectSpec.bStartPattern = false;
+		bHasLastEffectSpec = true;
+	}
+
+	const bool bAdvanced = ParticleRuntime->AdvancePatternStateForward();
+	Result.bSuccess = bAdvanced;
+	Result.bAwaitingAsyncPrepare =
+		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing;
+	Result.UserMessage = FText::FromString(
+		bAdvanced
+			? FString::Printf(TEXT("Pattern >> %s"), *ParticleRuntime->BuildPatternStatusText())
+			: TEXT("Pattern step forward unavailable (busy or no captured particles)."));
+	return Result;
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateBackward()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::PatternStepBackward;
+
+	if (!ParticleRuntime)
+	{
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	const bool bRetreated = ParticleRuntime->RetreatPatternStateBackward();
+	Result.bSuccess = bRetreated;
+	Result.UserMessage = FText::FromString(
+		bRetreated
+			? FString::Printf(TEXT("Pattern << %s"), *ParticleRuntime->BuildPatternStatusText())
+			: TEXT("Pattern step backward unavailable (already idle)."));
+	return Result;
+}
+
 bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessage)
 {
 	const FString PngPath = FMetaAgentImagePreviewRuntime::ResolveDefaultSdxlPngPath();
@@ -456,6 +522,7 @@ bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessa
 
 	LatestPngPreviewTexture = ImportedTexture;
 	LastLoadedPreviewImagePath = PngPath;
+	RefreshPanelPreviewThumbnails();
 	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
 	PrepareShapeContextForPlay();
 
@@ -571,6 +638,32 @@ void UMetaAgentParticleOrchestrator::SetPreviewSource(UTexture2D* Texture, const
 {
 	LatestPngPreviewTexture = Texture;
 	LastLoadedPreviewImagePath = ImagePath;
+	RefreshPanelPreviewThumbnails();
+}
+
+void UMetaAgentParticleOrchestrator::RefreshPanelPreviewThumbnails()
+{
+	PanelPreviewThumbnails.Reset();
+
+	if (LastLoadedPreviewImagePath.IsEmpty() || !FPaths::FileExists(LastLoadedPreviewImagePath))
+	{
+		return;
+	}
+
+	TArray<FMetaAgentImagePreviewRuntime::FPanelPreviewThumbnail> BuiltThumbnails;
+	if (!FMetaAgentImagePreviewRuntime::BuildPanelPreviewThumbnails(LastLoadedPreviewImagePath, 64, BuiltThumbnails))
+	{
+		return;
+	}
+
+	PanelPreviewThumbnails.Reserve(BuiltThumbnails.Num());
+	for (const FMetaAgentImagePreviewRuntime::FPanelPreviewThumbnail& BuiltThumbnail : BuiltThumbnails)
+	{
+		FMetaAgentGUIPreviewThumbnail Thumbnail;
+		Thumbnail.Texture = BuiltThumbnail.Texture;
+		Thumbnail.Label = BuiltThumbnail.Label;
+		PanelPreviewThumbnails.Add(Thumbnail);
+	}
 }
 
 void UMetaAgentParticleOrchestrator::SetCachedPreviewPlaneMesh(UStaticMeshComponent* Mesh)

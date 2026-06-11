@@ -83,12 +83,10 @@ void UMetaAgentGameInstance::Init()
 	}
 
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("Startup: Build=%s HTTPServerEnabled=%s Port=%d"),
+		TEXT("Startup: Build=%s HTTPServerEnabled=%s Port=%d (HTTP starts when Networking Runtime is enabled)"),
 		GetBuildConfigurationLabel(),
 		bEnableLocalHttpServer ? TEXT("true") : TEXT("false"),
 		LocalHttpServerPort);
-
-	StartLocalHttpServer();
 }
 
 void UMetaAgentGameInstance::Shutdown()

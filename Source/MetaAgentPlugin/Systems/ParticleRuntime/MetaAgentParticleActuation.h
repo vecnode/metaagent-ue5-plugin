@@ -51,8 +51,6 @@ struct FMetaAgentParticleActuationRequest
 	float FormingStateElapsedSeconds = 0.0f;
 	float FormingDurationSeconds = 1.0f;
 	float FormingDeltaTimeSeconds = 0.0f;
-	TArray<FVector>* FormingSpringPositions = nullptr;
-	TArray<FVector>* FormingSpringVelocities = nullptr;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation

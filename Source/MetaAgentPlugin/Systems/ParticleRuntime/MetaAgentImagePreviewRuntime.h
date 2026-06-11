@@ -46,4 +46,15 @@ public:
 	static UTexture2D* ImportPngTexture(const FString& PngPath);
 
 	static bool EnsurePreviewTextureLoaded(AMetaAgentPlayerController& Controller, FString& OutResolvedPath);
+
+	struct FPanelPreviewThumbnail
+	{
+		TObjectPtr<UTexture2D> Texture = nullptr;
+		FString Label;
+	};
+
+	static bool BuildPanelPreviewThumbnails(
+		const FString& PngPath,
+		int32 PreviewSize,
+		TArray<FPanelPreviewThumbnail>& OutThumbnails);
 };
