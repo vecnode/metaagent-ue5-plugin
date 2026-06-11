@@ -29,8 +29,9 @@ flowchart TD
 	A --> H
 ```
 
-<details>
-<summary>Architecture</summary>
+
+
+Architecture
 
 ```mermaid
 flowchart TB
@@ -77,22 +78,23 @@ flowchart TB
     GR --> GI
     PR -->|Niagara callback| PC
 ```
-</details>
+
+
+
 
 
 ## Modules
 
 ### Module 1 : MetaAgentCharacterRuntime
 
-<details>
-<summary>CharacterRuntime Graph</summary>
+CharacterRuntime Graph
 
 - Default pawn spawn and possession via game mode
 - Blueprint-owned camera/mesh/animation setup
 - Minimal runtime bootstrap (no recovery pipeline)
 - Implemented in:
-	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
-	- `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
+  - `Systems/CharacterRuntime/MetaAgentCharacterRuntime.h`
+  - `Systems/CharacterRuntime/MetaAgentCharacterRuntime.cpp`
 
 #### Character runtime graph
 
@@ -133,22 +135,23 @@ flowchart TB
     BOOT --> PAWN
     BP -->|owns camera mesh animation| PAWN
 ```
-</details>
 
-<details>
-<summary>Module 1: simplified runtime flow</summary>
+
+
+
+
+Module 1: simplified runtime flow
 
 1. Resolve `DefaultPlayerPawnClass` from `MetaAgentGameMode` config.
 2. Spawn and possess the default pawn through standard `AGameModeBase::RestartPlayer`.
 3. Keep CharacterRuntime bootstrap minimal (no mesh/anim recovery pipeline).
 4. Let `BP_MH_PlayerChar` own camera, mesh, and animation setup directly.
 
-</details>
+
 
 ### Module 2: MetaAgentCameraRuntime (Environment Viewer)
 
-<details>
-<summary>CameraRuntime Graph</summary>
+CameraRuntime Graph
 
 - Environment-only camera system for pure scene exploration
 - Free-look with mouse and keyboard movement
@@ -156,8 +159,8 @@ flowchart TB
 - Cinematic orbital camera mode (`O`)
 - Simplified for viewer-only without character dependencies
 - Implemented in:
-	- `Systems/CameraRuntime/MetaAgentCameraRuntime.h`
-	- `Systems/CameraRuntime/MetaAgentCameraRuntime.cpp`
+  - `Systems/CameraRuntime/MetaAgentCameraRuntime.h`
+  - `Systems/CameraRuntime/MetaAgentCameraRuntime.cpp`
 
 #### Camera runtime graph
 
@@ -217,11 +220,12 @@ flowchart TB
     DISABLE --> FREE
     DISABLE -->|restore view| PC
 ```
-</details>
 
 
-<details>
-<summary>Module 2: Simplified runtime steps (environment viewing only)</summary>
+
+
+
+Module 2: Simplified runtime steps (environment viewing only)
 
 1. Keep `AMetaAgentPlayerController` as the input owner for camera actions.
 2. Route all camera execution through `FMetaAgentCameraRuntime` sequences.
@@ -247,22 +251,18 @@ flowchart TB
 22. Keep the runtime camera module extensible for additional orbital styles.
 
 
-</details>
-
-
 
 ### Module 3: MetaAgentGUIRuntime
 
-<details>
-<summary>GUIRuntime Graph</summary>
+GUIRuntime Graph
 
 - Runtime GUI panel orchestration owned by a dedicated module
 - HUD help panel visibility toggle bound to keyboard (`Q`)
 - Keyboard-function reference panel rendered when GUI help is active
 - Implemented in:
-	- `Systems/GUIRuntime/MetaAgentGUIRuntime.h`
-	- `Systems/GUIRuntime/MetaAgentGUIRuntime.cpp`
-	- `Systems/GUIRuntime/MetaAgentPlayerControllerGUI.cpp`
+  - `Systems/GUIRuntime/MetaAgentGUIRuntime.h`
+  - `Systems/GUIRuntime/MetaAgentGUIRuntime.cpp`
+  - `Systems/GUIRuntime/MetaAgentPlayerControllerGUI.cpp`
 
 #### GUI runtime graph
 
@@ -313,10 +313,11 @@ flowchart TB
     GR --> STATUS
 ```
 
-</details>
 
-<details>
-<summary>Module 3: 20 sequential runtime steps</summary>
+
+
+
+Module 3: 20 sequential runtime steps
 
 1. Keep `AMetaAgentPlayerController` as input owner for GUI toggle actions.
 2. Route GUI panel behavior through `FMetaAgentGUIRuntime` sequences.
@@ -339,21 +340,20 @@ flowchart TB
 19. Preserve existing camera, autopilot, and recording runtime behavior unchanged.
 20. Keep GUI runtime extensible for future panel types beyond controls help.
 
-</details>
+
 
 ### Module 4: MetaAgentNetworkingRuntime
 
-<details>
-<summary>NetworkingRuntime Graph</summary>
+NetworkingRuntime Graph
 
 - Runtime networking orchestration through `UMetaAgentGameInstance`
 - Embedded HTTP server for editor, standalone, and packaged runtime builds
 - Runtime outbound platform event forwarding and inbound notify handling
 - Bottom-left Networking Runtime GUI panel shown when GUI (`Q`) is active
 - Implemented in:
-	- `Systems/NetworkingRuntime/MetaAgentGameInstanceNetworking.cpp`
-	- `Systems/NetworkingRuntime/MetaAgentGameInstance.h`
-	- `Systems/NetworkingRuntime/MetaAgentGameInstance.cpp`
+  - `Systems/NetworkingRuntime/MetaAgentGameInstanceNetworking.cpp`
+  - `Systems/NetworkingRuntime/MetaAgentGameInstance.h`
+  - `Systems/NetworkingRuntime/MetaAgentGameInstance.cpp`
 
 #### Networking runtime graph
 
@@ -412,10 +412,11 @@ flowchart TB
     GR --> HUD
 ```
 
-</details>
 
-<details>
-<summary>Module 4: 20 sequential runtime steps</summary>
+
+
+
+Module 4: 20 sequential runtime steps
 
 1. Keep `UMetaAgentGameInstance` as the runtime networking owner.
 2. Initialize NetworkingRuntime snapshot state during game instance startup.
@@ -438,13 +439,11 @@ flowchart TB
 19. Draw bottom-left networking rectangle only while GUI panel is active.
 20. Keep networking runtime extensible for future endpoint families.
 
-</details>
 
 
 ### Module 5: MetaAgentRecordingRuntime
 
-<details>
-<summary>RecordingRuntime Graph</summary>
+RecordingRuntime Graph
 
 - Runtime recording based on Unreal Engine Movie Scene Capture (FrameGrabber, no HiResShot loop)
 - `J` toggles viewport capture start/stop and writes an AVI video file directly to disk
@@ -454,7 +453,7 @@ flowchart TB
 - Recording panel shows runtime capture state, resolution, frame count, and output path
 - Video compression can be toggled on the player controller (`bUseVideoCompression`, `VideoCompressionQuality`)
 - Implemented in:
-	- `Systems/RecordingRuntime/MetaAgentPlayerControllerRecording.cpp`
+  - `Systems/RecordingRuntime/MetaAgentPlayerControllerRecording.cpp`
 
 #### Recording runtime graph
 
@@ -516,10 +515,11 @@ flowchart TB
     PC -->|EndPlay| STOP
 ```
 
-</details>
 
-<details>
-<summary>Module 5: 12 sequential runtime steps</summary>
+
+
+
+Module 5: 12 sequential runtime steps
 
 1. Press `J` to start viewport video capture.
 2. Initialize a new output folder in `Saved/Renders`.
@@ -534,25 +534,23 @@ flowchart TB
 11. Use the output AVI directly or transcode externally if needed.
 12. Capture resolution defaults to viewport size; optional override via recording settings.
 
-</details>
 
 
 ### Module 6: MetaAgentAIRuntime
 
-<details>
-<summary>AIRuntime Graph</summary>
+AIRuntime Graph
 
 - Runtime AI wander controller (`AMetaAgentWanderAIController`) builds and runs a behavior tree in code.
 - Autopilot toggle logic (`AMetaAgentPlayerController`) now lives in AIRuntime and hands possession to AI.
 - Autopilot runtime toggle key is `I`.
 - AI behavior is simple patrol wandering:
-	- pick random patrol point in radius
-	- move to patrol point
-	- wait for random interval
-	- repeat
+  - pick random patrol point in radius
+  - move to patrol point
+  - wait for random interval
+  - repeat
 - Implemented in:
-	- `Systems/AIRuntime/MetaAgentWanderAIController.cpp`
-	- `Systems/AIRuntime/MetaAgentPlayerControllerAutopilot.cpp`
+  - `Systems/AIRuntime/MetaAgentWanderAIController.cpp`
+  - `Systems/AIRuntime/MetaAgentPlayerControllerAutopilot.cpp`
 
 #### AI runtime graph
 
@@ -604,10 +602,12 @@ flowchart TB
     DISABLE -->|repossess| PC
     DISABLE --> AP
 ```
-</details>
 
-<details>
-<summary>Module 6: 10 sequential runtime steps</summary>
+
+
+
+
+Module 6: 10 sequential runtime steps
 
 1. Player presses `I` to toggle autopilot.
 2. Debounce guards prevent rapid toggle spam.
@@ -620,75 +620,79 @@ flowchart TB
 9. Loop repeats for continuous roaming.
 10. Press `I` again to unpossess AI, destroy it, and restore player possession.
 
-</details>
 
 
 ### Module 7: Particle orchestrator + runtime
 
-<details>
-<summary>Particle runtime (orchestrator, scatter, forming)</summary>
+Particle runtime (orchestrator, scatter, forming)
 
 #### Orchestrator layer
 
-- **`UMetaAgentParticleOrchestrator`** owns capture runtime, preview texture, pattern config, and **`TriggerEffect(FName)`**.
-- **`FMetaAgentParticleInputRouter`** centralizes keyboard binds and GUI help lines.
-- **`FMetaAgentParticleEffectSpec`** and **`MetaAgentParticleEffectIds`** define the built-in effect catalog.
-- **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
-- **`UMetaAgentParticleRuntime`** is the **representation scheduler**: each tick it builds **`FMetaAgentParticleRepresentationFrame`** (macro phase, phase weights, targets, solver settings) and **`FMetaAgentParticleRepresentationDriverRegistry`** applies it to Niagara.
+- `**UMetaAgentParticleOrchestrator**` owns capture runtime, preview texture, pattern config, and `**TriggerEffect(FName)**`.
+- `**FMetaAgentParticleInputRouter**` centralizes keyboard binds and GUI help lines.
+- `**FMetaAgentParticleEffectSpec**` and `**MetaAgentParticleEffectIds**` define the built-in effect catalog.
+- `**AMetaAgentPlayerController**` is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
+- `**UMetaAgentParticleRuntime**` is the **representation scheduler**: each tick it builds `**FMetaAgentParticleRepresentationFrame`** (macro phase, phase weights, targets, solver settings) and `**FMetaAgentParticleRepresentationDriverRegistry**` applies it to Niagara.
 - Macro phases: **Prepare → Express → Sustain → Release** (map to Anticipating / Forming / Holding / Returning | Dissipating).
-- **`FMetaAgentParticleTransitionGraph`** is a trigger-based FSM (`Advance`, `Retreat`, `Timeout`, `Cancel`, `Morph`, `Ready`, `Dissipate`, …). Extend at module startup via **`RegisterTransition()`** or replace rows for game-specific flows.
-- **`FMetaAgentParticleRepresentationDriverRegistry`** exposes pluggable drivers: **Direct** (C++ position buffer writes) and **Parameters** (Niagara User params + optional target object). **`RegisterDriver()`** adds more backends.
+- `**FMetaAgentParticleTransitionGraph`** is a trigger-based FSM (`Advance`, `Retreat`, `Timeout`, `Cancel`, `Morph`, `Ready`, `Dissipate`, …). Extend at module startup via `**RegisterTransition()**` or replace rows for game-specific flows.
+- `**FMetaAgentParticleRepresentationDriverRegistry**` exposes pluggable drivers: **Direct** (C++ position buffer writes) and **Parameters** (Niagara User params + optional target object). `**RegisterDriver()`** adds more backends.
 - **Actuation modes:** **Direct** (editor default), **Parameters** (packaged default), **Hybrid** (Direct write **and** parameter push — editor PIE keeps Niagara contract in sync).
-- **`UMetaAgentNiagaraSystemProfile`** data asset declares capabilities and validates User-parameter contracts; assign on orchestrator/runtime.
-- **`UMetaAgentNiagaraTargetData`** is a reused CPU payload (`SetVariableObject`) for pattern targets + baselines when the profile enables **TargetArrayUpload** — avoids per-frame UObject churn.
-- **Extension registries** (registered in `MetaAgentPlugin.cpp` by default, overridable at startup): **`FMetaAgentParticleShapeRegistry::RegisterProvider()`**, **`FMetaAgentParticleFormingSolverRegistry::RegisterSolver()`**, **`FMetaAgentParticleRepresentationDriverRegistry::RegisterDriver()`**.
-- Subclass **`UMetaAgentDefaultParticleOrchestrator`** (or your own) to register custom effect ids via `PopulateEffectSpec`.
+- `**UMetaAgentNiagaraSystemProfile`** data asset declares capabilities and validates User-parameter contracts; assign on orchestrator/runtime.
+- `**UMetaAgentNiagaraTargetData**` is a reused CPU payload (`SetVariableObject`) for pattern targets + baselines when the profile enables **TargetArrayUpload** — avoids per-frame UObject churn.
+- **Extension registries** (registered in `MetaAgentPlugin.cpp` by default, overridable at startup): `**FMetaAgentParticleShapeRegistry::RegisterProvider()`**, `**FMetaAgentParticleFormingSolverRegistry::RegisterSolver()**`, `**FMetaAgentParticleRepresentationDriverRegistry::RegisterDriver()**`.
+- Subclass `**UMetaAgentDefaultParticleOrchestrator**` (or your own) to register custom effect ids via `PopulateEffectSpec`.
 - Controls: `F`, `,`/`<<`, `.`/`>>`, `B/N`, `T`, `Y` (forming), `U` (returning); GUI **Play**, **<<**, **>>**, **Cycle forming / returning** mirror step controls.
 
 #### Image scatter grid
 
 Targets are scattered across a **stratification grid** over the image mask — this is **spatial spread** of particle destinations, not the 1024px analysis resolution (`SampleResolution`).
 
-| Tunable | Default | Role |
-|---------|---------|------|
-| `DensityGridScale` | **5.0** (max 16) | Grid cells ≈ `sqrt(particleCount × scale)` — higher = targets spread across more of the silhouette |
-| `TargetJitterNormalized` | **0.7** (0–1) | Random offset within each grid cell |
-| `GrayscaleGamma` | **1.0** | Density weighting for silhouette scatter |
 
-- **`ScatterStratifiedFromMaskWeights()`** in `MetaAgentParticleImageMaskProcessor` — stratified scatter for **GrayscaleDensity** and **SobelEdges**.
-- Cycle sampling with **`T`** (`CycleSampling` effect): **GrayscaleDensity** → **SobelEdges**.
+| Tunable                  | Default          | Role                                                                                               |
+| ------------------------ | ---------------- | -------------------------------------------------------------------------------------------------- |
+| `DensityGridScale`       | **5.0** (max 16) | Grid cells ≈ `sqrt(particleCount × scale)` — higher = targets spread across more of the silhouette |
+| `TargetJitterNormalized` | **0.7** (0–1)    | Random offset within each grid cell                                                                |
+| `GrayscaleGamma`         | **1.0**          | Density weighting for silhouette scatter                                                           |
+
+
+- `**ScatterStratifiedFromMaskWeights()`** in `MetaAgentParticleImageMaskProcessor` — stratified scatter for **GrayscaleDensity** and **SobelEdges**.
+- Cycle sampling with `**T`** (`CycleSampling` effect): **GrayscaleDensity** → **SobelEdges**.
 - Console: `MetaAgent.Pattern.ScatterGrid <1-16>`, `.ScatterJitter <0-1>` — status text shows `ScatterGrid` / `stratGrid=NxN`.
-- Rebuild after scatter changes: press **`F`**, then **`>>`** or GUI **Play**.
+- Rebuild after scatter changes: press `**F`**, then `**>>**` or GUI **Play**.
 
 #### Forming mode solvers
 
-**`FMetaAgentParticleFormingSolverRegistry`** drives particle motion during **Forming**.
+`**FMetaAgentParticleFormingSolverRegistry`** drives particle motion during **Forming**.
 
-| Mode | Runtime behavior |
-|------|------------------|
-| **DirectLerp** | Default — straight baseline → target by phase |
-| **ArcLift** | Vertical arc (world Z) mid-form, settle on target |
-| **SpiralIn** | Spiral inward around `PatternCenter` |
 
-- Config: **`FMetaAgentParticleFormingSettings`** on `FMetaAgentParticlePatternConfig` (category **Pattern | Forming**).
-- Cycle with **`Y`** or `MetaAgent.Pattern.Forming Cycle` (`CycleForming` effect). Live switch mid-run updates `ActiveConfig.Forming`.
+| Mode           | Runtime behavior                                  |
+| -------------- | ------------------------------------------------- |
+| **DirectLerp** | Default — straight baseline → target by phase     |
+| **ArcLift**    | Vertical arc (world Z) mid-form, settle on target |
+| **SpiralIn**   | Spiral inward around `PatternCenter`              |
+
+
+- Config: `**FMetaAgentParticleFormingSettings`** on `FMetaAgentParticlePatternConfig` (category **Pattern | Forming**).
+- Cycle with `**Y`** or `MetaAgent.Pattern.Forming Cycle` (`CycleForming` effect). Live switch mid-run updates `ActiveConfig.Forming`.
 - Actuation: Direct buffer path calls the solver registry; Parameters/Hybrid also receive `MetaAgentFormingMode`, `MetaAgentFormingArcLift`, etc.
 - Optional `FormCurve` on pattern assets remaps forming phase before solvers run.
 
 #### Returning mode solvers
 
-**`FMetaAgentParticleReturnSettings`** on `FMetaAgentParticlePatternConfig` (category **Pattern | Returning**) controls how particles leave the held shape.
+`**FMetaAgentParticleReturnSettings**` on `FMetaAgentParticlePatternConfig` (category **Pattern | Returning**) controls how particles leave the held shape.
 
-| Mode | Runtime behavior |
-|------|------------------|
-| **DirectLerp** | Default — straight hold → idle rest by return phase |
-| **ArcLift** | Vertical arc (world Z) mid-return, settle on rest |
-| **SpiralIn** | Spiral around `PatternCenter` while returning to rest |
+
+| Mode                  | Runtime behavior                                                                 |
+| --------------------- | -------------------------------------------------------------------------------- |
+| **DirectLerp**        | Default — straight hold → idle rest by return phase                              |
+| **ArcLift**           | Vertical arc (world Z) mid-return, settle on rest                                |
+| **SpiralIn**          | Spiral around `PatternCenter` while returning to rest                            |
 | **DissipateToCenter** | Collapse toward center + fade (`Dissipating` state) instead of positional return |
 
-- Cycle with **`U`** or `MetaAgent.Pattern.Returning Cycle` (`CycleReturning` effect). Live switch mid-run updates `ActiveConfig.Return`.
-- When **DissipateToCenter** is selected, **SkipHold**, **Cancel** (with return), auto hold timeout, and **`>>`** from **Holding** trigger dissipate instead of **Returning**.
-- Arc / Spiral reuse **`FMetaAgentParticleFormingSolverRegistry`** with frozen rest/hold targets (phase 1 → 0).
+
+- Cycle with `**U`** or `MetaAgent.Pattern.Returning Cycle` (`CycleReturning` effect). Live switch mid-run updates `ActiveConfig.Return`.
+- When **DissipateToCenter** is selected, **SkipHold**, **Cancel** (with return), auto hold timeout, and `**>>`** from **Holding** trigger dissipate instead of **Returning**.
+- Arc / Spiral reuse `**FMetaAgentParticleFormingSolverRegistry`** with frozen rest/hold targets (phase 1 → 0).
 - **Cancel semantics:** `bSkipReturnOnCancel` (or Anticipating) → immediate **Idle**; otherwise **BeginConfiguredReturn** from Forming/Holding/Returning. Dissipating cancel always completes the run.
 - **Morph:** `RequestPatternMorph()` from **Holding** re-enters **Forming** using the **current held pose** as baseline (not the idle snapshot), so live target swaps feel continuous.
 
@@ -733,14 +737,15 @@ flowchart LR
     DRV --> NIAG
 ```
 
-</details>
 
-<details>
-<summary>Particle orchestrator graph</summary>
 
-- **`UMetaAgentParticleOrchestrator`** (abstract, Blueprint-subclassable) owns capture runtime, preview texture, pattern config, and routes **`TriggerEffect(FName)`** through the shared FSM.
-- **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
-- **`UMetaAgentParticleRuntime`** owns pattern runtime state, builds representation frames each tick, and dispatches transitions through **`FMetaAgentParticleTransitionGraph`**.
+
+
+Particle orchestrator graph
+
+- `**UMetaAgentParticleOrchestrator**` (abstract, Blueprint-subclassable) owns capture runtime, preview texture, pattern config, and routes `**TriggerEffect(FName)**` through the shared FSM.
+- `**AMetaAgentPlayerController**` is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
+- `**UMetaAgentParticleRuntime**` owns pattern runtime state, builds representation frames each tick, and dispatches transitions through `**FMetaAgentParticleTransitionGraph**`.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
 - Keyboard: `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode, `U` cycle returning mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, **Cycle forming / returning mode**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
@@ -750,7 +755,7 @@ flowchart LR
 - Default **ShapeAnchor = ParticleCentroid**: grayscale image is centered on the particle cloud and auto-fitted to its bounding sphere; preview plane (`F`) is texture-only unless `PreviewPlane` anchor is set.
 - PNG decode + shape sampling (**GrayscaleDensity** by default; **SobelEdges** optional) run on a **background thread** (`FMetaAgentParticleShapeCache`); the game thread stays responsive. Cache keys include PNG **file timestamp + size**, so replacing `sdxl_latest.png` on disk triggers a fresh build on the next `F` / pattern start.
 - `F` loads `sdxl_latest.png` onto the preview plane and provides the shape texture.
-- **Direct / Hybrid** actuation writes blended positions into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters). **Parameters / Hybrid** also pushes User params and optional **`UMetaAgentNiagaraTargetData`** (see `PARAMETERS.md`).
+- **Direct / Hybrid** actuation writes blended positions into Niagara simulation buffers (`PushCPUBuffersToGPU` on GPU emitters). **Parameters / Hybrid** also pushes User params and optional `**UMetaAgentNiagaraTargetData`** (see `PARAMETERS.md`).
 - Help panel (`Q`) shows capture status, consolidated Particle Runtime status (`State`, `Phase`, `Queue`, optional `loading mask`), preset/timings, active shape, and active gameplay tags.
 - Timings + forming: **MetaAgent | Particles | Pattern** (`FMetaAgentParticlePatternConfig`); forming tunables under **Pattern | Forming**.
 - Shape + scatter: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); `DensityGridScale`, `TargetJitterNormalized`, `GrayscaleGamma`.
@@ -761,30 +766,30 @@ flowchart LR
 - **Returning modes** (`FMetaAgentParticleReturnSettings`): DirectLerp, ArcLift, SpiralIn, DissipateToCenter. Cycle with `U` or `MetaAgent.Pattern.Returning Cycle`.
 - Built-in effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `PatternStepForward`, `PatternStepBackward`, `PresetSlow`, `PresetDramatic`, `CycleSampling`, `CycleForming`, `CycleReturning`, `DissipateToCenter`. Additional ids (for example `SplinePath`, `MeshSilhouette`, `AttractToView`) are available via `TriggerParticleEffect` or console.
 - Implemented in:
-	- `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleInputRouter.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleRepresentationTypes.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleTransitionGraph.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleRepresentationDriver.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentNiagaraSystemProfile.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentNiagaraTargetData.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
-	- `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleShapeCache.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleShapeProvider.h`
-	- `Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h`
-	- `Systems/ParticleRuntime/MetaAgentParticleActuation.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h/.cpp`
-	- `Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleInputRouter.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleRepresentationTypes.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleTransitionGraph.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleRepresentationDriver.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentNiagaraSystemProfile.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentNiagaraTargetData.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
+  - `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleShapeCache.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentImagePreviewRuntime.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentPlayerControllerParticles.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleShapeProvider.h`
+  - `Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h`
+  - `Systems/ParticleRuntime/MetaAgentParticleActuation.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h/.cpp`
+  - `Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h/.cpp`
 
 #### Pattern state machine
 
@@ -806,6 +811,8 @@ stateDiagram-v2
     end note
 
 ```
+
+
 
 #### Orchestrator → runtime graph
 
@@ -890,6 +897,8 @@ flowchart TB
     Act --> Write
 ```
 
+
+
 #### Return blend (stable release)
 
 ```mermaid
@@ -903,6 +912,8 @@ flowchart LR
     OUT --> RELEASE[Stop Direct writes below release threshold]
     RELEASE --> IDLE[Idle — Niagara sim resumes]
 ```
+
+
 
 #### Shape pipeline
 
@@ -932,10 +943,11 @@ flowchart LR
     CHOREO --> IDLE[Idle capture]
 ```
 
-</details>
 
-<details>
-<summary>Module 7: sequential runtime steps</summary>
+
+
+
+Module 7: sequential runtime steps
 
 1. Runtime discovers tracked Niagara components (for example `NIAGARAFX` on `BP_NiagaraBridge`).
 2. Direct capture reads particle `Position` attributes into `UMetaAgentParticleRuntime` snapshot cache.
@@ -948,14 +960,14 @@ flowchart LR
 9. `FMetaAgentParticleImageMaskProcessor` stratifies targets across the mask (`DensityGridScale` × `TargetJitterNormalized`); Gray and Sobel share `ScatterStratifiedFromMaskWeights`. `FMetaAgentParticleShapeBuilder` assigns targets (polar-matched on image silhouettes, or square grid fallback).
 10. Each tick, `BuildRepresentationFrame()` assembles macro phase, targets, and solver settings; `FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame()` dispatches to Direct / Parameters / Hybrid drivers.
 11. On **Forming**, `FMetaAgentParticleFormingSolverRegistry` moves particles baseline → targets by active mode (`DirectLerp` default; cycle with `Y`). Optional `FormCurve` remaps phase.
-12. GPU emitters (Direct/Hybrid): readback → solver/blend → modify CPU float buffer → `PushCPUBuffersToGPU`. Parameters/Hybrid also push `MetaAgentPattern*` / `MetaAgentForming*` user params and reuse **`UMetaAgentNiagaraTargetData`** for target arrays.
-13. `Holding` locks phase at 1 on the resolved shape. **`RequestPatternMorph()`** can re-enter **Forming** from the held pose when targets change.
+12. GPU emitters (Direct/Hybrid): readback → solver/blend → modify CPU float buffer → `PushCPUBuffersToGPU`. Parameters/Hybrid also push `MetaAgentPattern*` / `MetaAgentForming*` user params and reuse `**UMetaAgentNiagaraTargetData`** for target arrays.
+13. `Holding` locks phase at 1 on the resolved shape. `**RequestPatternMorph()**` can re-enter **Forming** from the held pose when targets change.
 14. `Returning` drives phase 1→0 while blending from the held shape toward a **frozen idle snapshot** (`BaselineWorldPositions` captured at pattern start). Rest targets are not refreshed each tick (avoids Direct-write feedback flicker).
-15. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**. **Dissipating** fades/collapses via `MetaAgentPatternDissipate*` params instead of positional return.
+15. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**. **Dissipating** fades/collapses via `MetaAgentPatternDissipate`* params instead of positional return.
 16. On completion, state returns to `Idle` and normal capture resumes.
 17. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternMorph()`, `RequestPatternQueue(Asset)`.
 
-</details>
+
 
 #### Command layer architecture
 
@@ -1012,45 +1024,10 @@ flowchart LR
     Traj --> Drivers
 ```
 
+
+
 - **Pattern data assets:** primary type `MetaAgentParticlePattern` (see `Config/DefaultGame.ini`). In editor, run `MetaAgent.CreateSamplePatternAssets` to generate Normal / Slow / Dramatic samples under `/MetaAgentPlugin/MetaAgent/Patterns`.
-- **Packaged Niagara actuation:** see `Content/MetaAgent/Niagara/PARAMETERS.md` for `MetaAgentPattern*` and `MetaAgentForming*` user parameters.
-
-#### Possible next steps (pick what matters most)
-
-Use this as a menu — each item is independent unless noted.
-
-**Niagara authoring (fastest path to “nice” in packaged builds)**
-
-1. **Reference Niagara system** — Author `Content/MetaAgent/Niagara/NS_MetaAgentPatternLerp` implementing every parameter in `PARAMETERS.md` (phase lerp, forming mode branches, dissipate fade). Assign a matching **`UMetaAgentNiagaraSystemProfile`** on the orchestrator.
-2. **Hold polish** — Animate `MetaAgentPatternHoldScale` in Niagara during **Sustain** (subtle breathe / pulse) so the held silhouette feels alive without moving targets.
-3. **Dissipate VFX** — Tie particle size, opacity, and stretch to `MetaAgentPatternDissipateVisibility` for a soft collapse instead of a hard snap.
-4. **Return handoff tuning** — Adjust `ReturnReleaseAuthorityThreshold` and a Niagara blend-out curve so sim control resumes without a visible pop when Direct authority ends.
-
-**Gameplay / orchestration**
-
-5. **Morph hotkey + effect** — Wire `RequestPatternMorph()` to a GUI row, key bind, and `MetaAgentParticleEffectIds` entry so swapping PNG / pattern assets while **Holding** morphs smoothly (baseline = current pose).
-6. **Preset library** — Expand Slow / Dramatic into a small mood set (Snappy, Dreamy, Aggressive) as `UMetaAgentParticlePatternAsset` variants with different `FormCurve`, durations, and scatter.
-7. **Audio-reactive hold** — Drive `MetaAgentPatternHoldScale` or anticipation amplitude from mic/beat for performance moments.
-
-**Motion solvers (C++ — more character in forming/return)**
-
-8. **StaggeredWave forming** — Implement reserved mode 3: per-particle phase offset so the shape “fills in” as a wave rather than moving as one block.
-9. **SpringChase forming** — Implement reserved mode 4: slight overshoot + settle on arrival for softer landings.
-10. **Per-mode return curves** — Separate `ReturnCurve` assets (or curves on `FMetaAgentParticleReturnSettings`) so Arc/Spiral returns ease differently than forming.
-
-**Scatter & shape quality**
-
-11. **Scatter pass** — Tune `DensityGridScale`, `TargetJitterNormalized`, and `GrayscaleGamma` per content type; add a console preset that saves “portrait vs logo vs sketch” scatter profiles.
-12. **Edge-weighted scatter** — Bias Sobel targets toward strong edges only (`EdgeThreshold` + mask erosion) for crisper line-art reveals.
-13. **New shape providers** — `AttractToView`, `SplinePath`, or `MeshSilhouette` via **`RegisterProvider()`** for non-image choreography.
-
-**Infrastructure / scale**
-
-14. **Profile validation on discover** — One-shot warning per Niagara component when required User params are missing (catches miswired systems early in PIE).
-15. **Per-component profiles** — Map component name / tag → `UMetaAgentNiagaraSystemProfile` when multiple Niagara systems coexist.
-16. **GPU target NDIC** — Custom Niagara Data Interface for large GPU sims that should read targets without CPU `UMetaAgentNiagaraTargetData` round-trips.
-
-**Suggested order if unsure:** **1 → 2 → 4 → 5** gets packaged builds looking good quickly; add **8** or **9** when forming feels too mechanical.
+- **Packaged Niagara actuation:** see `Content/MetaAgent/Niagara/PARAMETERS.md` for `MetaAgentPattern`* and `MetaAgentForming*` user parameters.
 
 ## License
 
