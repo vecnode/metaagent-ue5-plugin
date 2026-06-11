@@ -12,6 +12,8 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 	if (!ControlledPawn
 		|| !InputFallback.bEnableKeyboardMovement
 		|| InputFallback.bAddedAnyMappingContext
+		|| IsGUIInteractionModeActive()
+		|| !IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput)
 		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
 		return;
@@ -52,6 +54,8 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 void AMetaAgentPlayerController::ApplyFallbackLookInput()
 {
 	if (!InputFallback.bEnableMouseLook
+		|| IsGUIInteractionModeActive()
+		|| !IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput)
 		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
 		return;

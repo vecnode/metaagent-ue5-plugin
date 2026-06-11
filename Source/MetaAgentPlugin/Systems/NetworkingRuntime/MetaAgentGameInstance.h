@@ -68,6 +68,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Networking|Platform")
 	void SendEventToPlatform(const FString& EventName, const FString& Message, const FString& SourceOverride = TEXT(""));
 
+	UFUNCTION(BlueprintCallable, Category="Networking|Runtime")
+	void StartNetworkingRuntime();
+
+	UFUNCTION(BlueprintCallable, Category="Networking|Runtime")
+	void StopNetworkingRuntime();
+
 	UPROPERTY(Config, EditAnywhere, Category="Networking|HTTP Server")
 	bool bEnableLocalHttpServer = true;
 

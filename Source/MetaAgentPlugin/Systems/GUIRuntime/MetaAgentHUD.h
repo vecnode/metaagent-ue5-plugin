@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "MetaAgentHUD.generated.h"
 
 USTRUCT()
@@ -53,25 +54,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void ClearStatusLine(FName Key);
 
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetHelpPanelVisible(bool bVisible);
+	void SetRuntimePanelVisible(bool bVisible);
 
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetHelpPanelLines(const TArray<FString>& InLines);
+	void SetRuntimePanelSections(const TArray<FMetaAgentGUIRuntimeSection>& InSections);
 
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetNetworkingPanelVisible(bool bVisible);
-
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetNetworkingPanelLines(const TArray<FString>& InLines);
-
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetRecordingPanelVisible(bool bVisible);
-
-	UFUNCTION(BlueprintCallable, Category = "HUD")
-	void SetRecordingPanelLines(const TArray<FString>& InLines);
+	bool HitTestRuntimePanelAction(float MouseX, float MouseY, FName& OutActionId) const;
 
 private:
+	void DrawRuntimePanel();
+
 	UPROPERTY()
 	TArray<FMetaAgentHUDMessage> MessageQueue;
 
@@ -79,21 +70,10 @@ private:
 	TArray<FMetaAgentHUDStatusLine> StatusLines;
 
 	UPROPERTY()
-	bool bHelpPanelVisible = false;
+	bool bRuntimePanelVisible = false;
 
 	UPROPERTY()
-	TArray<FString> HelpPanelLines;
+	TArray<FMetaAgentGUIRuntimeSection> RuntimePanelSections;
 
-	UPROPERTY()
-	bool bNetworkingPanelVisible = false;
-
-	UPROPERTY()
-	TArray<FString> NetworkingPanelLines;
-
-	UPROPERTY()
-	bool bRecordingPanelVisible = false;
-
-	UPROPERTY()
-	TArray<FString> RecordingPanelLines;
+	TArray<FMetaAgentHUDClickRegion> RuntimeClickRegions;
 };
-

@@ -232,7 +232,7 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		UpdateCinematicCamera(DeltaTime);
 	}
 
-	if (ParticleOrchestrator)
+	if (ParticleOrchestrator && IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
 	{
 		ParticleOrchestrator->TickOrchestrator(DeltaTime);
 	}
@@ -493,8 +493,7 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		}
 	}
 
-	// Environment-only viewer mode: always apply zoom
-	if (ControlledPawn && !CinematicCamera.bModeEnabled)
+	if (ControlledPawn && !CinematicCamera.bModeEnabled && !IsGUIInteractionModeActive())
 	{
 		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
 	}
@@ -594,6 +593,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
+			InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMetaAgentPlayerController::HandleGUIPanelMousePressed);
 			EnsureParticleOrchestrator();
 			FMetaAgentParticleInputRouter::BindKeyboardInput(this, InputComponent, ParticleOrchestrator);
 			InputFallback.bUtilityKeysBound = true;
@@ -680,7 +680,7 @@ void AMetaAgentPlayerController::HandleEscapePressed()
 
 void AMetaAgentPlayerController::HandleStartAudioPressed()
 {
-	if (!IsLocalPlayerController())
+	if (!IsLocalPlayerController() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
 	{
 		return;
 	}
@@ -703,7 +703,7 @@ void AMetaAgentPlayerController::HandleStartAudioPressed()
 
 void AMetaAgentPlayerController::HandleStartImagePressed()
 {
-	if (!IsLocalPlayerController())
+	if (!IsLocalPlayerController() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
 	{
 		return;
 	}

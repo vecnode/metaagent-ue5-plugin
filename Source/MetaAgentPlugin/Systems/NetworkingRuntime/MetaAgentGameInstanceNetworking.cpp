@@ -271,6 +271,16 @@ FString UMetaAgentGameInstance::GetLocalHttpServerStatusText() const
 		BoundText);
 }
 
+void UMetaAgentGameInstance::StartNetworkingRuntime()
+{
+	StartLocalHttpServer();
+}
+
+void UMetaAgentGameInstance::StopNetworkingRuntime()
+{
+	StopLocalHttpServer();
+}
+
 void UMetaAgentGameInstance::StartLocalHttpServer()
 {
 	bNetworkingRuntimeServerEnabled = bEnableLocalHttpServer;

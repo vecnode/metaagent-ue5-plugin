@@ -13,12 +13,21 @@ void AMetaAgentPlayerController::ApplyCameraModeToPawn(APawn* InPawn)
 
 void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, float DeltaTime)
 {
-	// Generic zoom for free camera (not pawn-specific)
+	if (IsGUIInteractionModeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
+	{
+		return;
+	}
+
 	FMetaAgentCameraRuntime::RunEnvironmentZoomSequence(*this, DeltaTime, CameraZoom);
 }
 
 void AMetaAgentPlayerController::HandleToggleCinematicCameraPressed()
 {
+	if (IsGUIInteractionModeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
+	{
+		return;
+	}
+
 	ToggleCinematicCameraMode();
 }
 

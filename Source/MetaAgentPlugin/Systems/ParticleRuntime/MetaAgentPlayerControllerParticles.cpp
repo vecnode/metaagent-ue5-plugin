@@ -615,7 +615,9 @@ namespace MetaAgentParticleControllerInternal
 
 	void TriggerEffectOnController(AMetaAgentPlayerController* Controller, const FName EffectId)
 	{
-		if (!Controller || !IsMetaAgentRuntimeActive())
+		if (!Controller
+			|| !IsMetaAgentRuntimeActive()
+			|| !Controller->IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
 		{
 			return;
 		}
@@ -678,6 +680,11 @@ FMetaAgentParticleEffectResult AMetaAgentPlayerController::TriggerParticleEffect
 
 void AMetaAgentPlayerController::HandleParticleLoadPreviewPressed()
 {
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		return;
+	}
+
 	EnsureParticleOrchestrator();
 	if (!ParticleOrchestrator)
 	{

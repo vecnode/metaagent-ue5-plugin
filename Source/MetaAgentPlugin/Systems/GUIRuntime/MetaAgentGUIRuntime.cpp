@@ -6,46 +6,175 @@
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
 #include "Core/MetaAgent.h"
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleInputRouter.h"
 
 namespace
 {
-	void InitializeDefaultHelpPanelLines(FMetaAgentGUIState& GUI)
+	FMetaAgentGUIActionRow MakeActionRow(const FString& KeyLabel, const FString& Description, const FName ActionId)
 	{
-		if (GUI.bHelpPanelInitialized && GUI.BaseHelpPanelLines.Num() > 0)
-		{
-			return;
-		}
-
-		GUI.BaseHelpPanelLines.Reset();
-		GUI.BaseHelpPanelLines.Add(TEXT("Escape  : Quit application"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Q       : Toggle this controls panel"));
-		GUI.BaseHelpPanelLines.Add(TEXT("F       : Load sdxl_latest.png preview (see PARTICLES below)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("O       : Toggle cinematic camera"));
-		GUI.BaseHelpPanelLines.Add(TEXT("I       : Toggle AI autopilot"));
-		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("J       : Toggle viewport capture"));
-		GUI.BaseHelpPanelLines.Add(TEXT("U       : Finalize / show capture output"));
-		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("COMMS"));
-		GUI.BaseHelpPanelLines.Add(TEXT("H       : Send HTTP 'start audio'"));
-		GUI.BaseHelpPanelLines.Add(TEXT("G       : Send HTTP 'start image'"));
-		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Append(FMetaAgentParticleInputRouter::GetParticleKeyHelpLines());
-		GUI.BaseHelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.BaseHelpPanelLines.Add(TEXT("W/A/S/D : Move (input fallback)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Shift   : Sprint modifier (input fallback)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Mouse   : Look input (input fallback)"));
-		GUI.BaseHelpPanelLines.Add(TEXT("Wheel   : Zoom (camera distance)"));
-		GUI.bHelpPanelInitialized = true;
+		FMetaAgentGUIActionRow Row;
+		Row.KeyLabel = KeyLabel;
+		Row.Description = Description;
+		Row.ActionId = ActionId;
+		return Row;
 	}
 
-	void RebuildDisplayHelpLines(FMetaAgentGUIState& GUI)
+	FMetaAgentGUIRuntimeSection MakeSection(
+		const FName RuntimeId,
+		const FString& Title,
+		const bool bRuntimeAlwaysOn,
+		const bool bRuntimeEnabled,
+		const TArray<FMetaAgentGUIActionRow>& ActionRows,
+		const TArray<FString>& StatusLines = TArray<FString>())
 	{
-		GUI.HelpPanelLines = GUI.BaseHelpPanelLines;
-		GUI.HelpPanelLines.Add(TEXT("--------------------------------"));
-		GUI.HelpPanelLines.Add(GUI.RecordingStatusLine.IsEmpty() ? TEXT("Recording: OFF") : GUI.RecordingStatusLine);
+		FMetaAgentGUIRuntimeSection Section;
+		Section.RuntimeId = RuntimeId;
+		Section.Title = Title;
+		Section.bRuntimeAlwaysOn = bRuntimeAlwaysOn;
+		Section.bRuntimeEnabled = bRuntimeEnabled;
+		Section.ActionRows = ActionRows;
+		Section.StatusLines = StatusLines;
+		return Section;
+	}
+}
+
+void FMetaAgentGUIRuntime::BuildRuntimeSections(
+	AMetaAgentPlayerController& Controller,
+	FMetaAgentGUIState& GUI)
+{
+	GUI.RuntimeSections.Reset();
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("Q"), TEXT("Toggle controls panel"), MetaAgentRuntimeIds::ToggleHelpPanel));
+		Rows.Add(MakeActionRow(TEXT("Esc"), TEXT("Quit application"), MetaAgentRuntimeIds::QuitApplication));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::GUI,
+			TEXT("GUI Runtime"),
+			true,
+			true,
+			Rows));
+	}
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("O"), TEXT("Toggle cinematic camera"), MetaAgentRuntimeIds::ToggleCinematicCamera));
+		Rows.Add(MakeActionRow(TEXT("Wheel"), TEXT("Zoom camera distance"), NAME_None));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::Camera,
+			TEXT("Camera Runtime"),
+			false,
+			GUI.bCameraRuntimeEnabled,
+			Rows));
+	}
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("I"), TEXT("Toggle AI autopilot"), MetaAgentRuntimeIds::ToggleAutopilot));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::AI,
+			TEXT("AI Runtime"),
+			false,
+			GUI.bAIRuntimeEnabled,
+			Rows));
+	}
+
+	{
+		TArray<FString> StatusLines = Controller.BuildRecordingRuntimePanelLines();
+		if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("Recording Runtime"))
+		{
+			StatusLines.RemoveAt(0);
+		}
+
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("J"), TEXT("Toggle viewport capture"), MetaAgentRuntimeIds::ToggleRecording));
+		Rows.Add(MakeActionRow(TEXT("U"), TEXT("Finalize / show capture output"), MetaAgentRuntimeIds::ReportRecording));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::Recording,
+			TEXT("Recording Runtime"),
+			false,
+			GUI.bRecordingRuntimeEnabled,
+			Rows,
+			StatusLines));
+	}
+
+	{
+		TArray<FString> StatusLines;
+		if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(&Controller))
+		{
+			StatusLines = GI->GetNetworkingRuntimePanelLines();
+			if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("Networking Runtime"))
+			{
+				StatusLines.RemoveAt(0);
+			}
+			if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("--------------------------------"))
+			{
+				StatusLines.RemoveAt(0);
+			}
+			if (StatusLines.Num() > 0 && StatusLines[0].StartsWith(TEXT("COMMS (H/G)")))
+			{
+				StatusLines.RemoveAt(0);
+			}
+		}
+		else
+		{
+			StatusLines.Add(TEXT("GameInstance : MetaAgentGameInstance NOT active"));
+		}
+
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("H"), TEXT("Send HTTP 'start audio'"), MetaAgentRuntimeIds::StartAudio));
+		Rows.Add(MakeActionRow(TEXT("G"), TEXT("Send HTTP 'start image'"), MetaAgentRuntimeIds::StartImage));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::Networking,
+			TEXT("Networking Runtime"),
+			false,
+			GUI.bNetworkingRuntimeEnabled,
+			Rows,
+			StatusLines));
+	}
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
+		for (const FMetaAgentGUIActionRow& ParticleRow : FMetaAgentParticleInputRouter::GetParticleGUIActionRows())
+		{
+			Rows.Add(ParticleRow);
+		}
+
+		TArray<FString> StatusLines;
+		StatusLines.Add(FString::Printf(
+			TEXT("Particle Callback Seen: %s"),
+			Controller.HasReceivedParticleCallback() ? TEXT("TRUE") : TEXT("FALSE")));
+		StatusLines.Add(FString::Printf(
+			TEXT("Particle Capture: %s (Count=%d)"),
+			Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
+			Controller.GetCapturedParticleCount()));
+		StatusLines.Add(Controller.GetParticlePatternTimingsText());
+		StatusLines.Add(Controller.GetParticlePatternShapeText());
+		StatusLines.Add(Controller.GetParticlePatternStatusText());
+		StatusLines.Add(FString::Printf(TEXT("Pattern Queue Depth: %d"), Controller.GetParticlePatternQueueDepth()));
+
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::Particle,
+			TEXT("Particle Runtime"),
+			false,
+			GUI.bParticleRuntimeEnabled,
+			Rows,
+			StatusLines));
+	}
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("W/A/S/D"), TEXT("Move (input fallback)"), NAME_None));
+		Rows.Add(MakeActionRow(TEXT("Shift"), TEXT("Sprint modifier (input fallback)"), NAME_None));
+		Rows.Add(MakeActionRow(TEXT("Mouse"), TEXT("Look input (input fallback)"), NAME_None));
+		GUI.RuntimeSections.Add(MakeSection(
+			MetaAgentRuntimeIds::CharacterInput,
+			TEXT("Character Input Runtime"),
+			false,
+			GUI.bCharacterInputRuntimeEnabled,
+			Rows));
 	}
 }
 
@@ -53,44 +182,12 @@ void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(
 	AMetaAgentPlayerController& Controller,
 	FMetaAgentGUIState& GUI)
 {
-	InitializeDefaultHelpPanelLines(GUI);
-	RebuildDisplayHelpLines(GUI);
-	GUI.HelpPanelLines.Add(FString::Printf(
-		TEXT("Particle Callback Seen: %s"),
-		Controller.HasReceivedParticleCallback() ? TEXT("TRUE") : TEXT("FALSE")));
-	GUI.HelpPanelLines.Add(FString::Printf(
-		TEXT("Particle Capture: %s (Count=%d)"),
-		Controller.IsParticleCaptureActive() ? TEXT("TRUE") : TEXT("FALSE"),
-		Controller.GetCapturedParticleCount()));
-	GUI.HelpPanelLines.Add(Controller.GetParticlePatternTimingsText());
-	GUI.HelpPanelLines.Add(Controller.GetParticlePatternShapeText());
-	GUI.HelpPanelLines.Add(Controller.GetParticlePatternStatusText());
-	GUI.HelpPanelLines.Add(FString::Printf(
-		TEXT("Pattern Queue Depth: %d"),
-		Controller.GetParticlePatternQueueDepth()));
+	BuildRuntimeSections(Controller, GUI);
 
 	if (AMetaAgentHUD* MetaAgentHUD = Controller.GetHUD<AMetaAgentHUD>())
 	{
-		MetaAgentHUD->SetHelpPanelLines(GUI.HelpPanelLines);
-		MetaAgentHUD->SetHelpPanelVisible(GUI.bHelpPanelVisible);
-
-		TArray<FString> NetworkingLines;
-		if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(&Controller))
-		{
-			NetworkingLines = GI->GetNetworkingRuntimePanelLines();
-		}
-		else
-		{
-			NetworkingLines.Add(TEXT("Networking Runtime"));
-			NetworkingLines.Add(TEXT("GameInstance : MetaAgentGameInstance NOT active"));
-			NetworkingLines.Add(TEXT("Check Maps & Modes > Game Instance Class"));
-		}
-
-		MetaAgentHUD->SetNetworkingPanelLines(NetworkingLines);
-		MetaAgentHUD->SetNetworkingPanelVisible(GUI.bHelpPanelVisible);
-
-		MetaAgentHUD->SetRecordingPanelLines(Controller.BuildRecordingRuntimePanelLines());
-		MetaAgentHUD->SetRecordingPanelVisible(GUI.bHelpPanelVisible);
+		MetaAgentHUD->SetRuntimePanelVisible(GUI.bHelpPanelVisible);
+		MetaAgentHUD->SetRuntimePanelSections(GUI.RuntimeSections);
 	}
 }
 
@@ -103,8 +200,8 @@ void FMetaAgentGUIRuntime::RunToggleHelpPanelSequence(
 		return;
 	}
 
-	InitializeDefaultHelpPanelLines(GUI);
 	GUI.bHelpPanelVisible = !GUI.bHelpPanelVisible;
+	Controller.ApplyGUIInteractionInputModeFromPanelState();
 	RunApplyHelpPanelSequence(Controller, GUI);
 
 	UE_LOG(LogMetaAgent, Log, TEXT("GUIRuntime: Help panel %s."), GUI.bHelpPanelVisible ? TEXT("ENABLED") : TEXT("DISABLED"));

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Camera/CameraActor.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/SoftObjectPtr.h"
@@ -395,6 +396,27 @@ struct FMetaAgentGUIState
 
 	UPROPERTY(Transient)
 	FString RecordingStatusLine = TEXT("Recording: OFF");
+
+	UPROPERTY(Transient)
+	bool bCameraRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bAIRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bRecordingRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bNetworkingRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bParticleRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bCharacterInputRuntimeEnabled = true;
+
+	UPROPERTY(Transient)
+	TArray<FMetaAgentGUIRuntimeSection> RuntimeSections;
 };
 
 /**
@@ -471,6 +493,12 @@ protected:
 	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
 
+	/** Bound to left mouse button while the controls panel is open. */
+	void HandleGUIPanelMousePressed();
+
+	/** Dispatches a runtime-panel button action (keyboard shortcut mirror). */
+	void DispatchGUIAction(FName ActionId);
+
 	/** Enables cinematic orbit camera mode around the active character. */
 	void EnableCinematicCameraMode();
 
@@ -486,14 +514,12 @@ protected:
 	/** Updates runtime cinematic camera transform each tick while mode is active. */
 	void UpdateCinematicCamera(float DeltaTime);
 
-	/** Applies the runtime GUI help panel state to the HUD. */
-	void ApplyGUIHelpPanelState();
-
 	/** Enables AI autopilot over the currently possessed pawn. */
 	void EnableAutopilotForCurrentPawn();
 
 	/** Disables AI autopilot and repossesses the last autopilot pawn. */
 	void DisableAutopilotAndRepossess();
+
 
 	/** Starts viewport movie-scene capture to disk. */
 	void StartAutopilotTakeRecording();
@@ -680,6 +706,20 @@ public:
 
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
+
+	/** Applies the runtime GUI help panel state to the HUD. */
+	void ApplyGUIHelpPanelState();
+
+	/** Switches between game-only and game+UI input while the controls panel is open. */
+	void ApplyGUIInteractionInputModeFromPanelState();
+
+	bool IsModularRuntimeEnabled(EMetaAgentModularRuntime Runtime) const;
+	bool IsGUIInteractionModeActive() const;
+	void SetModularRuntimeEnabled(EMetaAgentModularRuntime Runtime, bool bEnabled);
+	void ToggleModularRuntime(EMetaAgentModularRuntime Runtime);
+
+	/** Toggles autopilot from GUI clicks (skips keyboard debounce). */
+	void ToggleAutopilotFromGUI();
 
 protected:
 

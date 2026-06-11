@@ -108,12 +108,17 @@ namespace MetaAgentRecording
 
 void AMetaAgentPlayerController::HandleReportRecordingStatusPressed()
 {
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording))
+	{
+		return;
+	}
+
 	ReportRuntimeCaptureStatus();
 }
 
 void AMetaAgentPlayerController::HandleToggleRecordingPressed()
 {
-	if (!IsLocalPlayerController())
+	if (!IsLocalPlayerController() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording))
 	{
 		return;
 	}

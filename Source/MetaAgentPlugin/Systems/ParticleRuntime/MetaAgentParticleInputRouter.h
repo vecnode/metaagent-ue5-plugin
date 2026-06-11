@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 
 class AMetaAgentPlayerController;
 class UInputComponent;
@@ -17,4 +18,5 @@ public:
 		UMetaAgentParticleOrchestrator* Orchestrator);
 
 	static TArray<FString> GetParticleKeyHelpLines();
+	static TArray<FMetaAgentGUIActionRow> GetParticleGUIActionRows();
 };

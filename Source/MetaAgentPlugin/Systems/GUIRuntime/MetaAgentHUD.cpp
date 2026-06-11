@@ -3,36 +3,89 @@
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
-#include "Systems/NetworkingRuntime/MetaAgentGameInstance.h"
 
-void AMetaAgentHUD::SetHelpPanelVisible(const bool bVisible)
+namespace
 {
-	bHelpPanelVisible = bVisible;
+	constexpr float PanelX = 24.0f;
+	constexpr float PanelY = 24.0f;
+	constexpr float PanelPadding = 10.0f;
+	constexpr float SectionGap = 8.0f;
+	constexpr float HeaderHeight = 24.0f;
+	constexpr float RowHeight = 22.0f;
+	constexpr float StatusLineHeight = 18.0f;
+	constexpr float KeyColumnWidth = 72.0f;
+	constexpr float ToggleButtonWidth = 72.0f;
+	constexpr float PanelMinWidth = 460.0f;
+	constexpr float TextScale = 1.0f;
+
+	void AddClickRegion(
+		TArray<FMetaAgentHUDClickRegion>& Regions,
+		const FName ActionId,
+		const float X,
+		const float Y,
+		const float W,
+		const float H)
+	{
+		if (ActionId.IsNone() || W <= 0.0f || H <= 0.0f)
+		{
+			return;
+		}
+
+		FMetaAgentHUDClickRegion Region;
+		Region.ActionId = ActionId;
+		Region.X = X;
+		Region.Y = Y;
+		Region.W = W;
+		Region.H = H;
+		Regions.Add(Region);
+	}
+
+	float MeasureTextWidth(UCanvas* Canvas, const UFont* Font, const FString& Text)
+	{
+		float SizeX = 0.0f;
+		float SizeY = 0.0f;
+		Canvas->StrLen(Font, Text, SizeX, SizeY);
+		return SizeX * TextScale;
+	}
 }
 
-void AMetaAgentHUD::SetHelpPanelLines(const TArray<FString>& InLines)
+void AMetaAgentHUD::SetRuntimePanelVisible(const bool bVisible)
 {
-	HelpPanelLines = InLines;
+	bRuntimePanelVisible = bVisible;
 }
 
-void AMetaAgentHUD::SetNetworkingPanelVisible(const bool bVisible)
+void AMetaAgentHUD::SetRuntimePanelSections(const TArray<FMetaAgentGUIRuntimeSection>& InSections)
 {
-	bNetworkingPanelVisible = bVisible;
+	RuntimePanelSections = InSections;
 }
 
-void AMetaAgentHUD::SetNetworkingPanelLines(const TArray<FString>& InLines)
+bool AMetaAgentHUD::HitTestRuntimePanelAction(const float MouseX, const float MouseY, FName& OutActionId) const
 {
-	NetworkingPanelLines = InLines;
+	for (int32 Index = RuntimeClickRegions.Num() - 1; Index >= 0; --Index)
+	{
+		const FMetaAgentHUDClickRegion& Region = RuntimeClickRegions[Index];
+		if (Region.Contains(MouseX, MouseY))
+		{
+			OutActionId = Region.ActionId;
+			return true;
+		}
+	}
+
+	OutActionId = NAME_None;
+	return false;
 }
 
-void AMetaAgentHUD::SetRecordingPanelVisible(const bool bVisible)
+void AMetaAgentHUD::AddTransientMessage(const FString& Message, FColor Color, float DurationSeconds)
 {
-	bRecordingPanelVisible = bVisible;
-}
+	if (Message.IsEmpty())
+	{
+		return;
+	}
 
-void AMetaAgentHUD::SetRecordingPanelLines(const TArray<FString>& InLines)
-{
-	RecordingPanelLines = InLines;
+	FMetaAgentHUDMessage& Entry = MessageQueue.AddDefaulted_GetRef();
+	Entry.Text = Message;
+	Entry.Color = Color;
+	Entry.TimeRemaining = FMath::Max(DurationSeconds, 0.1f);
 }
 
 void AMetaAgentHUD::SetStatusLine(FName Key, const FString& Message, FColor Color)
@@ -80,17 +133,135 @@ void AMetaAgentHUD::ClearStatusLine(FName Key)
 	}
 }
 
-void AMetaAgentHUD::AddTransientMessage(const FString& Message, FColor Color, float DurationSeconds)
+void AMetaAgentHUD::DrawRuntimePanel()
 {
-	if (Message.IsEmpty())
+	if (!bRuntimePanelVisible || RuntimePanelSections.Num() == 0 || !Canvas)
 	{
+		RuntimeClickRegions.Reset();
 		return;
 	}
 
-	FMetaAgentHUDMessage& Entry = MessageQueue.AddDefaulted_GetRef();
-	Entry.Text = Message;
-	Entry.Color = Color;
-	Entry.TimeRemaining = FMath::Max(DurationSeconds, 0.1f);
+	const UFont* PanelFont = GEngine ? GEngine->GetSmallFont() : nullptr;
+	RuntimeClickRegions.Reset();
+
+	const FString PanelTitle = TEXT("MetaAgent Controls (Q to hide, click rows)");
+
+	float MaxContentWidth = MeasureTextWidth(Canvas, PanelFont, PanelTitle);
+	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
+	{
+		MaxContentWidth = FMath::Max(MaxContentWidth, MeasureTextWidth(Canvas, PanelFont, Section.Title) + ToggleButtonWidth + 16.0f);
+		for (const FMetaAgentGUIActionRow& Row : Section.ActionRows)
+		{
+			const FString RowText = FString::Printf(TEXT("%s  %s"), *Row.KeyLabel, *Row.Description);
+			MaxContentWidth = FMath::Max(MaxContentWidth, KeyColumnWidth + MeasureTextWidth(Canvas, PanelFont, RowText));
+		}
+		for (const FString& StatusLine : Section.StatusLines)
+		{
+			MaxContentWidth = FMath::Max(MaxContentWidth, MeasureTextWidth(Canvas, PanelFont, StatusLine));
+		}
+	}
+
+	const float PanelWidth = FMath::Max(PanelMinWidth, MaxContentWidth + (PanelPadding * 2.0f));
+
+	float TotalHeight = PanelPadding + HeaderHeight;
+	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
+	{
+		TotalHeight += HeaderHeight + SectionGap;
+		TotalHeight += Section.ActionRows.Num() * RowHeight;
+		TotalHeight += Section.StatusLines.Num() * StatusLineHeight;
+		TotalHeight += SectionGap;
+	}
+	TotalHeight += PanelPadding;
+
+	const float PanelHeight = FMath::Min(TotalHeight, Canvas->ClipY - (PanelY * 2.0f));
+
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), PanelX, PanelY, PanelWidth, PanelHeight);
+	DrawText(PanelTitle, FColor::Cyan, PanelX + PanelPadding, PanelY + PanelPadding, const_cast<UFont*>(PanelFont), TextScale, false);
+
+	float DrawY = PanelY + PanelPadding + HeaderHeight;
+
+	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
+	{
+		const FColor HeaderColor = Section.bRuntimeEnabled ? FColor::Cyan : FColor(160, 160, 160);
+		DrawText(Section.Title, HeaderColor, PanelX + PanelPadding, DrawY, const_cast<UFont*>(PanelFont), TextScale, false);
+
+		if (!Section.bRuntimeAlwaysOn)
+		{
+			const FString ToggleLabel = Section.bRuntimeEnabled ? TEXT("STOP") : TEXT("START");
+			const float ToggleX = PanelX + PanelWidth - PanelPadding - ToggleButtonWidth;
+			const float ToggleY = DrawY - 2.0f;
+			DrawRect(
+				Section.bRuntimeEnabled ? FLinearColor(0.45f, 0.12f, 0.12f, 0.85f) : FLinearColor(0.12f, 0.35f, 0.12f, 0.85f),
+				ToggleX,
+				ToggleY,
+				ToggleButtonWidth,
+				HeaderHeight - 2.0f);
+			DrawText(
+				ToggleLabel,
+				FColor::White,
+				ToggleX + 14.0f,
+				DrawY,
+				const_cast<UFont*>(PanelFont),
+				TextScale,
+				false);
+
+			const FName ToggleActionId = FName(*FString::Printf(TEXT("ToggleRuntime_%s"), *Section.RuntimeId.ToString()));
+			AddClickRegion(RuntimeClickRegions, ToggleActionId, ToggleX, ToggleY, ToggleButtonWidth, HeaderHeight - 2.0f);
+		}
+		else
+		{
+			const float AlwaysOnX = PanelX + PanelWidth - PanelPadding - ToggleButtonWidth;
+			DrawText(TEXT("ALWAYS ON"), FColor::Silver, AlwaysOnX, DrawY, const_cast<UFont*>(PanelFont), TextScale, false);
+		}
+
+		DrawY += HeaderHeight;
+
+		for (const FMetaAgentGUIActionRow& Row : Section.ActionRows)
+		{
+			const bool bRowEnabled = Section.bRuntimeEnabled && !Row.ActionId.IsNone();
+			const float RowX = PanelX + PanelPadding;
+			const float RowW = PanelWidth - (PanelPadding * 2.0f);
+
+			DrawRect(
+				bRowEnabled ? FLinearColor(0.14f, 0.14f, 0.18f, 0.72f) : FLinearColor(0.10f, 0.10f, 0.10f, 0.45f),
+				RowX,
+				DrawY,
+				RowW,
+				RowHeight - 2.0f);
+
+			DrawText(
+				Row.KeyLabel,
+				bRowEnabled ? FColor::Yellow : FColor(120, 120, 120),
+				RowX + 6.0f,
+				DrawY + 2.0f,
+				const_cast<UFont*>(PanelFont),
+				TextScale,
+				false);
+			DrawText(
+				Row.Description,
+				bRowEnabled ? FColor::White : FColor(120, 120, 120),
+				RowX + KeyColumnWidth,
+				DrawY + 2.0f,
+				const_cast<UFont*>(PanelFont),
+				TextScale,
+				false);
+
+			if (bRowEnabled)
+			{
+				AddClickRegion(RuntimeClickRegions, Row.ActionId, RowX, DrawY, RowW, RowHeight - 2.0f);
+			}
+
+			DrawY += RowHeight;
+		}
+
+		for (const FString& StatusLine : Section.StatusLines)
+		{
+			DrawText(StatusLine, FColor(180, 220, 255), PanelX + PanelPadding + 4.0f, DrawY, const_cast<UFont*>(PanelFont), TextScale, false);
+			DrawY += StatusLineHeight;
+		}
+
+		DrawY += SectionGap;
+	}
 }
 
 void AMetaAgentHUD::DrawHUD()
@@ -127,9 +298,9 @@ void AMetaAgentHUD::DrawHUD()
 	{
 		const UFont* StatusFont = GEngine ? GEngine->GetSmallFont() : nullptr;
 		const float StatusScale = 1.0f;
-		const float PanelPadding = 8.0f;
+		const float StatusPanelPadding = 8.0f;
 		const float PanelLineHeight = 20.0f;
-		const float PanelMinWidth = 320.0f;
+		const float StatusPanelMinWidth = 320.0f;
 
 		float MaxTextWidth = 0.0f;
 		for (const FMetaAgentHUDStatusLine& Line : StatusLines)
@@ -140,140 +311,20 @@ void AMetaAgentHUD::DrawHUD()
 			MaxTextWidth = FMath::Max(MaxTextWidth, SizeX * StatusScale);
 		}
 
-		const float PanelWidth = FMath::Max(PanelMinWidth, MaxTextWidth + (PanelPadding * 2.0f));
-		const float PanelHeight = (StatusLines.Num() * PanelLineHeight) + (PanelPadding * 2.0f);
-		const float PanelX = Canvas->ClipX - PanelWidth - 24.0f;
-		const float PanelY = 24.0f;
+		const float StatusPanelWidth = FMath::Max(StatusPanelMinWidth, MaxTextWidth + (StatusPanelPadding * 2.0f));
+		const float StatusPanelHeight = (StatusLines.Num() * PanelLineHeight) + (StatusPanelPadding * 2.0f);
+		const float StatusPanelX = Canvas->ClipX - StatusPanelWidth - 24.0f;
+		const float StatusPanelY = 24.0f;
 
-		DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.35f), PanelX, PanelY, PanelWidth, PanelHeight);
+		DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.35f), StatusPanelX, StatusPanelY, StatusPanelWidth, StatusPanelHeight);
 
-		float StatusY = PanelY + PanelPadding;
+		float StatusY = StatusPanelY + StatusPanelPadding;
 		for (const FMetaAgentHUDStatusLine& Line : StatusLines)
 		{
-			DrawText(Line.Text, Line.Color, PanelX + PanelPadding, StatusY, const_cast<UFont*>(StatusFont), StatusScale, false);
+			DrawText(Line.Text, Line.Color, StatusPanelX + StatusPanelPadding, StatusY, const_cast<UFont*>(StatusFont), StatusScale, false);
 			StatusY += PanelLineHeight;
 		}
 	}
 
-	if (!bHelpPanelVisible || HelpPanelLines.Num() == 0)
-	{
-		return;
-	}
-
-	const UFont* HelpFont = GEngine ? GEngine->GetSmallFont() : nullptr;
-	const float HelpScale = 1.0f;
-	const float HelpPadding = 10.0f;
-	const float HelpLineHeight = 20.0f;
-	const FString HelpTitle = TEXT("MetaAgent Controls (H to Hide)");
-
-	float HelpMaxTextWidth = 0.0f;
-	float HelpTitleWidth = 0.0f;
-	float HelpTitleHeight = 0.0f;
-	Canvas->StrLen(HelpFont, HelpTitle, HelpTitleWidth, HelpTitleHeight);
-	HelpMaxTextWidth = HelpTitleWidth * HelpScale;
-
-	for (const FString& Line : HelpPanelLines)
-	{
-		float LineWidth = 0.0f;
-		float LineHeight = 0.0f;
-		Canvas->StrLen(HelpFont, Line, LineWidth, LineHeight);
-		HelpMaxTextWidth = FMath::Max(HelpMaxTextWidth, LineWidth * HelpScale);
-	}
-
-	const float HelpPanelWidth = FMath::Max(420.0f, HelpMaxTextWidth + (HelpPadding * 2.0f));
-	const float HelpPanelHeight = ((HelpPanelLines.Num() + 1) * HelpLineHeight) + (HelpPadding * 2.0f);
-	const float HelpPanelX = 24.0f;
-	const float HelpPanelY = 24.0f;
-
-	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.52f), HelpPanelX, HelpPanelY, HelpPanelWidth, HelpPanelHeight);
-	DrawText(HelpTitle, FColor::Cyan, HelpPanelX + HelpPadding, HelpPanelY + HelpPadding, const_cast<UFont*>(HelpFont), HelpScale, false);
-
-	float HelpY = HelpPanelY + HelpPadding + HelpLineHeight;
-	for (const FString& Line : HelpPanelLines)
-	{
-		DrawText(Line, FColor::White, HelpPanelX + HelpPadding, HelpY, const_cast<UFont*>(HelpFont), HelpScale, false);
-		HelpY += HelpLineHeight;
-	}
-
-	if (!bNetworkingPanelVisible)
-	{
-		return;
-	}
-
-	TArray<FString> EffectiveNetworkingLines = NetworkingPanelLines;
-	if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(this))
-	{
-		EffectiveNetworkingLines = GI->GetNetworkingRuntimePanelLines();
-	}
-
-	if (EffectiveNetworkingLines.Num() == 0)
-	{
-		return;
-	}
-
-	const UFont* NetFont = GEngine ? GEngine->GetSmallFont() : nullptr;
-	const float NetScale = 1.0f;
-	const float NetPadding = 10.0f;
-	const float NetLineHeight = 20.0f;
-
-	float NetMaxTextWidth = 0.0f;
-	for (const FString& Line : EffectiveNetworkingLines)
-	{
-		float LineWidth = 0.0f;
-		float LineHeight = 0.0f;
-		Canvas->StrLen(NetFont, Line, LineWidth, LineHeight);
-		NetMaxTextWidth = FMath::Max(NetMaxTextWidth, LineWidth * NetScale);
-	}
-
-	const float NetPanelWidth = FMath::Max(420.0f, NetMaxTextWidth + (NetPadding * 2.0f));
-	const float NetPanelHeight = (EffectiveNetworkingLines.Num() * NetLineHeight) + (NetPadding * 2.0f);
-	const float NetPanelX = 24.0f;
-	const float DesiredNetPanelY = HelpPanelY + HelpPanelHeight + 12.0f;
-	const float NetPanelY = FMath::Min(DesiredNetPanelY, Canvas->ClipY - NetPanelHeight - 24.0f);
-
-	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), NetPanelX, NetPanelY, NetPanelWidth, NetPanelHeight);
-
-	float NetY = NetPanelY + NetPadding;
-	for (int32 Index = 0; Index < EffectiveNetworkingLines.Num(); ++Index)
-	{
-		const FColor LineColor = (Index == 0) ? FColor::Cyan : FColor::White;
-		DrawText(EffectiveNetworkingLines[Index], LineColor, NetPanelX + NetPadding, NetY, const_cast<UFont*>(NetFont), NetScale, false);
-		NetY += NetLineHeight;
-	}
-
-	if (!bRecordingPanelVisible || RecordingPanelLines.Num() == 0)
-	{
-		return;
-	}
-
-	const UFont* RecFont = GEngine ? GEngine->GetSmallFont() : nullptr;
-	const float RecScale = 1.0f;
-	const float RecPadding = 10.0f;
-	const float RecLineHeight = 20.0f;
-
-	float RecMaxTextWidth = 0.0f;
-	for (const FString& Line : RecordingPanelLines)
-	{
-		float LineWidth = 0.0f;
-		float LineHeight = 0.0f;
-		Canvas->StrLen(RecFont, Line, LineWidth, LineHeight);
-		RecMaxTextWidth = FMath::Max(RecMaxTextWidth, LineWidth * RecScale);
-	}
-
-	const float RecPanelWidth = FMath::Max(420.0f, RecMaxTextWidth + (RecPadding * 2.0f));
-	const float RecPanelHeight = (RecordingPanelLines.Num() * RecLineHeight) + (RecPadding * 2.0f);
-	const float RecPanelX = 24.0f;
-	const float DesiredRecPanelY = NetPanelY + NetPanelHeight + 12.0f;
-	const float RecPanelY = FMath::Min(DesiredRecPanelY, Canvas->ClipY - RecPanelHeight - 24.0f);
-
-	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.58f), RecPanelX, RecPanelY, RecPanelWidth, RecPanelHeight);
-
-	float RecY = RecPanelY + RecPadding;
-	for (int32 Index = 0; Index < RecordingPanelLines.Num(); ++Index)
-	{
-		const FColor LineColor = (Index == 0) ? FColor::Green : FColor::White;
-		DrawText(RecordingPanelLines[Index], LineColor, RecPanelX + RecPadding, RecY, const_cast<UFont*>(RecFont), RecScale, false);
-		RecY += RecLineHeight;
-	}
+	DrawRuntimePanel();
 }
-

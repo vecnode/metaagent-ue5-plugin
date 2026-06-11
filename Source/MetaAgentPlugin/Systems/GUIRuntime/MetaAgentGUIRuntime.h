@@ -15,4 +15,8 @@ struct FMetaAgentGUIRuntime
 	static void RunToggleHelpPanelSequence(
 		AMetaAgentPlayerController& Controller,
 		FMetaAgentGUIState& GUI);
+
+	static void BuildRuntimeSections(
+		AMetaAgentPlayerController& Controller,
+		FMetaAgentGUIState& GUI);
 };

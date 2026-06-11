@@ -17,9 +17,28 @@ namespace
 	}
 }
 
+void AMetaAgentPlayerController::ToggleAutopilotFromGUI()
+{
+	if (!IsMetaAgentRuntimeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::AI) || !IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (Autopilot.bEnabled || Autopilot.Controller.IsValid() || !GetPawn())
+	{
+		DisableAutopilotAndRepossess();
+	}
+	else
+	{
+		EnableAutopilotForCurrentPawn();
+	}
+
+	ApplyGUIHelpPanelState();
+}
+
 void AMetaAgentPlayerController::HandleToggleAutopilotPressed()
 {
-	if (!IsMetaAgentRuntimeActive())
+	if (!IsMetaAgentRuntimeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::AI))
 	{
 		return;
 	}
@@ -165,24 +184,16 @@ void AMetaAgentPlayerController::DisableAutopilotAndRepossess()
 		return;
 	}
 
-	if (AController* CurrentController = PawnToRepossess->GetController())
+	AController* PawnController = PawnToRepossess->GetController();
+	if (PawnController && PawnController != this)
 	{
-		if (CurrentController != this)
-		{
-			if (CurrentController->IsA<AAIController>())
-			{
-				CurrentController->UnPossess();
-				CurrentController->Destroy();
-			}
-			else
-			{
-				UE_LOG(LogMetaAgent, Warning,
-					TEXT("Autopilot: pawn '%s' is controlled by non-AI controller '%s'; refusing forced repossession."),
-					*GetNameSafe(PawnToRepossess),
-					*GetNameSafe(CurrentController));
-				return;
-			}
-		}
+		PawnController->UnPossess();
+		PawnController->Destroy();
+	}
+	else if (IsValid(CachedAIController))
+	{
+		CachedAIController->UnPossess();
+		CachedAIController->Destroy();
 	}
 
 	if (IsValid(PawnToRepossess))
