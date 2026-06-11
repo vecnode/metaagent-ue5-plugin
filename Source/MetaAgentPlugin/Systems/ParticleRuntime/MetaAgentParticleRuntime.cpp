@@ -222,7 +222,11 @@ void UMetaAgentParticleRuntime::BeginReturnFromHold()
 	// Freeze a stable idle rest target once. Per-tick live reads fight Direct buffer writes and flicker.
 	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
 	{
-		if (PatternRuntime.BaselineWorldPositions.IsValidIndex(ParticleIndex))
+		if (PatternRuntime.IdleBaselineWorldPositions.IsValidIndex(ParticleIndex))
+		{
+			PatternRuntime.ReturnRestPositions.Add(PatternRuntime.IdleBaselineWorldPositions[ParticleIndex]);
+		}
+		else if (PatternRuntime.BaselineWorldPositions.IsValidIndex(ParticleIndex))
 		{
 			PatternRuntime.ReturnRestPositions.Add(PatternRuntime.BaselineWorldPositions[ParticleIndex]);
 		}
@@ -725,6 +729,7 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 		PatternRuntime.ActivePatternTags.AddTag(MetaAgentParticleTags::Pattern_ImageReveal);
 	}
 	PatternRuntime.BaselineWorldPositions = LatestSnapshot.ExportedParticlePositions;
+	PatternRuntime.IdleBaselineWorldPositions = PatternRuntime.BaselineWorldPositions;
 
 	if (PatternShapeContext.BaselineWorldPositions.Num() <= 0)
 	{
@@ -982,9 +987,49 @@ void UMetaAgentParticleRuntime::ResetPatternRuntime()
 	LiveSimWorldPositions.Reset();
 }
 
+void UMetaAgentParticleRuntime::CommitAnticipationBaselineForForming()
+{
+	const int32 ParticleCount = PatternRuntime.BaselineWorldPositions.Num();
+	if (ParticleCount <= 0)
+	{
+		return;
+	}
+
+	const TArray<FVector>& IdleBaseline = PatternRuntime.IdleBaselineWorldPositions.Num() == ParticleCount
+		? PatternRuntime.IdleBaselineWorldPositions
+		: PatternRuntime.BaselineWorldPositions;
+
+	PatternRuntime.AnticipationHandoffElapsedSeconds = PatternRuntime.StateElapsedSeconds;
+
+	FMetaAgentParticleActuation::BuildAnticipationWorldPositions(
+		IdleBaseline,
+		PatternRuntime.PatternCenter,
+		PatternRuntime.AnticipationHandoffElapsedSeconds,
+		PatternRuntime.ActiveConfig.AnticipationAmplitudeCm,
+		PatternRuntime.ActiveConfig.AnticipationFrequencyHz,
+		PatternRuntime.BaselineWorldPositions,
+		FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds));
+
+	UE_LOG(LogMetaAgent, Verbose,
+		TEXT("ParticleRuntime: forming baseline committed from anticipating (%d particles, handoff=%.2fs)."),
+		ParticleCount,
+		PatternRuntime.AnticipationHandoffElapsedSeconds);
+}
+
 void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatternState NewState)
 {
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
+
+	if (PreviousState == EMetaAgentParticlePatternState::Anticipating
+		&& NewState == EMetaAgentParticlePatternState::Forming)
+	{
+		CommitAnticipationBaselineForForming();
+	}
+	else if (NewState == EMetaAgentParticlePatternState::Forming)
+	{
+		PatternRuntime.AnticipationHandoffElapsedSeconds = -1.0f;
+	}
+
 	PatternRuntime.State = NewState;
 	PatternRuntime.StateElapsedSeconds = 0.0f;
 
@@ -1057,6 +1102,10 @@ bool UMetaAgentParticleRuntime::RetreatPatternStateBackward()
 		EnterPatternState(EMetaAgentParticlePatternState::Forming);
 		return true;
 	case EMetaAgentParticlePatternState::Forming:
+		if (PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
+		{
+			PatternRuntime.BaselineWorldPositions = PatternRuntime.IdleBaselineWorldPositions;
+		}
 		EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
 		return true;
 	case EMetaAgentParticlePatternState::Anticipating:
@@ -1325,6 +1374,8 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		Request.AnticipationElapsedSeconds = PatternRuntime.StateElapsedSeconds;
 		Request.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
 		Request.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
+		Request.AnticipationIdleBlendDurationSeconds =
+			FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
 		Request.BlendAlpha = 0.0f;
 	}
 	else if (PatternRuntime.State == EMetaAgentParticlePatternState::Forming)
@@ -1334,6 +1385,18 @@ void UMetaAgentParticleRuntime::ApplyPatternActuation()
 		Request.FormingStateElapsedSeconds = PatternRuntime.StateElapsedSeconds;
 		Request.FormingDurationSeconds = FMath::Max(0.1f, PatternRuntime.ActiveConfig.FormDurationSeconds);
 		Request.FormingDeltaTimeSeconds = LastPatternTickDeltaSeconds;
+		if (PatternRuntime.AnticipationHandoffElapsedSeconds >= 0.0f
+			&& PatternRuntime.IdleBaselineWorldPositions.Num() > 0)
+		{
+			Request.IdleBaselineWorldPositions = &PatternRuntime.IdleBaselineWorldPositions;
+			Request.AnticipationHandoffElapsedSeconds = PatternRuntime.AnticipationHandoffElapsedSeconds;
+			Request.AnticipationAmplitudeCm = PatternRuntime.ActiveConfig.AnticipationAmplitudeCm;
+			Request.AnticipationFrequencyHz = PatternRuntime.ActiveConfig.AnticipationFrequencyHz;
+			Request.AnticipationIdleBlendDurationSeconds =
+				FMath::Max(0.05f, PatternRuntime.ActiveConfig.AnticipationIdleBlendDurationSeconds);
+			Request.FormingAnticipationCarryoverDurationSeconds =
+				FMath::Max(0.05f, PatternRuntime.ActiveConfig.FormingAnticipationCarryoverDurationSeconds);
+		}
 	}
 	else
 	{

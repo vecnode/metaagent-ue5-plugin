@@ -74,6 +74,14 @@ struct FMetaAgentParticlePatternConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.1"))
 	float AnticipationFrequencyHz = 1.2f;
 
+	/** Seconds to ramp anticipation motion in from idle at pattern start. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.05"))
+	float AnticipationIdleBlendDurationSeconds = 0.35f;
+
+	/** Seconds to crossfade continuing anticipation motion into forming after handoff. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.05"))
+	float FormingAnticipationCarryoverDurationSeconds = 0.35f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "1.0"))
 	float GridSpacingCm = 12.0f;
 
@@ -129,6 +137,10 @@ struct FMetaAgentParticlePatternRuntime
 	UPROPERTY()
 	TArray<FVector> BaselineWorldPositions;
 
+	/** Idle snapshot at pattern start; used for return rest targets after forming baselines are updated. */
+	UPROPERTY()
+	TArray<FVector> IdleBaselineWorldPositions;
+
 	UPROPERTY()
 	TArray<FVector> PatternWorldTargets;
 
@@ -146,6 +158,9 @@ struct FMetaAgentParticlePatternRuntime
 
 	UPROPERTY()
 	bool bAwaitingAsyncMask = false;
+
+	/** Anticipation elapsed time at Anticipating→Forming handoff; negative when carryover is inactive. */
+	float AnticipationHandoffElapsedSeconds = -1.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	FGameplayTagContainer ActivePatternTags;

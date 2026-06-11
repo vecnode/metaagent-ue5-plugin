@@ -259,6 +259,7 @@ private:
 	void CompletePatternRun();
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
+	void CommitAnticipationBaselineForForming();
 	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
 
 	UPROPERTY(Transient)

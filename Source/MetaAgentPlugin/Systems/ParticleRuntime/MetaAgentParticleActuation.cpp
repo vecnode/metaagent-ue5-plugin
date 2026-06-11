@@ -136,8 +136,6 @@ namespace MetaAgentParticleActuationInternal
 			&& Request.PatternState == EMetaAgentParticlePatternState::Anticipating;
 
 		const int32 TotalParticleCount = BaselineWorldPositions.Num();
-		const float AnticipationRadians = Request.AnticipationElapsedSeconds
-			* TWO_PI * FMath::Max(0.1f, Request.AnticipationFrequencyHz);
 
 		for (int32 LocalIndex = 0; LocalIndex <= MaxLocalIndex; ++LocalIndex)
 		{
@@ -170,28 +168,14 @@ namespace MetaAgentParticleActuationInternal
 
 				if (bAnticipatingMotion)
 				{
-					const FVector Baseline = BaselineWorldPositions[GlobalIndex];
-					FVector ToCenter = Request.PatternCenter - Baseline;
-					if (ToCenter.SizeSquared() < KINDA_SMALL_NUMBER)
-					{
-						ToCenter = FVector::UpVector;
-					}
-					const FVector RadialDir = ToCenter.GetSafeNormal();
-					FVector TangentDir = FVector::CrossProduct(RadialDir, FVector::UpVector);
-					if (!TangentDir.Normalize())
-					{
-						TangentDir = FVector::RightVector;
-					}
-
-					const float IndexPhase = static_cast<float>(GlobalIndex) * 0.37f;
-					const float Amplitude = FMath::Max(0.0f, Request.AnticipationAmplitudeCm);
-					const float RadialPulse = FMath::Sin(AnticipationRadians + IndexPhase) * Amplitude * 0.55f;
-					const float OrbitPulse = FMath::Cos(AnticipationRadians * 0.85f + IndexPhase * 1.7f) * Amplitude * 0.45f;
-					const float VerticalPulse = FMath::Sin(AnticipationRadians * 1.35f + IndexPhase * 0.61f) * Amplitude * 0.18f;
-					DesiredWorld = Baseline
-						+ RadialDir * RadialPulse
-						+ TangentDir * OrbitPulse
-						+ FVector::UpVector * VerticalPulse;
+					DesiredWorld = FMetaAgentParticleActuation::ComputeAnticipationWorldPosition(
+						BaselineWorldPositions[GlobalIndex],
+						GlobalIndex,
+						Request.PatternCenter,
+						Request.AnticipationElapsedSeconds,
+						Request.AnticipationAmplitudeCm,
+						Request.AnticipationFrequencyHz,
+						Request.AnticipationIdleBlendDurationSeconds);
 				}
 				else if (bUseFormingSolver)
 				{
@@ -213,7 +197,37 @@ namespace MetaAgentParticleActuationInternal
 						FormingContext.FormingSteeringOffset = (*Request.FormingSteeringOffsets)[GlobalIndex];
 					}
 
-					DesiredWorld = FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+					const FVector FormingWorld =
+						FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+
+					const bool bUseAnticipationCarryover = Request.AnticipationHandoffElapsedSeconds >= 0.0f
+						&& Request.IdleBaselineWorldPositions != nullptr
+						&& Request.IdleBaselineWorldPositions->IsValidIndex(GlobalIndex)
+						&& Request.FormingAnticipationCarryoverDurationSeconds > KINDA_SMALL_NUMBER
+						&& Request.FormingStateElapsedSeconds < Request.FormingAnticipationCarryoverDurationSeconds;
+
+					if (bUseAnticipationCarryover)
+					{
+						const float CarryoverNormalized = FMath::Clamp(
+							Request.FormingStateElapsedSeconds / Request.FormingAnticipationCarryoverDurationSeconds,
+							0.0f,
+							1.0f);
+						const float FormingWeight = CarryoverNormalized * CarryoverNormalized
+							* (3.0f - 2.0f * CarryoverNormalized);
+						const FVector ContinuingAnticipation = FMetaAgentParticleActuation::ComputeAnticipationWorldPosition(
+							(*Request.IdleBaselineWorldPositions)[GlobalIndex],
+							GlobalIndex,
+							Request.PatternCenter,
+							Request.AnticipationHandoffElapsedSeconds + Request.FormingStateElapsedSeconds,
+							Request.AnticipationAmplitudeCm,
+							Request.AnticipationFrequencyHz,
+							Request.AnticipationIdleBlendDurationSeconds);
+						DesiredWorld = FMath::Lerp(ContinuingAnticipation, FormingWorld, FormingWeight);
+					}
+					else
+					{
+						DesiredWorld = FormingWorld;
+					}
 				}
 				else
 				{
@@ -452,6 +466,75 @@ void IMetaAgentParticleActuator::ApplyParameters(const FMetaAgentParticleActuati
 
 void IMetaAgentParticleActuator::Reset()
 {
+}
+
+FVector FMetaAgentParticleActuation::ComputeAnticipationWorldPosition(
+	const FVector& IdleBaseline,
+	const int32 GlobalIndex,
+	const FVector& PatternCenter,
+	const float AnticipationElapsedSeconds,
+	const float AnticipationAmplitudeCm,
+	const float AnticipationFrequencyHz,
+	const float AnticipationIdleBlendDurationSeconds)
+{
+	FVector ToCenter = PatternCenter - IdleBaseline;
+	if (ToCenter.SizeSquared() < KINDA_SMALL_NUMBER)
+	{
+		ToCenter = FVector::UpVector;
+	}
+	const FVector RadialDir = ToCenter.GetSafeNormal();
+	FVector TangentDir = FVector::CrossProduct(RadialDir, FVector::UpVector);
+	if (!TangentDir.Normalize())
+	{
+		TangentDir = FVector::RightVector;
+	}
+
+	float IdleBlendWeight = 1.0f;
+	if (AnticipationIdleBlendDurationSeconds > KINDA_SMALL_NUMBER)
+	{
+		const float IdleBlendNormalized = FMath::Clamp(
+			AnticipationElapsedSeconds / AnticipationIdleBlendDurationSeconds,
+			0.0f,
+			1.0f);
+		IdleBlendWeight = IdleBlendNormalized * IdleBlendNormalized
+			* (3.0f - 2.0f * IdleBlendNormalized);
+	}
+
+	const float AnticipationRadians = AnticipationElapsedSeconds
+		* TWO_PI * FMath::Max(0.1f, AnticipationFrequencyHz);
+	const float IndexPhase = static_cast<float>(GlobalIndex) * 0.37f;
+	const float Amplitude = FMath::Max(0.0f, AnticipationAmplitudeCm) * IdleBlendWeight;
+	const float RadialPulse = FMath::Sin(AnticipationRadians + IndexPhase) * Amplitude * 0.55f;
+	const float OrbitPulse = FMath::Cos(AnticipationRadians * 0.85f + IndexPhase * 1.7f) * Amplitude * 0.45f;
+	const float VerticalPulse = FMath::Sin(AnticipationRadians * 1.35f + IndexPhase * 0.61f) * Amplitude * 0.18f;
+	return IdleBaseline
+		+ RadialDir * RadialPulse
+		+ TangentDir * OrbitPulse
+		+ FVector::UpVector * VerticalPulse;
+}
+
+void FMetaAgentParticleActuation::BuildAnticipationWorldPositions(
+	const TArray<FVector>& IdleBaselineWorldPositions,
+	const FVector& PatternCenter,
+	const float AnticipationElapsedSeconds,
+	const float AnticipationAmplitudeCm,
+	const float AnticipationFrequencyHz,
+	TArray<FVector>& OutWorldPositions,
+	const float AnticipationIdleBlendDurationSeconds)
+{
+	const int32 ParticleCount = IdleBaselineWorldPositions.Num();
+	OutWorldPositions.SetNum(ParticleCount);
+	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
+	{
+		OutWorldPositions[ParticleIndex] = ComputeAnticipationWorldPosition(
+			IdleBaselineWorldPositions[ParticleIndex],
+			ParticleIndex,
+			PatternCenter,
+			AnticipationElapsedSeconds,
+			AnticipationAmplitudeCm,
+			AnticipationFrequencyHz,
+			AnticipationIdleBlendDurationSeconds);
+	}
 }
 
 IMetaAgentParticleActuator& FMetaAgentParticleActuation::GetActuator(const EMetaAgentParticleActuationMode Mode)

@@ -55,11 +55,35 @@ struct FMetaAgentParticleActuationRequest
 	float AnticipationElapsedSeconds = 0.0f;
 	float AnticipationAmplitudeCm = 12.0f;
 	float AnticipationFrequencyHz = 1.2f;
+	float AnticipationIdleBlendDurationSeconds = 0.35f;
+	/** Idle baseline for anticipation carryover during early Forming. */
+	const TArray<FVector>* IdleBaselineWorldPositions = nullptr;
+	float AnticipationHandoffElapsedSeconds = -1.0f;
+	float FormingAnticipationCarryoverDurationSeconds = 0.35f;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation
 {
 public:
+	/** World position for one particle during Anticipating (idle baseline + center pull / orbit). */
+	static FVector ComputeAnticipationWorldPosition(
+		const FVector& IdleBaseline,
+		const int32 GlobalIndex,
+		const FVector& PatternCenter,
+		const float AnticipationElapsedSeconds,
+		const float AnticipationAmplitudeCm,
+		const float AnticipationFrequencyHz,
+		const float AnticipationIdleBlendDurationSeconds = 0.35f);
+
+	static void BuildAnticipationWorldPositions(
+		const TArray<FVector>& IdleBaselineWorldPositions,
+		const FVector& PatternCenter,
+		const float AnticipationElapsedSeconds,
+		const float AnticipationAmplitudeCm,
+		const float AnticipationFrequencyHz,
+		TArray<FVector>& OutWorldPositions,
+		const float AnticipationIdleBlendDurationSeconds = 0.35f);
+
 	static IMetaAgentParticleActuator& GetActuator(EMetaAgentParticleActuationMode Mode);
 
 	static int32 ApplyDirect(

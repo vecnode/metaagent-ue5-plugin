@@ -626,24 +626,19 @@ flowchart TB
 ### Module 7: Particle orchestrator + runtime
 
 <details>
-<summary>Particle runtime improvements (orchestrator, scatter, forming)</summary>
+<summary>Particle runtime (orchestrator, scatter, forming)</summary>
 
-Three focused upgrades to `UMetaAgentParticleRuntime` and its surrounding pipeline:
+#### Orchestrator layer
 
-#### 1. Orchestrator layer (decoupled from player controller)
-
-| Before | After |
-|--------|-------|
-| `AMetaAgentPlayerController` owned pattern config, preview, FSM triggers, and Niagara wiring inline | **`UMetaAgentParticleOrchestrator`** owns runtime, preview, config, and **`TriggerEffect(FName)`** |
-| Keyboard binds scattered across controller | **`FMetaAgentParticleInputRouter`** centralizes binds + help lines |
-| One-off effect logic in controller handlers | **`FMetaAgentParticleEffectSpec`** + **`MetaAgentParticleEffectIds`** catalog |
-
-- Controller is a thin host: input, Niagara export callbacks, Blueprint API → orchestrator.
-- **`UMetaAgentParticleRuntime`** still owns the master FSM, shape build, and actuation tick.
+- **`UMetaAgentParticleOrchestrator`** owns capture runtime, preview texture, pattern config, and **`TriggerEffect(FName)`**.
+- **`FMetaAgentParticleInputRouter`** centralizes keyboard binds and GUI help lines.
+- **`FMetaAgentParticleEffectSpec`** and **`MetaAgentParticleEffectIds`** define the built-in effect catalog.
+- **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
+- **`UMetaAgentParticleRuntime`** owns the master FSM, shape build, and actuation tick.
 - Subclass **`UMetaAgentDefaultParticleOrchestrator`** (or your own) to register custom effect ids via `PopulateEffectSpec`.
-- Removed unused keyboard binds (`A` attract, `X` spline, `M` mesh, `P` pattern toggle, `C` box sculpt, `V` image reveal, `1/2/3` play presets, `R` replay). Active map: `F`, `,`/`<<`, `.`/`>>`, `B/N`, `T`, `Y` (GUI **Play** / **<<** / **>>** mirror step controls).
+- Controls: `F`, `,`/`<<`, `.`/`>>`, `B/N`, `T`, `Y`; GUI **Play**, **<<**, **>>** mirror the step controls.
 
-#### 2. Image scatter grid (spatial spread across silhouette)
+#### Image scatter grid
 
 Targets are scattered across a **stratification grid** over the image mask — this is **spatial spread** of particle destinations, not the 1024px analysis resolution (`SampleResolution`).
 
@@ -651,16 +646,16 @@ Targets are scattered across a **stratification grid** over the image mask — t
 |---------|---------|------|
 | `DensityGridScale` | **5.0** (max 16) | Grid cells ≈ `sqrt(particleCount × scale)` — higher = targets spread across more of the silhouette |
 | `TargetJitterNormalized` | **0.7** (0–1) | Random offset within each grid cell |
-| `GrayscaleGamma` | **1.0** | Flatter density weighting (was 1.2) |
+| `GrayscaleGamma` | **1.0** | Density weighting for silhouette scatter |
 
-- **`ScatterStratifiedFromMaskWeights()`** in `MetaAgentParticleImageMaskProcessor` — shared stratified scatter for **GrayscaleDensity** and **SobelEdges** (Sobel no longer picks only the top 4× strongest edges).
-- Cycle sampling with **`T`** (`CycleSampling` effect): **GrayscaleDensity** → **SobelEdges** (legacy **FilledSilhouette** values sanitize to Gray).
+- **`ScatterStratifiedFromMaskWeights()`** in `MetaAgentParticleImageMaskProcessor` — stratified scatter for **GrayscaleDensity** and **SobelEdges**.
+- Cycle sampling with **`T`** (`CycleSampling` effect): **GrayscaleDensity** → **SobelEdges**.
 - Console: `MetaAgent.Pattern.ScatterGrid <1-16>`, `.ScatterJitter <0-1>` — status text shows `ScatterGrid` / `stratGrid=NxN`.
 - Rebuild after scatter changes: press **`F`**, then **`>>`** or GUI **Play**.
 
-#### 3. Forming mode solvers (animated paths into Holding)
+#### Forming mode solvers
 
-Forming is no longer a single lerp. **`FMetaAgentParticleFormingSolverRegistry`** selects motion during **Forming** while Holding / Returning stay unchanged.
+**`FMetaAgentParticleFormingSolverRegistry`** drives particle motion during **Forming**.
 
 | Mode | Runtime behavior |
 |------|------------------|
@@ -668,12 +663,10 @@ Forming is no longer a single lerp. **`FMetaAgentParticleFormingSolverRegistry`*
 | **ArcLift** | Vertical arc (world Z) mid-form, settle on target |
 | **SpiralIn** | Spiral inward around `PatternCenter` |
 
-Legacy enum values (**StaggeredWave**, **SpringChase**, **NiagaraForces**) sanitize to **DirectLerp**.
-
 - Config: **`FMetaAgentParticleFormingSettings`** on `FMetaAgentParticlePatternConfig` (category **Pattern | Forming**).
 - Cycle with **`Y`** or `MetaAgent.Pattern.Forming Cycle` (`CycleForming` effect). Live switch mid-run updates `ActiveConfig.Forming`.
 - Actuation: Direct buffer path calls the solver registry; Parameters/Hybrid also receive `MetaAgentFormingMode`, `MetaAgentFormingArcLift`, etc.
-- Optional `FormCurve` on pattern assets still remaps forming phase before solvers run.
+- Optional `FormCurve` on pattern assets remaps forming phase before solvers run.
 
 ```mermaid
 flowchart LR
@@ -719,12 +712,12 @@ flowchart LR
 
 - **`UMetaAgentParticleOrchestrator`** (abstract, Blueprint-subclassable) owns capture runtime, preview texture, pattern config, and routes **`TriggerEffect(FName)`** through the shared FSM.
 - **`AMetaAgentPlayerController`** is a thin host: input, Niagara export callbacks, and Blueprint API delegate to the orchestrator.
-- **`UMetaAgentParticleRuntime`** still owns the master FSM and Niagara readback/writeback.
+- **`UMetaAgentParticleRuntime`** owns the master FSM and Niagara readback/writeback.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- Keyboard map (no `P` / skip-hold bind): `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
+- Keyboard: `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
 - Every pattern start enters **Anticipating** first (attraction/orbit motion toward the shape center). Async PNG mask builds run during **Anticipating** — particles keep moving while the mask loads. Manual stepping is the default (`bManualPatternStateAdvance = true`); **Play** runs the full auto chain.
-- State chain: **Anticipating → Forming → Holding → Returning → Idle** (legacy **Preparing** redirects to **Anticipating**).
+- State chain: **Anticipating → Forming → Holding → Returning → Idle**.
 - **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** stratified scatter; mask analyzed at **1024px** `SampleResolution`; fallback: **SquareGrid**).
 - Default **ShapeAnchor = ParticleCentroid**: grayscale image is centered on the particle cloud and auto-fitted to its bounding sphere; preview plane (`F`) is texture-only unless `PreviewPlane` anchor is set.
 - PNG decode + shape sampling (**GrayscaleDensity** by default; **SobelEdges** optional) run on a **background thread** (`FMetaAgentParticleShapeCache`); the game thread stays responsive. Cache keys include PNG **file timestamp + size**, so replacing `sdxl_latest.png` on disk triggers a fresh build on the next `F` / pattern start.
@@ -737,7 +730,7 @@ flowchart LR
 - Anticipation tunables: **MetaAgent | Particles | Pattern | Anticipating** — `AnticipationAmplitudeCm`, `AnticipationFrequencyHz`.
 - Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Gray|Sobel`, `.Forming Lerp|Arc|Spiral`, `.ScatterGrid`, `.ScatterJitter`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Ready`.
 - **Forming solvers** (`FMetaAgentParticleFormingSolverRegistry`): DirectLerp (default), ArcLift, SpiralIn. Cycle with `Y` or `MetaAgent.Pattern.Forming Cycle`.
-- Effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `PatternStepForward`, `PatternStepBackward`, `PresetSlow`, `PresetDramatic`, `CycleSampling`, `CycleForming` (`PlayNormal` / `PlaySlow` / `PlayDramatic` / `ReplayLast` remain for Blueprint/console; spline/mesh/attract via console or `TriggerParticleEffect` only).
+- Built-in effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `PatternStepForward`, `PatternStepBackward`, `PresetSlow`, `PresetDramatic`, `CycleSampling`, `CycleForming`. Additional ids (for example `SplinePath`, `MeshSilhouette`, `AttractToView`) are available via `TriggerParticleEffect` or console.
 - Implemented in:
 	- `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
@@ -918,7 +911,7 @@ flowchart LR
 13. `Returning` drives phase 1→0 while blending from the held shape toward a **frozen idle snapshot** (`BaselineWorldPositions` captured at pattern start). Rest targets are not refreshed each tick (avoids Direct-write feedback flicker).
 14. When return phase drops below `ReturnReleaseAuthorityThreshold`, Direct buffer writes stop and Niagara regains sim control before **Idle**.
 15. On completion, state returns to `Idle` and normal capture resumes.
-16. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternQueue(Asset)`, plus legacy `StartParticleSquarePattern()`.
+16. Blueprint API: `TriggerParticleEffect(EffectId)`, `GetParticleOrchestrator()`, `StartParticlePattern()`, `RequestPatternStart(Asset)`, `RequestPatternCancel()`, `RequestSkipHold()`, `RequestPatternQueue(Asset)`.
 
 </details>
 
