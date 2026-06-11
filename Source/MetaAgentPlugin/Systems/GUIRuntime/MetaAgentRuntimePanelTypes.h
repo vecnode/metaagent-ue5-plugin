@@ -85,6 +85,9 @@ struct FMetaAgentGUIRuntimeSection
 
 	UPROPERTY()
 	TArray<FString> StatusLines;
+
+	UPROPERTY()
+	bool bSectionExpanded = true;
 };
 
 struct FMetaAgentHUDClickRegion
@@ -100,6 +103,24 @@ struct FMetaAgentHUDClickRegion
 		return MouseX >= X && MouseX <= (X + W) && MouseY >= Y && MouseY <= (Y + H);
 	}
 };
+
+inline FName MakeSectionExpandActionId(const FName RuntimeId)
+{
+	return FName(*FString::Printf(TEXT("SectionExpand_%s"), *RuntimeId.ToString()));
+}
+
+inline bool ParseSectionExpandAction(const FName ActionId, FName& OutRuntimeId)
+{
+	static const FString Prefix = TEXT("SectionExpand_");
+	const FString ActionString = ActionId.ToString();
+	if (!ActionString.StartsWith(Prefix))
+	{
+		return false;
+	}
+
+	OutRuntimeId = FName(*ActionString.Mid(Prefix.Len()));
+	return !OutRuntimeId.IsNone();
+}
 
 inline bool ParseRuntimeToggleAction(const FName ActionId, FName& OutRuntimeId)
 {

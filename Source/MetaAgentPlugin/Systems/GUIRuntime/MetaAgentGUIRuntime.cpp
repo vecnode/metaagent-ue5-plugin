@@ -38,6 +38,25 @@ namespace
 		Section.StatusLines = StatusLines;
 		return Section;
 	}
+
+	void ApplySectionExpandState(FMetaAgentGUIState& GUI, FMetaAgentGUIRuntimeSection& Section)
+	{
+		if (const bool* CachedExpanded = GUI.SectionExpandedStates.Find(Section.RuntimeId))
+		{
+			Section.bSectionExpanded = *CachedExpanded;
+			return;
+		}
+
+		const bool bHasDetails = Section.StatusLines.Num() > 0 || Section.ActionRows.Num() > 0;
+		Section.bSectionExpanded = Section.bRuntimeEnabled || !bHasDetails;
+		GUI.SectionExpandedStates.Add(Section.RuntimeId, Section.bSectionExpanded);
+	}
+
+	void FinalizeSection(FMetaAgentGUIState& GUI, FMetaAgentGUIRuntimeSection Section)
+	{
+		ApplySectionExpandState(GUI, Section);
+		GUI.RuntimeSections.Add(Section);
+	}
 }
 
 void FMetaAgentGUIRuntime::BuildRuntimeSections(
@@ -50,7 +69,7 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("Q"), TEXT("Toggle controls panel"), MetaAgentRuntimeIds::ToggleHelpPanel));
 		Rows.Add(MakeActionRow(TEXT("Esc"), TEXT("Quit application"), MetaAgentRuntimeIds::QuitApplication));
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::GUI,
 			TEXT("GUI Runtime"),
 			true,
@@ -60,9 +79,23 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 
 	{
 		TArray<FMetaAgentGUIActionRow> Rows;
+		Rows.Add(MakeActionRow(TEXT("W/A/S/D"), TEXT("Move"), NAME_None));
+		Rows.Add(MakeActionRow(TEXT("Shift"), TEXT("Sprint modifier"), NAME_None));
+		Rows.Add(MakeActionRow(TEXT("Mouse"), TEXT("Look"), NAME_None));
+		GUI.bCharacterInputRuntimeEnabled = true;
+		FinalizeSection(GUI, MakeSection(
+			MetaAgentRuntimeIds::CharacterInput,
+			TEXT("Character Input Runtime"),
+			true,
+			true,
+			Rows));
+	}
+
+	{
+		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("O"), TEXT("Toggle cinematic camera"), MetaAgentRuntimeIds::ToggleCinematicCamera));
 		Rows.Add(MakeActionRow(TEXT("Wheel"), TEXT("Zoom camera distance"), NAME_None));
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Camera,
 			TEXT("Camera Runtime"),
 			false,
@@ -73,7 +106,7 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 	{
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("I"), TEXT("Toggle AI autopilot"), MetaAgentRuntimeIds::ToggleAutopilot));
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::AI,
 			TEXT("AI Runtime"),
 			false,
@@ -91,7 +124,7 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("J"), TEXT("Toggle viewport capture"), MetaAgentRuntimeIds::ToggleRecording));
 		Rows.Add(MakeActionRow(TEXT("U"), TEXT("Finalize / show capture output"), MetaAgentRuntimeIds::ReportRecording));
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Recording,
 			TEXT("Recording Runtime"),
 			false,
@@ -126,7 +159,7 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("H"), TEXT("Send HTTP 'start audio'"), MetaAgentRuntimeIds::StartAudio));
 		Rows.Add(MakeActionRow(TEXT("G"), TEXT("Send HTTP 'start image'"), MetaAgentRuntimeIds::StartImage));
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Networking,
 			TEXT("Networking Runtime"),
 			false,
@@ -155,26 +188,13 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		StatusLines.Add(Controller.GetParticlePatternStatusText());
 		StatusLines.Add(FString::Printf(TEXT("Pattern Queue Depth: %d"), Controller.GetParticlePatternQueueDepth()));
 
-		GUI.RuntimeSections.Add(MakeSection(
+		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Particle,
 			TEXT("Particle Runtime"),
 			false,
 			GUI.bParticleRuntimeEnabled,
 			Rows,
 			StatusLines));
-	}
-
-	{
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("W/A/S/D"), TEXT("Move (input fallback)"), NAME_None));
-		Rows.Add(MakeActionRow(TEXT("Shift"), TEXT("Sprint modifier (input fallback)"), NAME_None));
-		Rows.Add(MakeActionRow(TEXT("Mouse"), TEXT("Look input (input fallback)"), NAME_None));
-		GUI.RuntimeSections.Add(MakeSection(
-			MetaAgentRuntimeIds::CharacterInput,
-			TEXT("Character Input Runtime"),
-			false,
-			GUI.bCharacterInputRuntimeEnabled,
-			Rows));
 	}
 }
 

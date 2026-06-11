@@ -1,11 +1,156 @@
 ﻿// Based on Unreal Engine template code.
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
+#include "Core/MetaAgent.h"
 #include "Gameplay/Controllers/MetaAgentPlayerController.h"
+#include "EnhancedInputSubsystems.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "InputCoreTypes.h"
+#include "InputMappingContext.h"
+
+namespace MetaAgentInputFallbackInternal
+{
+	static UInputMappingContext* ResolveMappingContextWithFallback(
+		const TSoftObjectPtr<UInputMappingContext>& SoftReference,
+		const TCHAR* LegacyPath,
+		const TCHAR* ContextLabel,
+		const UObject* WorldContext)
+	{
+		if (!SoftReference.IsNull())
+		{
+			if (UInputMappingContext* LoadedFromSoftRef = SoftReference.LoadSynchronous())
+			{
+				return LoadedFromSoftRef;
+			}
+		}
+
+		if (LegacyPath && LegacyPath[0] != TEXT('\0'))
+		{
+			if (UInputMappingContext* LoadedFromLegacyPath = Cast<UInputMappingContext>(
+				StaticLoadObject(UInputMappingContext::StaticClass(), nullptr, LegacyPath)))
+			{
+				return LoadedFromLegacyPath;
+			}
+		}
+
+		return nullptr;
+	}
+}
+
+void AMetaAgentPlayerController::EnsureEnhancedInputMappingContexts()
+{
+	if (!IsLocalPlayerController() || ShouldUseTouchControls())
+	{
+		return;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	if (DefaultMappingContexts.Num() == 0)
+	{
+		if (UInputMappingContext* DefaultContext = MetaAgentInputFallbackInternal::ResolveMappingContextWithFallback(
+			DefaultMappingContextAsset,
+			TEXT("/Game/Input/IMC_Default.IMC_Default"),
+			TEXT("DefaultMappingContext"),
+			this))
+		{
+			DefaultMappingContexts.Add(DefaultContext);
+		}
+	}
+
+	if (MobileExcludedMappingContexts.Num() == 0)
+	{
+		if (UInputMappingContext* MouseContext = MetaAgentInputFallbackInternal::ResolveMappingContextWithFallback(
+			MouseLookMappingContextAsset,
+			TEXT("/Game/Input/IMC_MouseLook.IMC_MouseLook"),
+			TEXT("MouseLookMappingContext"),
+			this))
+		{
+			MobileExcludedMappingContexts.Add(MouseContext);
+		}
+	}
+
+	InputFallback.bAddedAnyMappingContext = false;
+
+	for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
+	{
+		if (CurrentContext)
+		{
+			Subsystem->AddMappingContext(CurrentContext, 0);
+			InputFallback.bAddedAnyMappingContext = true;
+		}
+	}
+
+	for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
+	{
+		if (CurrentContext)
+		{
+			Subsystem->AddMappingContext(CurrentContext, 0);
+			InputFallback.bAddedAnyMappingContext = true;
+		}
+	}
+}
+
+void AMetaAgentPlayerController::RemoveEnhancedInputMappingContexts()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+	{
+		for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
+		{
+			if (CurrentContext)
+			{
+				Subsystem->RemoveMappingContext(CurrentContext);
+			}
+		}
+
+		for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
+		{
+			if (CurrentContext)
+			{
+				Subsystem->RemoveMappingContext(CurrentContext);
+			}
+		}
+	}
+
+	InputFallback.bAddedAnyMappingContext = false;
+}
+
+void AMetaAgentPlayerController::ApplyCharacterInputRuntimeState()
+{
+	if (!IsLocalPlayerController() || ShouldUseTouchControls())
+	{
+		return;
+	}
+
+	const bool bCharacterInputAllowed =
+		IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput) && !IsGUIInteractionModeActive();
+
+	if (bCharacterInputAllowed)
+	{
+		EnsureEnhancedInputMappingContexts();
+		SetIgnoreMoveInput(false);
+		SetIgnoreLookInput(false);
+	}
+	else
+	{
+		RemoveEnhancedInputMappingContexts();
+		SetIgnoreMoveInput(true);
+		SetIgnoreLookInput(true);
+	}
+}
 
 void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPawn)
 {
@@ -65,7 +210,6 @@ void AMetaAgentPlayerController::ApplyFallbackLookInput()
 	float MouseDeltaY = 0.0f;
 	GetInputMouseDelta(MouseDeltaX, MouseDeltaY);
 
-	// PIE can report zero mouse delta depending on capture mode. Use axis keys as fallback.
 	if (FMath::IsNearlyZero(MouseDeltaX) && FMath::IsNearlyZero(MouseDeltaY))
 	{
 		MouseDeltaX = GetInputAnalogKeyState(EKeys::MouseX);
@@ -79,8 +223,6 @@ void AMetaAgentPlayerController::ApplyFallbackLookInput()
 
 	const float EffectiveMouseSensitivity = InputFallback.MouseSensitivity * 2.0f;
 
-	// PIE/editor capture paths can ignore AddYawInput/AddPitchInput.
-	// Apply rotation directly so camera look always responds to mouse movement.
 	if (IsLookInputIgnored())
 	{
 		SetIgnoreLookInput(false);
@@ -91,4 +233,3 @@ void AMetaAgentPlayerController::ApplyFallbackLookInput()
 	NewControlRotation.Pitch = FMath::ClampAngle(NewControlRotation.Pitch - (MouseDeltaY * EffectiveMouseSensitivity), -85.0f, 85.0f);
 	SetControlRotation(NewControlRotation);
 }
-

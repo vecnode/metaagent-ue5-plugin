@@ -43,8 +43,7 @@ void AMetaAgentPlayerController::ApplyGUIInteractionInputModeFromPanelState()
 		bShowMouseCursor = false;
 		bEnableClickEvents = false;
 		bEnableMouseOverEvents = false;
-		SetIgnoreLookInput(false);
-		SetIgnoreMoveInput(false);
+		ApplyCharacterInputRuntimeState();
 	}
 }
 
@@ -91,6 +90,13 @@ void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 	if (ActionId == MetaAgentRuntimeIds::QuitApplication)
 	{
 		HandleEscapePressed();
+		return;
+	}
+
+	FName SectionExpandId = NAME_None;
+	if (ParseSectionExpandAction(ActionId, SectionExpandId))
+	{
+		ToggleRuntimeSectionExpanded(SectionExpandId);
 		return;
 	}
 

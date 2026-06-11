@@ -11,6 +11,7 @@ bool AMetaAgentPlayerController::IsModularRuntimeEnabled(const EMetaAgentModular
 	switch (Runtime)
 	{
 	case EMetaAgentModularRuntime::GUI:
+	case EMetaAgentModularRuntime::CharacterInput:
 		return true;
 	case EMetaAgentModularRuntime::Camera:
 		return GUI.bCameraRuntimeEnabled;
@@ -22,8 +23,6 @@ bool AMetaAgentPlayerController::IsModularRuntimeEnabled(const EMetaAgentModular
 		return GUI.bNetworkingRuntimeEnabled;
 	case EMetaAgentModularRuntime::Particle:
 		return GUI.bParticleRuntimeEnabled;
-	case EMetaAgentModularRuntime::CharacterInput:
-		return GUI.bCharacterInputRuntimeEnabled;
 	default:
 		return true;
 	}
@@ -36,7 +35,7 @@ bool AMetaAgentPlayerController::IsGUIInteractionModeActive() const
 
 void AMetaAgentPlayerController::SetModularRuntimeEnabled(const EMetaAgentModularRuntime Runtime, const bool bEnabled)
 {
-	if (Runtime == EMetaAgentModularRuntime::GUI)
+	if (Runtime == EMetaAgentModularRuntime::GUI || Runtime == EMetaAgentModularRuntime::CharacterInput)
 	{
 		return;
 	}
@@ -84,9 +83,6 @@ void AMetaAgentPlayerController::SetModularRuntimeEnabled(const EMetaAgentModula
 	case EMetaAgentModularRuntime::Particle:
 		GUI.bParticleRuntimeEnabled = bEnabled;
 		break;
-	case EMetaAgentModularRuntime::CharacterInput:
-		GUI.bCharacterInputRuntimeEnabled = bEnabled;
-		break;
 	default:
 		break;
 	}
@@ -94,9 +90,21 @@ void AMetaAgentPlayerController::SetModularRuntimeEnabled(const EMetaAgentModula
 	ApplyGUIHelpPanelState();
 }
 
+void AMetaAgentPlayerController::ToggleRuntimeSectionExpanded(const FName RuntimeId)
+{
+	if (RuntimeId.IsNone())
+	{
+		return;
+	}
+
+	bool& bExpanded = GUI.SectionExpandedStates.FindOrAdd(RuntimeId);
+	bExpanded = !bExpanded;
+	ApplyGUIHelpPanelState();
+}
+
 void AMetaAgentPlayerController::ToggleModularRuntime(const EMetaAgentModularRuntime Runtime)
 {
-	if (Runtime == EMetaAgentModularRuntime::GUI)
+	if (Runtime == EMetaAgentModularRuntime::GUI || Runtime == EMetaAgentModularRuntime::CharacterInput)
 	{
 		return;
 	}

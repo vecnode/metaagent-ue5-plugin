@@ -1,6 +1,7 @@
 ﻿// Copyright (c) vecnode 2026. All Rights Reserved.
 
 #include "Systems/GUIRuntime/MetaAgentHUD.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 
@@ -15,6 +16,7 @@ namespace
 	constexpr float StatusLineHeight = 18.0f;
 	constexpr float KeyColumnWidth = 72.0f;
 	constexpr float ToggleButtonWidth = 72.0f;
+	constexpr float CollapseButtonWidth = 24.0f;
 	constexpr float PanelMinWidth = 460.0f;
 	constexpr float TextScale = 1.0f;
 
@@ -149,7 +151,15 @@ void AMetaAgentHUD::DrawRuntimePanel()
 	float MaxContentWidth = MeasureTextWidth(Canvas, PanelFont, PanelTitle);
 	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
 	{
-		MaxContentWidth = FMath::Max(MaxContentWidth, MeasureTextWidth(Canvas, PanelFont, Section.Title) + ToggleButtonWidth + 16.0f);
+		MaxContentWidth = FMath::Max(
+			MaxContentWidth,
+			CollapseButtonWidth + MeasureTextWidth(Canvas, PanelFont, Section.Title) + ToggleButtonWidth + 24.0f);
+
+		if (!Section.bSectionExpanded)
+		{
+			continue;
+		}
+
 		for (const FMetaAgentGUIActionRow& Row : Section.ActionRows)
 		{
 			const FString RowText = FString::Printf(TEXT("%s  %s"), *Row.KeyLabel, *Row.Description);
@@ -167,8 +177,11 @@ void AMetaAgentHUD::DrawRuntimePanel()
 	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
 	{
 		TotalHeight += HeaderHeight + SectionGap;
-		TotalHeight += Section.ActionRows.Num() * RowHeight;
-		TotalHeight += Section.StatusLines.Num() * StatusLineHeight;
+		if (Section.bSectionExpanded)
+		{
+			TotalHeight += Section.ActionRows.Num() * RowHeight;
+			TotalHeight += Section.StatusLines.Num() * StatusLineHeight;
+		}
 		TotalHeight += SectionGap;
 	}
 	TotalHeight += PanelPadding;
@@ -183,7 +196,44 @@ void AMetaAgentHUD::DrawRuntimePanel()
 	for (const FMetaAgentGUIRuntimeSection& Section : RuntimePanelSections)
 	{
 		const FColor HeaderColor = Section.bRuntimeEnabled ? FColor::Cyan : FColor(160, 160, 160);
-		DrawText(Section.Title, HeaderColor, PanelX + PanelPadding, DrawY, const_cast<UFont*>(PanelFont), TextScale, false);
+		const bool bHasSectionBody = Section.ActionRows.Num() > 0 || Section.StatusLines.Num() > 0;
+		const float CollapseX = PanelX + PanelPadding;
+		const float CollapseY = DrawY - 2.0f;
+		const FString CollapseLabel = Section.bSectionExpanded ? TEXT("v") : TEXT(">");
+
+		if (bHasSectionBody)
+		{
+			DrawRect(
+				FLinearColor(0.18f, 0.18f, 0.22f, 0.82f),
+				CollapseX,
+				CollapseY,
+				CollapseButtonWidth,
+				HeaderHeight - 2.0f);
+			DrawText(
+				CollapseLabel,
+				FColor::White,
+				CollapseX + 8.0f,
+				DrawY,
+				const_cast<UFont*>(PanelFont),
+				TextScale,
+				false);
+			AddClickRegion(
+				RuntimeClickRegions,
+				MakeSectionExpandActionId(Section.RuntimeId),
+				CollapseX,
+				CollapseY,
+				CollapseButtonWidth,
+				HeaderHeight - 2.0f);
+		}
+
+		DrawText(
+			Section.Title,
+			HeaderColor,
+			PanelX + PanelPadding + (bHasSectionBody ? (CollapseButtonWidth + 6.0f) : 0.0f),
+			DrawY,
+			const_cast<UFont*>(PanelFont),
+			TextScale,
+			false);
 
 		if (!Section.bRuntimeAlwaysOn)
 		{
@@ -215,6 +265,12 @@ void AMetaAgentHUD::DrawRuntimePanel()
 		}
 
 		DrawY += HeaderHeight;
+
+		if (!Section.bSectionExpanded)
+		{
+			DrawY += SectionGap;
+			continue;
+		}
 
 		for (const FMetaAgentGUIActionRow& Row : Section.ActionRows)
 		{

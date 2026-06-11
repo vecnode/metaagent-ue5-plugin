@@ -417,6 +417,9 @@ struct FMetaAgentGUIState
 
 	UPROPERTY(Transient)
 	TArray<FMetaAgentGUIRuntimeSection> RuntimeSections;
+
+	UPROPERTY(Transient)
+	TMap<FName, bool> SectionExpandedStates;
 };
 
 /**
@@ -721,6 +724,12 @@ public:
 	/** Toggles autopilot from GUI clicks (skips keyboard debounce). */
 	void ToggleAutopilotFromGUI();
 
+	/** Applies character-input runtime enable/disable to Enhanced Input and ignore flags. */
+	void ApplyCharacterInputRuntimeState();
+
+	/** Expands or collapses a runtime section body in the controls panel. */
+	void ToggleRuntimeSectionExpanded(FName RuntimeId);
+
 protected:
 
 	/** Resets one-shot movement diagnostics after each possession change. */
@@ -740,6 +749,9 @@ protected:
 
 	/** Applies raw mouse fallback look when enhanced input is unavailable. */
 	void ApplyFallbackLookInput();
+
+	void EnsureEnhancedInputMappingContexts();
+	void RemoveEnhancedInputMappingContexts();
 
 	/** Emits one-shot animation and movement diagnostics after motion begins. */
 	void LogMovementAnimationDiagnostics(APawn* ControlledPawn);

@@ -2,6 +2,8 @@
 // Project-specific implementation and modifications Copyright (c) vecnode, 2026.
 
 #include "Gameplay/Characters/MetaAgentCharacter.h"
+#include "Gameplay/Controllers/MetaAgentPlayerController.h"
+#include "Systems/GUIRuntime/MetaAgentRuntimePanelTypes.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -203,6 +205,14 @@ void AMetaAgentCharacter::Look(const FInputActionValue& Value)
 
 void AMetaAgentCharacter::DoMove(float Right, float Forward)
 {
+	if (const AMetaAgentPlayerController* MetaAgentController = Cast<AMetaAgentPlayerController>(GetController()))
+	{
+		if (!MetaAgentController->IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput))
+		{
+			return;
+		}
+	}
+
 	if (GetController() != nullptr)
 	{
 		// find out which way is forward
@@ -223,6 +233,14 @@ void AMetaAgentCharacter::DoMove(float Right, float Forward)
 
 void AMetaAgentCharacter::DoLook(float Yaw, float Pitch)
 {
+	if (const AMetaAgentPlayerController* MetaAgentController = Cast<AMetaAgentPlayerController>(GetController()))
+	{
+		if (!MetaAgentController->IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput))
+		{
+			return;
+		}
+	}
+
 	if (GetController() != nullptr)
 	{
 		// add yaw and pitch input to controller

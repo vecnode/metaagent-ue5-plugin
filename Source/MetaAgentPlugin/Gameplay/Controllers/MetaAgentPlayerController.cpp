@@ -600,71 +600,9 @@ void AMetaAgentPlayerController::SetupInputComponent()
 		}
 	}
 
-	// only add IMCs for local player controllers
 	if (IsLocalPlayerController())
 	{
-		InputFallback.bAddedAnyMappingContext = false;
-
-		// Add Input Mapping Contexts
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
-		{
-			if (DefaultMappingContexts.Num() == 0)
-			{
-				if (UInputMappingContext* DefaultContext = ResolveMappingContextWithFallback(
-					DefaultMappingContextAsset,
-					TEXT("/Game/Input/IMC_Default.IMC_Default"),
-					TEXT("DefaultMappingContext"),
-					this))
-				{
-					DefaultMappingContexts.Add(DefaultContext);
-				}
-			}
-
-			if (MobileExcludedMappingContexts.Num() == 0)
-			{
-				if (UInputMappingContext* MouseContext = ResolveMappingContextWithFallback(
-					MouseLookMappingContextAsset,
-					TEXT("/Game/Input/IMC_MouseLook.IMC_MouseLook"),
-					TEXT("MouseLookMappingContext"),
-					this))
-				{
-					MobileExcludedMappingContexts.Add(MouseContext);
-				}
-			}
-
-			for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
-			{
-				if (CurrentContext)
-				{
-					Subsystem->AddMappingContext(CurrentContext, 0);
-					InputFallback.bAddedAnyMappingContext = true;
-				}
-			}
-
-			// only add these IMCs if we're not using mobile touch input
-			if (!ShouldUseTouchControls())
-			{
-				for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
-				{
-					if (CurrentContext)
-					{
-						Subsystem->AddMappingContext(CurrentContext, 0);
-						InputFallback.bAddedAnyMappingContext = true;
-					}
-				}
-			}
-
-			if (!InputFallback.bAddedAnyMappingContext)
-			{
-				UE_LOG(LogMetaAgent, Warning,
-					TEXT("AMetaAgentPlayerController: No input mapping contexts were added. Raw keyboard/mouse fallback remains active."));
-			}
-		}
-		else
-		{
-			UE_LOG(LogMetaAgent, Warning,
-				TEXT("AMetaAgentPlayerController: EnhancedInputLocalPlayerSubsystem unavailable. Raw keyboard/mouse fallback remains active."));
-		}
+		ApplyCharacterInputRuntimeState();
 	}
 }
 
