@@ -550,6 +550,9 @@ public:
 	void HandleParticleStepPatternForwardPressed();
 	void HandleParticleSlowPresetPressed();
 	void HandleParticleDramaticPresetPressed();
+	void HandleParticleSnappyPresetPressed();
+	void HandleParticleDreamyPresetPressed();
+	void HandleParticleMorphPressed();
 	void HandleParticleCycleSamplingPressed();
 	void HandleParticleCycleFormingPressed();
 	void HandleParticleCycleReturningPressed();

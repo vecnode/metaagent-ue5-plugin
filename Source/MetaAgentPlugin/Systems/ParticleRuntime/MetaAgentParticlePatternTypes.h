@@ -34,6 +34,8 @@ enum class EMetaAgentParticlePatternPreset : uint8
 	Normal,
 	Slow,
 	Dramatic,
+	Snappy,
+	Dreamy,
 	Custom
 };
 
@@ -101,14 +103,22 @@ struct FMetaAgentParticlePatternConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning")
 	FMetaAgentParticleReturnSettings Return;
 
+	/** Sinusoidal hold breathe amplitude during Sustain (0 = off, ~0.04 = subtle). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Hold", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HoldPulseAmplitude = 0.04f;
+
+	/** Hold breathe frequency in Hz. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Hold", meta = (ClampMin = "0.1"))
+	float HoldPulseFrequencyHz = 0.75f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	EMetaAgentParticlePatternPreset ActivePreset = EMetaAgentParticlePatternPreset::Normal;
 
-	static FMetaAgentParticlePatternConfig MakeFromPreset(EMetaAgentParticlePatternPreset Preset);
+	METAAGENTPLUGIN_API static FMetaAgentParticlePatternConfig MakeFromPreset(EMetaAgentParticlePatternPreset Preset);
 
-	void ApplyPreset(EMetaAgentParticlePatternPreset Preset);
+	METAAGENTPLUGIN_API void ApplyPreset(EMetaAgentParticlePatternPreset Preset);
 
-	FString GetPresetDisplayName() const;
+	METAAGENTPLUGIN_API FString GetPresetDisplayName() const;
 };
 
 USTRUCT(BlueprintType)

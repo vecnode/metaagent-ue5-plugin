@@ -39,11 +39,21 @@ bool UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
 		return false;
 	}
 
+	const FString ParameterSuffix = FString::Printf(TEXT(".%s"), *ParameterName.ToString());
+
 	TArray<FNiagaraVariable> ExposedParameters;
 	NiagaraSystem->GetExposedParameters().GetParameters(ExposedParameters);
 	for (const FNiagaraVariable& ExposedParameter : ExposedParameters)
 	{
-		if (ExposedParameter.GetName() == ParameterName)
+		const FName ExposedName = ExposedParameter.GetName();
+		if (ExposedName == ParameterName)
+		{
+			return true;
+		}
+
+		const FString ExposedString = ExposedName.ToString();
+		if (ExposedString.Equals(ParameterName.ToString(), ESearchCase::CaseSensitive)
+			|| ExposedString.EndsWith(ParameterSuffix, ESearchCase::CaseSensitive))
 		{
 			return true;
 		}
@@ -106,6 +116,9 @@ const UMetaAgentNiagaraSystemProfile* UMetaAgentNiagaraSystemProfile::GetDefault
 			NAME_None,
 			RF_Transient | RF_Public);
 		DefaultProfile->DisplayName = FText::FromString(TEXT("MetaAgent Default Niagara Profile"));
+		DefaultProfile->Capabilities = static_cast<int32>(
+			EMetaAgentNiagaraDriverCapability::ParameterPhase
+			| EMetaAgentNiagaraDriverCapability::DissipateVisibility);
 		DefaultProfile->RequiredUserParameters = {
 			MetaAgentNiagaraProfileInternal::PatternPhaseParameterName,
 			MetaAgentNiagaraProfileInternal::PatternCenterParameterName,

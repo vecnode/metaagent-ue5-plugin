@@ -345,7 +345,6 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMetaAgentNiagaraTargetData> SharedNiagaraTargetData = nullptr;
 
-	float ActiveHoldPulseAmplitude = 0.0f;
 	float FormingSteeringBlendElapsedSeconds = 0.0f;
 	float LastPatternTickDeltaSeconds = 0.0f;
 	bool bLoggedPatternStart = false;

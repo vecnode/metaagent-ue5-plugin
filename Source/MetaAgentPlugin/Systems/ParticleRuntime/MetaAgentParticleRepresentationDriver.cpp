@@ -12,24 +12,59 @@ namespace MetaAgentRepresentationDriverInternal
 	static const FName DirectDriverId(TEXT("DirectPosition"));
 	static const FName ParameterDriverId(TEXT("NiagaraParameters"));
 
+	bool CanPushTargetPayload(
+		const UNiagaraComponent& NiagaraComponent,
+		const UMetaAgentNiagaraSystemProfile* Profile)
+	{
+		if (!Profile || !Profile->HasCapability(EMetaAgentNiagaraDriverCapability::TargetArrayUpload))
+		{
+			return false;
+		}
+
+		if (!Profile->TargetDataParameterName.IsNone()
+			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
+				NiagaraComponent,
+				Profile->TargetDataParameterName))
+		{
+			return true;
+		}
+
+		if (!Profile->TargetCountParameterName.IsNone()
+			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
+				NiagaraComponent,
+				Profile->TargetCountParameterName))
+		{
+			return true;
+		}
+
+		return false;
+	}
+
 	void PushTargetArrays(
 		UNiagaraComponent& NiagaraComponent,
 		const UMetaAgentNiagaraSystemProfile* Profile,
 		const FMetaAgentParticleRepresentationFrame& Frame,
 		UMetaAgentNiagaraTargetData* SharedTargetData)
 	{
-		if (!Profile || !Profile->HasCapability(EMetaAgentNiagaraDriverCapability::TargetArrayUpload))
+		if (!CanPushTargetPayload(NiagaraComponent, Profile))
 		{
 			return;
 		}
 
 		const int32 TargetCount = Frame.PatternWorldTargets.Num();
-		if (!Profile->TargetCountParameterName.IsNone())
+		if (!Profile->TargetCountParameterName.IsNone()
+			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
+				NiagaraComponent,
+				Profile->TargetCountParameterName))
 		{
 			NiagaraComponent.SetVariableInt(Profile->TargetCountParameterName, TargetCount);
 		}
 
-		if (!Profile->TargetDataParameterName.IsNone() && SharedTargetData)
+		if (!Profile->TargetDataParameterName.IsNone()
+			&& SharedTargetData
+			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
+				NiagaraComponent,
+				Profile->TargetDataParameterName))
 		{
 			NiagaraComponent.SetVariableObject(Profile->TargetDataParameterName, SharedTargetData);
 		}
@@ -253,23 +288,26 @@ int32 FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
 	const IMetaAgentParticleRepresentationDriver& DirectDriver =
 		ResolveDriver(EMetaAgentParticleActuationMode::Direct);
 
-	auto ApplyParametersPath = [&]()
+	auto ApplyParametersPath = [&](const bool bPushTargetPayload)
 	{
 		ParameterDriver.ApplyFrame(Frame, Request, Profile, OutAppliedWorldPositions);
-		PushTargetPayloadToComponents(Request, Profile, Frame, SharedTargetData);
+		if (bPushTargetPayload)
+		{
+			PushTargetPayloadToComponents(Request, Profile, Frame, SharedTargetData);
+		}
 	};
 
 	if (Frame.bUseReturnHoldBlend && Frame.Phase.BlendAlpha <= ReturnReleaseAuthorityThreshold)
 	{
 		Request.bPatternActive = false;
 		Request.BlendAlpha = 0.0f;
-		ApplyParametersPath();
+		ApplyParametersPath(true);
 		return 0;
 	}
 
 	if (EffectiveMode == EMetaAgentParticleActuationMode::Parameters)
 	{
-		ApplyParametersPath();
+		ApplyParametersPath(true);
 		return 0;
 	}
 
@@ -277,7 +315,10 @@ int32 FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
 
 	if (ConfiguredMode == EMetaAgentParticleActuationMode::Hybrid)
 	{
-		ApplyParametersPath();
+		// Direct already wrote positions — only push scalar User params. UObject target upload
+		// requires an explicit Object User parameter on the Niagara system; otherwise Niagara
+		// property binding can assert (FName length) when TArray payloads are present.
+		ApplyParametersPath(false);
 	}
 
 	return AppliedCount;

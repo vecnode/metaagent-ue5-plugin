@@ -13,7 +13,11 @@ enum class EMetaAgentParticleFormingMode : uint8
 	/** Lift along world up mid-form, then settle on target. */
 	ArcLift UMETA(DisplayName = "Arc Lift"),
 	/** Spiral inward toward the pattern center. */
-	SpiralIn UMETA(DisplayName = "Spiral In")
+	SpiralIn UMETA(DisplayName = "Spiral In"),
+	/** Per-particle phase offset so the shape fills in as a wave. */
+	StaggeredWave UMETA(DisplayName = "Staggered Wave"),
+	/** Overshoot + settle easing on arrival. */
+	SpringChase UMETA(DisplayName = "Spring Chase")
 };
 
 USTRUCT(BlueprintType)
@@ -29,6 +33,14 @@ struct FMetaAgentParticleFormingSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Forming", meta = (ClampMin = "0.0"))
 	float SpiralTurns = 1.5f;
+
+	/** StaggeredWave: fraction of global forming time used as per-particle delay spread (0–0.9). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Forming", meta = (ClampMin = "0.0", ClampMax = "0.9"))
+	float WaveSpread = 0.45f;
+
+	/** SpringChase: peak overshoot past the target (0 = none, ~0.2 = soft bounce). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Forming", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float SpringOvershoot = 0.12f;
 
 	METAAGENTPLUGIN_API FString GetModeDisplayName() const;
 

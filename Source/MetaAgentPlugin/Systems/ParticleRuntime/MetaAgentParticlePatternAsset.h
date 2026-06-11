@@ -48,9 +48,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern|Motion")
 	TObjectPtr<UCurveFloat> ReturnCurve = nullptr;
 
-	/** Sinusoidal hold pulse amplitude (0 = off). */
+	/** Sinusoidal hold pulse amplitude (0 = use PatternConfig default). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern|Motion", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HoldPulseAmplitude = 0.0f;
+
+	/** Hold breathe frequency in Hz (0 = use PatternConfig default). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern|Motion", meta = (ClampMin = "0.0"))
+	float HoldPulseFrequencyHz = 0.0f;
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };

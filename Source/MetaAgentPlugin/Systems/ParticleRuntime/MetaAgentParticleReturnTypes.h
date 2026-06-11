@@ -6,6 +6,8 @@
 #include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
 #include "MetaAgentParticleReturnTypes.generated.h"
 
+class UCurveFloat;
+
 UENUM(BlueprintType)
 enum class EMetaAgentParticleReturnMode : uint8
 {
@@ -33,7 +35,21 @@ struct FMetaAgentParticleReturnSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning", meta = (ClampMin = "0.0"))
 	float SpiralTurns = 1.5f;
 
+	/** Optional easing curve for DirectLerp return (normalized return time 0–1 → blend weight). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning|Curves")
+	TObjectPtr<UCurveFloat> DirectLerpReturnCurve = nullptr;
+
+	/** Optional easing curve for ArcLift return. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning|Curves")
+	TObjectPtr<UCurveFloat> ArcLiftReturnCurve = nullptr;
+
+	/** Optional easing curve for SpiralIn return. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning|Curves")
+	TObjectPtr<UCurveFloat> SpiralInReturnCurve = nullptr;
+
 	METAAGENTPLUGIN_API FString GetModeDisplayName() const;
+
+	METAAGENTPLUGIN_API const UCurveFloat* GetReturnCurveForMode() const;
 
 	METAAGENTPLUGIN_API void CycleMode();
 

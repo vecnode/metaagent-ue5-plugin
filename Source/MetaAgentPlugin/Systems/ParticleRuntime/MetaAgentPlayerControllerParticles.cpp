@@ -159,7 +159,7 @@ namespace MetaAgentParticlePatternConsole
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic"));
+			UE_LOG(LogMetaAgent, Warning, TEXT("Usage: MetaAgent.Pattern.Preset Normal|Slow|Dramatic|Snappy|Dreamy"));
 			return;
 		}
 
@@ -179,6 +179,14 @@ namespace MetaAgentParticlePatternConsole
 		else if (PresetName == TEXT("dramatic"))
 		{
 			Preset = EMetaAgentParticlePatternPreset::Dramatic;
+		}
+		else if (PresetName == TEXT("snappy"))
+		{
+			Preset = EMetaAgentParticlePatternPreset::Snappy;
+		}
+		else if (PresetName == TEXT("dreamy"))
+		{
+			Preset = EMetaAgentParticlePatternPreset::Dreamy;
 		}
 		else if (PresetName != TEXT("normal"))
 		{
@@ -449,7 +457,7 @@ namespace MetaAgentParticlePatternConsole
 		if (Args.Num() < 1)
 		{
 			UE_LOG(LogMetaAgent, Warning,
-				TEXT("Usage: MetaAgent.Pattern.Forming Lerp|Arc|Spiral|Cycle|<0-2>"));
+				TEXT("Usage: MetaAgent.Pattern.Forming Lerp|Arc|Spiral|Wave|Spring|Cycle|<0-4>"));
 			return;
 		}
 
@@ -473,6 +481,14 @@ namespace MetaAgentParticlePatternConsole
 		else if (ModeName == TEXT("spiral") || ModeName == TEXT("spiralin") || ModeName == TEXT("2"))
 		{
 			NewMode = EMetaAgentParticleFormingMode::SpiralIn;
+		}
+		else if (ModeName == TEXT("wave") || ModeName == TEXT("staggered") || ModeName == TEXT("staggeredwave") || ModeName == TEXT("3"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::StaggeredWave;
+		}
+		else if (ModeName == TEXT("spring") || ModeName == TEXT("springchase") || ModeName == TEXT("chase") || ModeName == TEXT("4"))
+		{
+			NewMode = EMetaAgentParticleFormingMode::SpringChase;
 		}
 		else if (ModeName == TEXT("cycle") || ModeName == TEXT("next"))
 		{
@@ -836,6 +852,33 @@ void AMetaAgentPlayerController::HandleParticleSlowPresetPressed()
 void AMetaAgentPlayerController::HandleParticleDramaticPresetPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetDramatic);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleSnappyPresetPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetSnappy);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleDreamyPresetPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetDreamy);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleMorphPressed()
+{
+	(void)TriggerParticleEffect(MetaAgentParticleEffectIds::PatternMorph);
 	if (GUI.bHelpPanelVisible)
 	{
 		ApplyGUIHelpPanelState();

@@ -95,6 +95,61 @@ namespace MetaAgentParticleFormingInternal
 			return ApplySteeringOffset(Position, Context, Alpha);
 		}
 	};
+
+	static float ResolveStaggeredParticleAlpha(const FMetaAgentParticleFormingContext& Context)
+	{
+		const float Spread = Context.Settings
+			? FMath::Clamp(Context.Settings->WaveSpread, 0.0f, 0.9f)
+			: 0.45f;
+		const int32 TotalCount = FMath::Max(1, Context.TotalParticleCount);
+		const float NormalizedIndex = Context.GlobalIndex >= 0 && TotalCount > 1
+			? static_cast<float>(Context.GlobalIndex) / static_cast<float>(TotalCount - 1)
+			: 0.0f;
+		const float Window = FMath::Max(KINDA_SMALL_NUMBER, 1.0f - Spread);
+		return FMath::Clamp((Context.BlendAlpha - NormalizedIndex * Spread) / Window, 0.0f, 1.0f);
+	}
+
+	static float ResolveSpringChaseAlpha(const FMetaAgentParticleFormingContext& Context)
+	{
+		const float Alpha = SmoothStep01(Context.BlendAlpha);
+		const float Overshoot = Context.Settings
+			? FMath::Clamp(Context.Settings->SpringOvershoot, 0.0f, 0.5f)
+			: 0.12f;
+		const float BackEase = Alpha + Overshoot * FMath::Sin(Alpha * PI) * (1.0f - Alpha);
+		return FMath::Clamp(BackEase, 0.0f, 1.0f + Overshoot);
+	}
+
+	class FMetaAgentStaggeredWaveFormingSolver final : public IMetaAgentParticleFormingSolver
+	{
+	public:
+		virtual EMetaAgentParticleFormingMode GetMode() const override
+		{
+			return EMetaAgentParticleFormingMode::StaggeredWave;
+		}
+
+		virtual FVector SolvePosition(FMetaAgentParticleFormingContext& Context) const override
+		{
+			const float Alpha = SmoothStep01(ResolveStaggeredParticleAlpha(Context));
+			FVector Position = FMath::Lerp(Context.Baseline, Context.Target, Alpha);
+			return ApplySteeringOffset(Position, Context, Alpha);
+		}
+	};
+
+	class FMetaAgentSpringChaseFormingSolver final : public IMetaAgentParticleFormingSolver
+	{
+	public:
+		virtual EMetaAgentParticleFormingMode GetMode() const override
+		{
+			return EMetaAgentParticleFormingMode::SpringChase;
+		}
+
+		virtual FVector SolvePosition(FMetaAgentParticleFormingContext& Context) const override
+		{
+			const float Alpha = ResolveSpringChaseAlpha(Context);
+			FVector Position = FMath::Lerp(Context.Baseline, Context.Target, Alpha);
+			return ApplySteeringOffset(Position, Context, FMath::Clamp(Alpha, 0.0f, 1.0f));
+		}
+	};
 }
 
 TArray<TUniquePtr<IMetaAgentParticleFormingSolver>>& FMetaAgentParticleFormingSolverRegistry::GetSolvers()
@@ -124,6 +179,8 @@ void FMetaAgentParticleFormingSolverRegistry::RegisterDefaults()
 	Solvers.Emplace(MakeUnique<FMetaAgentDirectLerpFormingSolver>());
 	Solvers.Emplace(MakeUnique<FMetaAgentArcLiftFormingSolver>());
 	Solvers.Emplace(MakeUnique<FMetaAgentSpiralInFormingSolver>());
+	Solvers.Emplace(MakeUnique<FMetaAgentStaggeredWaveFormingSolver>());
+	Solvers.Emplace(MakeUnique<FMetaAgentSpringChaseFormingSolver>());
 }
 
 const IMetaAgentParticleFormingSolver& FMetaAgentParticleFormingSolverRegistry::GetSolver(

@@ -10,9 +10,14 @@ namespace MetaAgentParticleEffectIds
 	const FName GridSquare(TEXT("GridSquare"));
 	const FName PresetSlow(TEXT("PresetSlow"));
 	const FName PresetDramatic(TEXT("PresetDramatic"));
+	const FName PresetSnappy(TEXT("PresetSnappy"));
+	const FName PresetDreamy(TEXT("PresetDreamy"));
 	const FName PlayNormal(TEXT("PlayNormal"));
 	const FName PlaySlow(TEXT("PlaySlow"));
 	const FName PlayDramatic(TEXT("PlayDramatic"));
+	const FName PlaySnappy(TEXT("PlaySnappy"));
+	const FName PlayDreamy(TEXT("PlayDreamy"));
+	const FName PatternMorph(TEXT("PatternMorph"));
 	const FName ReplayLast(TEXT("ReplayLast"));
 	const FName CycleSampling(TEXT("CycleSampling"));
 	const FName CycleForming(TEXT("CycleForming"));

@@ -39,7 +39,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Niagara", meta = (Bitmask, BitmaskEnum = "/Script/MetaAgentPlugin.EMetaAgentNiagaraDriverCapability"))
 	int32 Capabilities = static_cast<int32>(
 		EMetaAgentNiagaraDriverCapability::ParameterPhase
-		| EMetaAgentNiagaraDriverCapability::TargetArrayUpload
 		| EMetaAgentNiagaraDriverCapability::DissipateVisibility);
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MetaAgent|Particles|Niagara")

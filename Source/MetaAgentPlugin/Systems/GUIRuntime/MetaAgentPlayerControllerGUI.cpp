@@ -174,6 +174,9 @@ void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 		if (ActionId == MetaAgentRuntimeIds::ParticleStepForward) { HandleParticleStepPatternForwardPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset) { HandleParticleSlowPresetPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleDramaticPreset) { HandleParticleDramaticPresetPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticleSnappyPreset) { HandleParticleSnappyPresetPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticleDreamyPreset) { HandleParticleDreamyPresetPressed(); return; }
+		if (ActionId == MetaAgentRuntimeIds::ParticleMorph) { HandleParticleMorphPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleCycleSampling) { HandleParticleCycleSamplingPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleCycleForming) { HandleParticleCycleFormingPressed(); return; }
 		if (ActionId == MetaAgentRuntimeIds::ParticleCycleReturning) { HandleParticleCycleReturningPressed(); return; }

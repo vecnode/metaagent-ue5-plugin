@@ -43,6 +43,9 @@ namespace MetaAgentRuntimeIds
 	static const FName ParticleStepForward(TEXT("ParticleStepForward"));
 	static const FName ParticleSlowPreset(TEXT("ParticleSlowPreset"));
 	static const FName ParticleDramaticPreset(TEXT("ParticleDramaticPreset"));
+	static const FName ParticleSnappyPreset(TEXT("ParticleSnappyPreset"));
+	static const FName ParticleDreamyPreset(TEXT("ParticleDreamyPreset"));
+	static const FName ParticleMorph(TEXT("ParticleMorph"));
 	static const FName ParticleCycleSampling(TEXT("ParticleCycleSampling"));
 	static const FName ParticleCycleForming(TEXT("ParticleCycleForming"));
 	static const FName ParticleCycleReturning(TEXT("ParticleCycleReturning"));

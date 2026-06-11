@@ -57,6 +57,8 @@ public:
 
 	FMetaAgentParticleEffectResult DissipateToCenterEffect();
 
+	FMetaAgentParticleEffectResult MorphPatternEffect();
+
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	bool LoadDefaultPreviewPng(FString& OutUserMessage);
 

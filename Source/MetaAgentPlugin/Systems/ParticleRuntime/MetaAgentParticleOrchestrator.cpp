@@ -232,6 +232,20 @@ bool UMetaAgentParticleOrchestrator::PopulateEffectSpec(
 		return true;
 	}
 
+	if (EffectId == MetaAgentParticleEffectIds::PresetSnappy)
+	{
+		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Snappy);
+		OutSpec.bStartPattern = false;
+		return true;
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::PresetDreamy)
+	{
+		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Dreamy);
+		OutSpec.bStartPattern = false;
+		return true;
+	}
+
 	if (EffectId == MetaAgentParticleEffectIds::PlayNormal)
 	{
 		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Normal);
@@ -249,6 +263,20 @@ bool UMetaAgentParticleOrchestrator::PopulateEffectSpec(
 	if (EffectId == MetaAgentParticleEffectIds::PlayDramatic)
 	{
 		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Dramatic);
+		OutSpec.PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
+		return true;
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::PlaySnappy)
+	{
+		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Snappy);
+		OutSpec.PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
+		return true;
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::PlayDreamy)
+	{
+		OutSpec.PatternConfig.ApplyPreset(EMetaAgentParticlePatternPreset::Dreamy);
 		OutSpec.PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
 		return true;
 	}
@@ -400,6 +428,11 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 	if (EffectId == MetaAgentParticleEffectIds::DissipateToCenter)
 	{
 		return DissipateToCenterEffect();
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::PatternMorph)
+	{
+		return MorphPatternEffect();
 	}
 
 	FMetaAgentParticleEffectSpec Spec;
@@ -588,6 +621,30 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::DissipateToCenter
 	Result.bSuccess = true;
 	Result.UserMessage = FText::FromString(
 		FString::Printf(TEXT("Dissipating toward center — %s"), *ParticleRuntime->BuildPatternStatusText()));
+	return Result;
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::MorphPatternEffect()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::PatternMorph;
+
+	if (!ParticleRuntime)
+	{
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	if (!ParticleRuntime->RequestPatternMorph())
+	{
+		Result.UserMessage = FText::FromString(
+			TEXT("Morph unavailable (must be Holding with valid targets). Press F first if the image changed."));
+		return Result;
+	}
+
+	Result.bSuccess = true;
+	Result.UserMessage = FText::FromString(
+		FString::Printf(TEXT("Morphing shape — %s"), *ParticleRuntime->BuildPatternStatusText()));
 	return Result;
 }
 

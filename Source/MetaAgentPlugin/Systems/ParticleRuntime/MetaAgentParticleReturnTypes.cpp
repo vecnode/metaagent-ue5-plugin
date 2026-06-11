@@ -2,6 +2,8 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h"
 
+#include "Curves/CurveFloat.h"
+
 EMetaAgentParticleReturnMode FMetaAgentParticleReturnSettings::SanitizeMode(
 	const EMetaAgentParticleReturnMode Mode)
 {
@@ -67,6 +69,20 @@ FString FMetaAgentParticleReturnSettings::GetModeDisplayName() const
 		return TEXT("Dissipate To Center");
 	default:
 		return TEXT("Direct Lerp");
+	}
+}
+
+const UCurveFloat* FMetaAgentParticleReturnSettings::GetReturnCurveForMode() const
+{
+	switch (SanitizeMode(Mode))
+	{
+	case EMetaAgentParticleReturnMode::ArcLift:
+		return ArcLiftReturnCurve;
+	case EMetaAgentParticleReturnMode::SpiralIn:
+		return SpiralInReturnCurve;
+	case EMetaAgentParticleReturnMode::DirectLerp:
+	default:
+		return DirectLerpReturnCurve;
 	}
 }
 

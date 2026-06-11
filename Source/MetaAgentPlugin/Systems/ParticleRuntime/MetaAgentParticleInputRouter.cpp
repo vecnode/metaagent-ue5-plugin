@@ -33,6 +33,9 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	InputComponent->BindKey(EKeys::Period, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed);
 	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSlowPresetPressed);
 	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
+	InputComponent->BindKey(EKeys::J, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSnappyPresetPressed);
+	InputComponent->BindKey(EKeys::K, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDreamyPresetPressed);
+	InputComponent->BindKey(EKeys::M, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleMorphPressed);
 	InputComponent->BindKey(EKeys::T, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleSamplingPressed);
 	InputComponent->BindKey(EKeys::Y, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleFormingPressed);
 	InputComponent->BindKey(EKeys::U, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleReturningPressed);
@@ -58,8 +61,10 @@ TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActi
 	Rows.Add(MakeParticleRow(TEXT("<<"), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
 	Rows.Add(MakeParticleRow(TEXT(">>"), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
 	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
+	Rows.Add(MakeParticleRow(TEXT("J / K"), TEXT("Apply Snappy / Dreamy preset"), MetaAgentRuntimeIds::ParticleSnappyPreset));
+	Rows.Add(MakeParticleRow(TEXT("M"), TEXT("Morph held shape (Holding → Forming, refresh targets)"), MetaAgentRuntimeIds::ParticleMorph));
 	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
-	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral)"), MetaAgentRuntimeIds::ParticleCycleForming));
+	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral / Wave / Spring)"), MetaAgentRuntimeIds::ParticleCycleForming));
 	Rows.Add(MakeParticleRow(TEXT("U"), TEXT("Cycle returning mode (Lerp / Arc / Spiral / Dissipate)"), MetaAgentRuntimeIds::ParticleCycleReturning));
 	return Rows;
 }

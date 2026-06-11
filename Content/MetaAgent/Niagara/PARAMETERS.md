@@ -11,16 +11,16 @@ Assign a **`UMetaAgentNiagaraSystemProfile`** on the orchestrator/runtime to val
 | `MetaAgentPatternPhase` | Float | Blend phase 0–1 (Forming 0→1, Holding 1, Returning 1→0) |
 | `MetaAgentPatternCenter` | Vec3 | Pattern centroid in world space |
 | `MetaAgentPatternActive` | Bool | True while a pattern run is active |
-| `MetaAgentPatternHoldScale` | Float | Hold pulse / emphasis scale |
+| `MetaAgentPatternHoldScale` | Float | Sustain breathe pulse (1.0 ± amplitude); animated in C++ during **Holding** |
 | `MetaAgentPatternDissipateActive` | Bool | True during **Dissipating** |
 | `MetaAgentPatternDissipateVisibility` | Float | Fade 1→0 while particles collapse to center |
-| `MetaAgentFormingMode` | Int | 0=DirectLerp, 1=ArcLift, 2=SpiralIn |
+| `MetaAgentFormingMode` | Int | 0=DirectLerp, 1=ArcLift, 2=SpiralIn, 3=StaggeredWave, 4=SpringChase |
 | `MetaAgentFormingArcLift` | Float | Arc lift height (cm) when mode is ArcLift |
 | `MetaAgentFormingSpiralTurns` | Float | Spiral revolutions when mode is SpiralIn |
 
 ## Target data contract (Parameters mode parity)
 
-When the Niagara profile enables **TargetArrayUpload**, C++ also pushes:
+When the Niagara profile enables **TargetArrayUpload** and the system exposes matching User parameters, C++ also pushes (Parameters-only builds; **skipped in Hybrid** when Direct buffer writes already run):
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -53,8 +53,14 @@ The runtime scheduler emits **`FMetaAgentParticleRepresentationFrame`** each tic
 3. Branch on `MetaAgentFormingMode` for arc/spiral offsets, or read pre-solved targets from the array contract.
 4. For packaged GPU sims, keep motion on the GPU path — do not rely on C++ buffer writes.
 
-## Reserved forming modes (not yet implemented in C++)
+## Forming mode notes
 
-Modes 3–5 (`StaggeredWave`, `SpringChase`, `NiagaraForces`) are reserved for future solver/driver plugins. Implement via `FMetaAgentParticleFormingSolverRegistry::RegisterSolver()` or a custom representation driver.
+- **StaggeredWave** (3): per-particle phase offset — shape fills in as a wave (`WaveSpread` on forming settings).
+- **SpringChase** (4): overshoot + settle easing (`SpringOvershoot` on forming settings).
+- Mode 5 (`NiagaraForces`) remains reserved for a custom driver plugin.
+
+**Hold breathe:** tune `HoldPulseAmplitude` / `HoldPulseFrequencyHz` on `FMetaAgentParticlePatternConfig` or pattern assets; C++ drives `MetaAgentPatternHoldScale` during **Holding**.
+
+**Return curves:** optional per-mode curves on `FMetaAgentParticleReturnSettings` (`DirectLerpReturnCurve`, `ArcLiftReturnCurve`, `SpiralInReturnCurve`) override the asset-level `ReturnCurve` fallback.
 
 Sample systems can be saved under `Content/MetaAgent/Niagara/` after authoring in the editor.

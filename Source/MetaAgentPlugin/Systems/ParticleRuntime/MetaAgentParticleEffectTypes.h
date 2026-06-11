@@ -18,9 +18,14 @@ namespace MetaAgentParticleEffectIds
 	METAAGENTPLUGIN_API extern const FName GridSquare;
 	METAAGENTPLUGIN_API extern const FName PresetSlow;
 	METAAGENTPLUGIN_API extern const FName PresetDramatic;
+	METAAGENTPLUGIN_API extern const FName PresetSnappy;
+	METAAGENTPLUGIN_API extern const FName PresetDreamy;
 	METAAGENTPLUGIN_API extern const FName PlayNormal;
 	METAAGENTPLUGIN_API extern const FName PlaySlow;
 	METAAGENTPLUGIN_API extern const FName PlayDramatic;
+	METAAGENTPLUGIN_API extern const FName PlaySnappy;
+	METAAGENTPLUGIN_API extern const FName PlayDreamy;
+	METAAGENTPLUGIN_API extern const FName PatternMorph;
 	METAAGENTPLUGIN_API extern const FName ReplayLast;
 	METAAGENTPLUGIN_API extern const FName CycleSampling;
 	METAAGENTPLUGIN_API extern const FName CycleForming;

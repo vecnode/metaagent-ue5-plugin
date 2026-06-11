@@ -642,6 +642,8 @@ bool UMetaAgentParticleRuntime::RequestPatternMorph()
 		return false;
 	}
 
+	(void)BuildPatternTargets();
+
 	if (PatternRuntime.PatternWorldTargets.Num() <= 0)
 	{
 		return false;
@@ -777,7 +779,14 @@ bool UMetaAgentParticleRuntime::ApplyPatternAsset(UMetaAgentParticlePatternAsset
 	}
 	ActiveFormCurve = PatternAsset->FormCurve;
 	ActiveReturnCurve = PatternAsset->ReturnCurve;
-	ActiveHoldPulseAmplitude = PatternAsset->HoldPulseAmplitude;
+	if (PatternAsset->HoldPulseAmplitude > 0.0f)
+	{
+		PatternConfig.HoldPulseAmplitude = PatternAsset->HoldPulseAmplitude;
+	}
+	if (PatternAsset->HoldPulseFrequencyHz > 0.0f)
+	{
+		PatternConfig.HoldPulseFrequencyHz = PatternAsset->HoldPulseFrequencyHz;
+	}
 	PatternRuntime.ActivePatternTags = PatternAsset->PatternTags;
 
 	if (!PatternAsset->SourceImagePathOverride.IsEmpty())
@@ -1075,7 +1084,6 @@ void UMetaAgentParticleRuntime::ResetPatternRuntime()
 	PatternRuntime = FMetaAgentParticlePatternRuntime();
 	ActiveFormCurve = nullptr;
 	ActiveReturnCurve = nullptr;
-	ActiveHoldPulseAmplitude = 0.0f;
 	FormingSteeringBlendElapsedSeconds = 0.0f;
 	LastPatternTickDeltaSeconds = 0.0f;
 	bLoggedPatternStart = false;
@@ -1301,9 +1309,14 @@ float UMetaAgentParticleRuntime::EvaluatePhaseForState(
 		return FMath::Clamp(ActiveFormCurve->GetFloatValue(ClampedTime), 0.0f, 1.0f);
 	}
 
-	if (State == EMetaAgentParticlePatternState::Returning && ActiveReturnCurve)
+	if (State == EMetaAgentParticlePatternState::Returning)
 	{
-		return FMath::Clamp(1.0f - ActiveReturnCurve->GetFloatValue(ClampedTime), 0.0f, 1.0f);
+		const UCurveFloat* ModeReturnCurve = PatternRuntime.ActiveConfig.Return.GetReturnCurveForMode();
+		const UCurveFloat* EffectiveReturnCurve = ModeReturnCurve ? ModeReturnCurve : ActiveReturnCurve.Get();
+		if (EffectiveReturnCurve)
+		{
+			return FMath::Clamp(1.0f - EffectiveReturnCurve->GetFloatValue(ClampedTime), 0.0f, 1.0f);
+		}
 	}
 
 	if (State == EMetaAgentParticlePatternState::Returning)
@@ -1491,8 +1504,11 @@ void UMetaAgentParticleRuntime::BuildRepresentationFrame(FMetaAgentParticleRepre
 		BlendAlpha = FMath::Clamp(PatternRuntime.Phase, 0.0f, 1.0f);
 	}
 
+	const FMetaAgentParticlePatternConfig& HoldConfig = PatternRuntime.ActiveConfig;
 	const float HoldPulseScale = PatternRuntime.State == EMetaAgentParticlePatternState::Holding
-		? (1.0f + FMath::Sin(PatternRuntime.StateElapsedSeconds * 4.0f) * ActiveHoldPulseAmplitude)
+		? (1.0f + FMath::Sin(
+			PatternRuntime.StateElapsedSeconds * TWO_PI * FMath::Max(0.1f, HoldConfig.HoldPulseFrequencyHz))
+			* FMath::Clamp(HoldConfig.HoldPulseAmplitude, 0.0f, 1.0f))
 		: 1.0f;
 
 	OutFrame.bUseReturnHoldBlend = bReturning;
