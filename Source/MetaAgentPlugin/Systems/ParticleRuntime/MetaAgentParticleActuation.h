@@ -43,6 +43,7 @@ struct FMetaAgentParticleActuationRequest
 	bool bUseReturnHoldBlend = false;
 	const TArray<FVector>* ReturnHoldPositions = nullptr;
 	const TArray<FVector>* ReturnRestPositions = nullptr;
+	const TArray<FVector>* DissipateStartPositions = nullptr;
 	/** Optional forming steering offsets (first ~0.2s when steering target is active). */
 	const TArray<FVector>* FormingSteeringOffsets = nullptr;
 	float FormingSteeringWeight = 0.0f;
@@ -60,6 +61,8 @@ struct FMetaAgentParticleActuationRequest
 	const TArray<FVector>* IdleBaselineWorldPositions = nullptr;
 	float AnticipationHandoffElapsedSeconds = -1.0f;
 	float FormingAnticipationCarryoverDurationSeconds = 0.35f;
+	bool bDissipatingMotion = false;
+	float DissipateVisibility = 1.0f;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation

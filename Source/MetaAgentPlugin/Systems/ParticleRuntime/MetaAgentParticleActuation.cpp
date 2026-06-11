@@ -24,6 +24,8 @@ namespace MetaAgentParticleActuationInternal
 	static const FName PatternCenterParameterName(TEXT("MetaAgentPatternCenter"));
 	static const FName PatternActiveParameterName(TEXT("MetaAgentPatternActive"));
 	static const FName PatternHoldScaleParameterName(TEXT("MetaAgentPatternHoldScale"));
+	static const FName PatternDissipateVisibilityParameterName(TEXT("MetaAgentPatternDissipateVisibility"));
+	static const FName PatternDissipateActiveParameterName(TEXT("MetaAgentPatternDissipateActive"));
 	static const FName FormingModeParameterName(TEXT("MetaAgentFormingMode"));
 	static const FName FormingArcLiftParameterName(TEXT("MetaAgentFormingArcLift"));
 	static const FName FormingSpiralTurnsParameterName(TEXT("MetaAgentFormingSpiralTurns"));
@@ -135,6 +137,11 @@ namespace MetaAgentParticleActuationInternal
 			&& Request.bAnticipatingMotion
 			&& Request.PatternState == EMetaAgentParticlePatternState::Anticipating;
 
+		const bool bDissipatingMotion = !bReturnBlend
+			&& Request.bDissipatingMotion
+			&& Request.PatternState == EMetaAgentParticlePatternState::Dissipating
+			&& Request.DissipateStartPositions != nullptr;
+
 		const int32 TotalParticleCount = BaselineWorldPositions.Num();
 
 		for (int32 LocalIndex = 0; LocalIndex <= MaxLocalIndex; ++LocalIndex)
@@ -156,7 +163,30 @@ namespace MetaAgentParticleActuationInternal
 
 				const FVector HoldPos = (*Request.ReturnHoldPositions)[GlobalIndex];
 				const FVector RestPos = (*Request.ReturnRestPositions)[GlobalIndex];
-				DesiredWorld = FMath::Lerp(RestPos, HoldPos, BlendAlpha);
+
+				const bool bReturnFormingSolver = Request.FormingSettings != nullptr
+					&& Request.PatternState == EMetaAgentParticlePatternState::Returning;
+
+				if (bReturnFormingSolver)
+				{
+					FMetaAgentParticleFormingContext FormingContext;
+					FormingContext.GlobalIndex = GlobalIndex;
+					FormingContext.TotalParticleCount = TotalParticleCount;
+					FormingContext.Baseline = RestPos;
+					FormingContext.Target = HoldPos;
+					FormingContext.PatternCenter = Request.PatternCenter;
+					FormingContext.BlendAlpha = BlendAlpha;
+					FormingContext.StateElapsedSeconds = Request.FormingStateElapsedSeconds;
+					FormingContext.FormDurationSeconds = Request.FormingDurationSeconds;
+					FormingContext.DeltaTimeSeconds = Request.FormingDeltaTimeSeconds;
+					FormingContext.Settings = Request.FormingSettings;
+
+					DesiredWorld = FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+				}
+				else
+				{
+					DesiredWorld = FMath::Lerp(RestPos, HoldPos, BlendAlpha);
+				}
 			}
 			else
 			{
@@ -176,6 +206,19 @@ namespace MetaAgentParticleActuationInternal
 						Request.AnticipationAmplitudeCm,
 						Request.AnticipationFrequencyHz,
 						Request.AnticipationIdleBlendDurationSeconds);
+				}
+				else if (bDissipatingMotion)
+				{
+					if (!Request.DissipateStartPositions->IsValidIndex(GlobalIndex))
+					{
+						continue;
+					}
+
+					const FVector StartPosition = (*Request.DissipateStartPositions)[GlobalIndex];
+					DesiredWorld = FMath::Lerp(
+						StartPosition,
+						Request.PatternCenter,
+						FMath::Clamp(BlendAlpha, 0.0f, 1.0f));
 				}
 				else if (bUseFormingSolver)
 				{
@@ -656,6 +699,10 @@ void FMetaAgentParticleActuation::ApplyParameters(const FMetaAgentParticleActuat
 		NiagaraComponent->SetVariableVec3(PatternCenterParameterName, Request.PatternCenter);
 		NiagaraComponent->SetVariableBool(PatternActiveParameterName, Request.bPatternActive);
 		NiagaraComponent->SetVariableFloat(PatternHoldScaleParameterName, Request.HoldPulseScale);
+		NiagaraComponent->SetVariableBool(PatternDissipateActiveParameterName, Request.bDissipatingMotion);
+		NiagaraComponent->SetVariableFloat(
+			PatternDissipateVisibilityParameterName,
+			Request.bDissipatingMotion ? Request.DissipateVisibility : 1.0f);
 
 		const FMetaAgentParticleFormingSettings& FormingSettings = Request.FormingSettings
 			? *Request.FormingSettings

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
+#include "Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h"
 #include "MetaAgentParticlePatternTypes.generated.h"
 
@@ -21,6 +22,8 @@ enum class EMetaAgentParticlePatternState : uint8
 	Forming,
 	Holding,
 	Returning,
+	/** Collapse held particles toward pattern center and fade out. */
+	Dissipating,
 	/** Deprecated: unused; return now follows live sim directly. Kept for Blueprint compat. */
 	Releasing UMETA(Hidden)
 };
@@ -66,6 +69,10 @@ struct FMetaAgentParticlePatternConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern", meta = (ClampMin = "0.1"))
 	float ReturnDurationSeconds = 1.5f;
 
+	/** Duration for DissipateToCenter collapse toward pattern center. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Dissipating", meta = (ClampMin = "0.1"))
+	float DissipateDurationSeconds = 1.2f;
+
 	/** Peak pull toward pattern center during Anticipating (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Anticipating", meta = (ClampMin = "0.0"))
 	float AnticipationAmplitudeCm = 12.0f;
@@ -90,6 +97,9 @@ struct FMetaAgentParticlePatternConfig
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Forming")
 	FMetaAgentParticleFormingSettings Forming;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MetaAgent|Particles|Pattern|Returning")
+	FMetaAgentParticleReturnSettings Return;
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Pattern")
 	EMetaAgentParticlePatternPreset ActivePreset = EMetaAgentParticlePatternPreset::Normal;
@@ -155,6 +165,10 @@ struct FMetaAgentParticlePatternRuntime
 	/** Positions when Holding began (formed shape reference). */
 	UPROPERTY()
 	TArray<FVector> TrajectoryWorldPositions;
+
+	/** Positions frozen when Dissipating begins. */
+	UPROPERTY()
+	TArray<FVector> DissipateStartPositions;
 
 	UPROPERTY()
 	bool bAwaitingAsyncMask = false;

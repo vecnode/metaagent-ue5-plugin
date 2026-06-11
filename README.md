@@ -668,10 +668,26 @@ Targets are scattered across a **stratification grid** over the image mask — t
 - Actuation: Direct buffer path calls the solver registry; Parameters/Hybrid also receive `MetaAgentFormingMode`, `MetaAgentFormingArcLift`, etc.
 - Optional `FormCurve` on pattern assets remaps forming phase before solvers run.
 
+#### Returning mode solvers
+
+**`FMetaAgentParticleReturnSettings`** on `FMetaAgentParticlePatternConfig` (category **Pattern | Returning**) controls how particles leave the held shape.
+
+| Mode | Runtime behavior |
+|------|------------------|
+| **DirectLerp** | Default — straight hold → idle rest by return phase |
+| **ArcLift** | Vertical arc (world Z) mid-return, settle on rest |
+| **SpiralIn** | Spiral around `PatternCenter` while returning to rest |
+| **DissipateToCenter** | Collapse toward center + fade (`Dissipating` state) instead of positional return |
+
+- Cycle with **`U`** or `MetaAgent.Pattern.Returning Cycle` (`CycleReturning` effect). Live switch mid-run updates `ActiveConfig.Return`.
+- When **DissipateToCenter** is selected, **SkipHold**, **Cancel** (with return), auto hold timeout, and **`>>`** from **Holding** trigger dissipate instead of **Returning**.
+- Arc / Spiral reuse **`FMetaAgentParticleFormingSolverRegistry`** with frozen rest/hold targets (phase 1 → 0).
+
 ```mermaid
 flowchart LR
     subgraph Triggers
         Y[Y / CycleForming]
+        U[U / CycleReturning]
         T[T / CycleSampling]
         SG[ScatterGrid / ScatterJitter]
     end
@@ -694,6 +710,7 @@ flowchart LR
     end
 
     Y --> ORCH
+    U --> ORCH
     T --> ORCH
     SG --> ORCH
     ORCH --> CFG
@@ -715,7 +732,7 @@ flowchart LR
 - **`UMetaAgentParticleRuntime`** owns the master FSM and Niagara readback/writeback.
 - Tracks Niagara components in the active world (default name filter: `NIAGARA`).
 - Captures ~1k particle world positions via direct C++ GPU readback (`FScopedNiagaraDataSetGPUReadback`) and CPU dataset access.
-- Keyboard: `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
+- Keyboard: `F` preview, `,` / `.` step pattern state backward / forward, `B/N` Slow / Dramatic presets, `T` cycle sampling, `Y` cycle forming mode, `U` cycle returning mode. GUI panel (`Q`) adds **Play** (full auto cycle), **<<** / **>>**, **Cycle forming / returning mode**, and 64×64 **Source / Gray / Sobel** preview thumbnails in the Particle Runtime section.
 - Every pattern start enters **Anticipating** first (attraction/orbit motion toward the shape center). Async PNG mask builds run during **Anticipating** — particles keep moving while the mask loads. Manual stepping is the default (`bManualPatternStateAdvance = true`); **Play** runs the full auto chain.
 - State chain: **Anticipating → Forming → Holding → Returning → Idle**.
 - **Shape builder** (`FMetaAgentParticleShapeBuilder`) resolves target positions from configurable shapes (default: **ImageSilhouette** with **GrayscaleDensity** stratified scatter; mask analyzed at **1024px** `SampleResolution`; fallback: **SquareGrid**).
@@ -728,15 +745,17 @@ flowchart LR
 - Shape + scatter: **MetaAgent | Particles | Pattern | Shape** (`FMetaAgentParticleShapeDefinition`); `DensityGridScale`, `TargetJitterNormalized`, `GrayscaleGamma`.
 - `B` / `N` = Slow / Dramatic preset (then `>>` or GUI **Play** to run).
 - Anticipation tunables: **MetaAgent | Particles | Pattern | Anticipating** — `AnticipationAmplitudeCm`, `AnticipationFrequencyHz`.
-- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Gray|Sobel`, `.Forming Lerp|Arc|Spiral`, `.ScatterGrid`, `.ScatterJitter`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Ready`.
+- Console (PIE): `MetaAgent.Pattern.Form`, `.Hold`, `.Return`, `.Preset`, `.Status`, `.Shape`, `.ImageSampling Gray|Sobel`, `.Forming Lerp|Arc|Spiral`, `.Returning Lerp|Arc|Spiral|Dissipate`, `.ScatterGrid`, `.ScatterJitter`, `.EdgeThreshold`, `.ImageThreshold`, `.ShapeWidth`, `.Cancel`, `.SkipHold`, `.Dissipate`, `.Ready`.
 - **Forming solvers** (`FMetaAgentParticleFormingSolverRegistry`): DirectLerp (default), ArcLift, SpiralIn. Cycle with `Y` or `MetaAgent.Pattern.Forming Cycle`.
-- Built-in effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `PatternStepForward`, `PatternStepBackward`, `PresetSlow`, `PresetDramatic`, `CycleSampling`, `CycleForming`. Additional ids (for example `SplinePath`, `MeshSilhouette`, `AttractToView`) are available via `TriggerParticleEffect` or console.
+- **Returning modes** (`FMetaAgentParticleReturnSettings`): DirectLerp, ArcLift, SpiralIn, DissipateToCenter. Cycle with `U` or `MetaAgent.Pattern.Returning Cycle`.
+- Built-in effect ids (`MetaAgentParticleEffectIds`): `ImageReveal`, `PatternStepForward`, `PatternStepBackward`, `PresetSlow`, `PresetDramatic`, `CycleSampling`, `CycleForming`, `CycleReturning`, `DissipateToCenter`. Additional ids (for example `SplinePath`, `MeshSilhouette`, `AttractToView`) are available via `TriggerParticleEffect` or console.
 - Implemented in:
 	- `Systems/ParticleRuntime/MetaAgentParticleOrchestrator.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleEffectTypes.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleInputRouter.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleRuntime.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticlePatternTypes.h/.cpp`
+	- `Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeTypes.h`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeBuilder.h/.cpp`
 	- `Systems/ParticleRuntime/MetaAgentParticleShapeCache.h/.cpp`

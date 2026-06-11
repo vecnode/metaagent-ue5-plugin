@@ -35,6 +35,7 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
 	InputComponent->BindKey(EKeys::T, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleSamplingPressed);
 	InputComponent->BindKey(EKeys::Y, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleFormingPressed);
+	InputComponent->BindKey(EKeys::U, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleReturningPressed);
 }
 
 TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
@@ -44,8 +45,8 @@ TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
 	{
 		Lines.Add(FString::Printf(TEXT("%-7s : %s"), *Row.KeyLabel, *Row.Description));
 	}
-	Lines.Add(TEXT("Console: MetaAgent.Pattern.ScatterGrid / .ScatterJitter / .Forming"));
-	Lines.Add(TEXT("Console: MetaAgent.Pattern.Cancel / .SkipHold / .Ready"));
+	Lines.Add(TEXT("Console: MetaAgent.Pattern.ScatterGrid / .ScatterJitter / .Forming / .Returning"));
+	Lines.Add(TEXT("Console: MetaAgent.Pattern.Cancel / .SkipHold / .Dissipate / .Ready"));
 	return Lines;
 }
 
@@ -59,5 +60,6 @@ TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActi
 	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
 	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
 	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral)"), MetaAgentRuntimeIds::ParticleCycleForming));
+	Rows.Add(MakeParticleRow(TEXT("U"), TEXT("Cycle returning mode (Lerp / Arc / Spiral / Dissipate)"), MetaAgentRuntimeIds::ParticleCycleReturning));
 	return Rows;
 }

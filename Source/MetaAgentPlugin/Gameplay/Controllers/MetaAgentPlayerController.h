@@ -552,6 +552,7 @@ public:
 	void HandleParticleDramaticPresetPressed();
 	void HandleParticleCycleSamplingPressed();
 	void HandleParticleCycleFormingPressed();
+	void HandleParticleCycleReturningPressed();
 
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
@@ -682,6 +683,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void CycleParticlePatternFormingMode();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void SetParticlePatternReturnMode(EMetaAgentParticleReturnMode ReturnMode);
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	void CycleParticlePatternReturnMode();
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
 	FString GetParticlePatternShapeText() const;

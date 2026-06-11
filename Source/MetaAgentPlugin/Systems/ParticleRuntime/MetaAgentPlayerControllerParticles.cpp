@@ -394,6 +394,56 @@ namespace MetaAgentParticlePatternConsole
 			FColor::Cyan);
 	}
 
+	void ExecSetReturning(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogMetaAgent, Warning,
+				TEXT("Usage: MetaAgent.Pattern.Returning Lerp|Arc|Spiral|Dissipate|Cycle|<0-3>"));
+			return;
+		}
+
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const FString ModeName = Args[0].ToLower();
+		EMetaAgentParticleReturnMode NewMode = EMetaAgentParticleReturnMode::DirectLerp;
+
+		if (ModeName == TEXT("lerp") || ModeName == TEXT("direct") || ModeName == TEXT("directlerp") || ModeName == TEXT("0"))
+		{
+			NewMode = EMetaAgentParticleReturnMode::DirectLerp;
+		}
+		else if (ModeName == TEXT("arc") || ModeName == TEXT("arclift") || ModeName == TEXT("lift") || ModeName == TEXT("1"))
+		{
+			NewMode = EMetaAgentParticleReturnMode::ArcLift;
+		}
+		else if (ModeName == TEXT("spiral") || ModeName == TEXT("spiralin") || ModeName == TEXT("2"))
+		{
+			NewMode = EMetaAgentParticleReturnMode::SpiralIn;
+		}
+		else if (ModeName == TEXT("dissipate") || ModeName == TEXT("dissipatetocenter") || ModeName == TEXT("center") || ModeName == TEXT("3"))
+		{
+			NewMode = EMetaAgentParticleReturnMode::DissipateToCenter;
+		}
+		else if (ModeName == TEXT("cycle") || ModeName == TEXT("next"))
+		{
+			Controller->CycleParticlePatternReturnMode();
+			ShowTransientPatternMessage(Controller, Controller->GetParticlePatternTimingsText(), FColor::Cyan);
+			return;
+		}
+		else
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("MetaAgent.Pattern.Returning: unknown mode '%s'."), *Args[0]);
+			return;
+		}
+
+		Controller->SetParticlePatternReturnMode(NewMode);
+		ShowTransientPatternMessage(Controller, Controller->GetParticlePatternTimingsText(), FColor::Cyan);
+	}
+
 	void ExecSetForming(const TArray<FString>& Args)
 	{
 		if (Args.Num() < 1)
@@ -513,6 +563,23 @@ namespace MetaAgentParticlePatternConsole
 		}
 	}
 
+	void ExecDissipate()
+	{
+		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
+		if (!Controller)
+		{
+			return;
+		}
+
+		const FMetaAgentParticleEffectResult Result = Controller->TriggerParticleEffect(
+			MetaAgentParticleEffectIds::DissipateToCenter);
+		if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
+		{
+			const FColor Color = Result.bSuccess ? FColor::Cyan : FColor::Orange;
+			HUD->AddTransientMessage(Result.UserMessage.ToString(), Color, 3.0f);
+		}
+	}
+
 	void ExecReady(const TArray<FString>& Args)
 	{
 		AMetaAgentPlayerController* Controller = ResolveLocalMetaAgentController();
@@ -548,6 +615,11 @@ namespace MetaAgentParticlePatternConsole
 		TEXT("Skip Holding and begin Returning immediately."),
 		FConsoleCommandDelegate::CreateStatic(&ExecSkipHold));
 
+	static FAutoConsoleCommand MetaAgentPatternDissipateCmd(
+		TEXT("MetaAgent.Pattern.Dissipate"),
+		TEXT("Collapse particles toward pattern center and fade out (Forming/Holding/Returning)."),
+		FConsoleCommandDelegate::CreateStatic(&ExecDissipate));
+
 	static FAutoConsoleCommand MetaAgentPatternReadyCmd(
 		TEXT("MetaAgent.Pattern.Ready"),
 		TEXT("Check whether image mask is cached. Optional: image path."),
@@ -577,6 +649,11 @@ namespace MetaAgentParticlePatternConsole
 		TEXT("MetaAgent.Pattern.Forming"),
 		TEXT("Set forming mode: Lerp, Arc, Spiral, or Cycle."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetForming));
+
+	static FAutoConsoleCommand MetaAgentPatternReturningCmd(
+		TEXT("MetaAgent.Pattern.Returning"),
+		TEXT("Set returning mode: Lerp, Arc, Spiral, Dissipate, or Cycle."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&ExecSetReturning));
 }
 
 namespace MetaAgentParticleControllerInternal
@@ -783,6 +860,15 @@ void AMetaAgentPlayerController::HandleParticleCycleFormingPressed()
 	}
 }
 
+void AMetaAgentPlayerController::HandleParticleCycleReturningPressed()
+{
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleReturning);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
 bool AMetaAgentPlayerController::StartParticleSquarePattern()
 {
 	return StartParticlePattern();
@@ -924,10 +1010,11 @@ TArray<FString> AMetaAgentPlayerController::BuildParticleRuntimePanelStatusLines
 
 	const bool bImageLoaded = ParticleOrchestrator && ParticleOrchestrator->GetPreviewTexture() != nullptr;
 	Lines.Add(FString::Printf(
-		TEXT("Shape=%s | Sampling=%s | Forming=%s | Image=%s"),
+		TEXT("Shape=%s | Sampling=%s | Forming=%s | Returning=%s | Image=%s"),
 		*Config.Shape.GetShapeDisplayName(),
 		*Config.Shape.GetImageSamplingDisplayName(),
 		*Config.Forming.GetModeDisplayName(),
+		*Config.Return.GetModeDisplayName(),
 		bImageLoaded ? TEXT("loaded") : TEXT("none")));
 
 	Lines.Add(FString::Printf(
@@ -1031,6 +1118,18 @@ void AMetaAgentPlayerController::SetParticlePatternFormingMode(const EMetaAgentP
 void AMetaAgentPlayerController::CycleParticlePatternFormingMode()
 {
 	ParticlePatternConfig.Forming.CycleMode();
+	SyncParticlePatternConfigToRuntime();
+}
+
+void AMetaAgentPlayerController::SetParticlePatternReturnMode(const EMetaAgentParticleReturnMode ReturnMode)
+{
+	ParticlePatternConfig.Return.Mode = FMetaAgentParticleReturnSettings::SanitizeMode(ReturnMode);
+	SyncParticlePatternConfigToRuntime();
+}
+
+void AMetaAgentPlayerController::CycleParticlePatternReturnMode()
+{
+	ParticlePatternConfig.Return.CycleMode();
 	SyncParticlePatternConfigToRuntime();
 }
 

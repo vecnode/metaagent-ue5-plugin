@@ -24,8 +24,10 @@ namespace MetaAgentParticleEffectIds
 	METAAGENTPLUGIN_API extern const FName ReplayLast;
 	METAAGENTPLUGIN_API extern const FName CycleSampling;
 	METAAGENTPLUGIN_API extern const FName CycleForming;
+	METAAGENTPLUGIN_API extern const FName CycleReturning;
 	METAAGENTPLUGIN_API extern const FName PatternStepForward;
 	METAAGENTPLUGIN_API extern const FName PatternStepBackward;
+	METAAGENTPLUGIN_API extern const FName DissipateToCenter;
 	METAAGENTPLUGIN_API extern const FName AttractToView;
 }
 

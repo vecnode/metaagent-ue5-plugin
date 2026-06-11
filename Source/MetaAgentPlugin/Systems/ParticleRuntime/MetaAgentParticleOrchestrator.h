@@ -46,11 +46,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Effects")
 	FMetaAgentParticleEffectResult CycleFormingMode();
 
+	FMetaAgentParticleEffectResult CycleReturningMode();
+
 	FMetaAgentParticleEffectResult StepPatternStateForward();
 
 	FMetaAgentParticleEffectResult StepPatternStateBackward();
 
 	FMetaAgentParticleEffectResult PlayFullImageRevealCycle();
+
+	FMetaAgentParticleEffectResult DissipateToCenterEffect();
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	bool LoadDefaultPreviewPng(FString& OutUserMessage);

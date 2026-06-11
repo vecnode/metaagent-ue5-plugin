@@ -45,6 +45,7 @@ namespace MetaAgentRuntimeIds
 	static const FName ParticleDramaticPreset(TEXT("ParticleDramaticPreset"));
 	static const FName ParticleCycleSampling(TEXT("ParticleCycleSampling"));
 	static const FName ParticleCycleForming(TEXT("ParticleCycleForming"));
+	static const FName ParticleCycleReturning(TEXT("ParticleCycleReturning"));
 }
 
 USTRUCT()

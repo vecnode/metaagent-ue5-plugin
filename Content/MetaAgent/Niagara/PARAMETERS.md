@@ -8,6 +8,8 @@ Use these **User** parameters on Niagara systems driven by `UMetaAgentParticleRu
 | `MetaAgentPatternCenter` | Vec3 | Pattern centroid in world space |
 | `MetaAgentPatternActive` | Bool | True while a pattern run is active |
 | `MetaAgentPatternHoldScale` | Float | Hold pulse scale (1 + sinusoidal amplitude from pattern asset) |
+| `MetaAgentPatternDissipateActive` | Bool | True during **Dissipating** (DissipateToCenter effect) |
+| `MetaAgentPatternDissipateVisibility` | Float | Fade 1→0 while particles collapse to `MetaAgentPatternCenter` |
 | `MetaAgentFormingMode` | Int | Forming solver id (0=DirectLerp, 1=ArcLift, 2=SpiralIn, 3=StaggeredWave, 4=SpringChase, 5=NiagaraForces) |
 | `MetaAgentFormingArcLift` | Float | Arc lift height (cm) when mode is ArcLift |
 | `MetaAgentFormingSpiralTurns` | Float | Spiral revolutions when mode is SpiralIn |

@@ -167,6 +167,9 @@ public:
 	bool RequestSkipHold();
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
+	bool RequestDissipateToCenter();
+
+	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	bool RequestPatternQueue(UMetaAgentParticlePatternAsset* PatternAsset);
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
@@ -247,6 +250,8 @@ private:
 	void CaptureLiveSimPositions();
 	void RefreshTrajectoryBaselineAtHoldStart();
 	void BeginReturnFromHold();
+	bool BeginConfiguredReturn();
+	void BeginDissipateToCenter();
 	void EnsureNiagaraComponentReadable(UNiagaraComponent* NiagaraComponent);
 	void TickPatternRuntime(float DeltaTimeSeconds);
 	bool BuildPatternTargets();
@@ -306,6 +311,7 @@ private:
 
 	TArray<FVector> LiveSimWorldPositions;
 	TArray<FVector> LastAppliedWorldPositions;
+	FMetaAgentParticleFormingSettings ReturnFormingSolverSettings;
 
 	float ActiveHoldPulseAmplitude = 0.0f;
 	float FormingSteeringBlendElapsedSeconds = 0.0f;

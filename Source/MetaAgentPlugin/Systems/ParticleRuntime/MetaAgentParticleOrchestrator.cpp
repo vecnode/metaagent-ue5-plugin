@@ -373,6 +373,11 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 		return CycleFormingMode();
 	}
 
+	if (EffectId == MetaAgentParticleEffectIds::CycleReturning)
+	{
+		return CycleReturningMode();
+	}
+
 	if (EffectId == MetaAgentParticleEffectIds::PatternStepForward)
 	{
 		return StepPatternStateForward();
@@ -381,6 +386,11 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 	if (EffectId == MetaAgentParticleEffectIds::PatternStepBackward)
 	{
 		return StepPatternStateBackward();
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::DissipateToCenter)
+	{
+		return DissipateToCenterEffect();
 	}
 
 	FMetaAgentParticleEffectSpec Spec;
@@ -445,6 +455,19 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleFormingMode(
 	Result.bSuccess = true;
 	Result.UserMessage = FText::FromString(
 		FString::Printf(TEXT("Forming mode: %s"), *PatternConfig.Forming.GetModeDisplayName()));
+	return Result;
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleReturningMode()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::CycleReturning;
+
+	PatternConfig.Return.CycleMode();
+	SyncConfigToRuntime();
+	Result.bSuccess = true;
+	Result.UserMessage = FText::FromString(
+		FString::Printf(TEXT("Returning mode: %s"), *PatternConfig.Return.GetModeDisplayName()));
 	return Result;
 }
 
@@ -533,6 +556,30 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::PlayFullImageReve
 	}
 
 	return ApplyEffectSpec(Spec, MetaAgentParticleEffectIds::ImageReveal);
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::DissipateToCenterEffect()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::DissipateToCenter;
+
+	if (!ParticleRuntime)
+	{
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	if (!ParticleRuntime->RequestDissipateToCenter())
+	{
+		Result.UserMessage = FText::FromString(
+			TEXT("Dissipate unavailable (pattern must be Forming, Holding, or Returning)."));
+		return Result;
+	}
+
+	Result.bSuccess = true;
+	Result.UserMessage = FText::FromString(
+		FString::Printf(TEXT("Dissipating toward center — %s"), *ParticleRuntime->BuildPatternStatusText()));
+	return Result;
 }
 
 bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessage)
