@@ -80,7 +80,229 @@ Vec3 compute_centroid(const core::Array<Vec3>& points)
 	return centroid * inv_count;
 }
 
+bool finalize_shape_assignment(
+	const PatternConfig& pattern_config,
+	const ShapeContext& shape_context,
+	const core::Array<Vec3>& local_shape_points_cm,
+	const ShapeFrame shape_frame,
+	const ShapeType resolved_shape,
+	const core::String& debug_info,
+	ShapeBuildResult& out_result)
+{
+	const core::Array<Vec3>& baseline = shape_context.baseline_world_positions;
+	const int32_t particle_count = static_cast<int32_t>(baseline.size());
+	if (particle_count <= 0 || local_shape_points_cm.empty())
+	{
+		out_result.success = false;
+		out_result.debug_info = debug_info.empty() ? "No shape points to assign." : debug_info;
+		return false;
+	}
+
+	ShapeBuilder::assign_particles_to_shape_points(
+		baseline,
+		local_shape_points_cm,
+		shape_frame,
+		pattern_config.shape.assignment_mode,
+		out_result.pattern_world_targets);
+
+	out_result.shape_frame = shape_frame;
+	out_result.pattern_center = shape_frame.origin;
+	out_result.pattern_columns = std::max(
+		1,
+		static_cast<int32_t>(std::ceil(std::sqrt(static_cast<float>(particle_count)))));
+	out_result.shape_point_count = static_cast<int32_t>(local_shape_points_cm.size());
+	out_result.resolved_shape = resolved_shape;
+	out_result.success = true;
+	out_result.debug_info = debug_info;
+	return true;
+}
+
+core::Array<Vec3> world_polyline_to_local_points(
+	const core::Array<Vec3>& polyline_world_points,
+	const Vec3& centroid,
+	const float extent_cm)
+{
+	const float safe_extent = std::max(10.0f, extent_cm);
+	core::Array<Vec3> local_points;
+	local_points.reserve(polyline_world_points.size());
+	for (const Vec3& world_point : polyline_world_points)
+	{
+		const Vec3 delta = world_point - centroid;
+		local_points.push_back({delta.x / safe_extent, delta.y / safe_extent, 0.0f});
+	}
+	return local_points;
+}
+
+core::Array<Vec3> build_normalized_bounds_grid(const int32_t grid_side)
+{
+	const int32_t safe_grid_side = core::math::clamp(grid_side, 2, 32);
+	core::Array<Vec3> local_points;
+	local_points.reserve(static_cast<size_t>(safe_grid_side * safe_grid_side));
+	for (int32_t row = 0; row < safe_grid_side; ++row)
+	{
+		for (int32_t column = 0; column < safe_grid_side; ++column)
+		{
+			const float u = safe_grid_side > 1
+				? static_cast<float>(column) / static_cast<float>(safe_grid_side - 1)
+				: 0.5f;
+			const float v = safe_grid_side > 1
+				? static_cast<float>(row) / static_cast<float>(safe_grid_side - 1)
+				: 0.5f;
+			local_points.push_back({u - 0.5f, 0.5f - v, 0.0f});
+		}
+	}
+	return local_points;
+}
+
 } // namespace
+
+bool ShapeBuilder::build_silhouette_from_local_points(
+	const PatternConfig& pattern_config,
+	const ShapeContext& shape_context,
+	const core::Array<Vec3>& local_shape_points_cm,
+	const int32_t source_texture_width,
+	const int32_t source_texture_height,
+	ShapeBuildResult& out_result,
+	const core::String& extraction_debug)
+{
+	const int32_t particle_count = static_cast<int32_t>(shape_context.baseline_world_positions.size());
+	if (particle_count <= 0)
+	{
+		out_result.success = false;
+		out_result.debug_info = "No baseline particles.";
+		return false;
+	}
+
+	if (local_shape_points_cm.empty())
+	{
+		out_result.success = false;
+		out_result.debug_info = extraction_debug.empty()
+			? "No silhouette local points."
+			: extraction_debug;
+		return false;
+	}
+
+	const ShapeFrame shape_frame = resolve_shape_frame(
+		pattern_config,
+		shape_context,
+		source_texture_width,
+		source_texture_height);
+
+	std::ostringstream stream;
+	if (!extraction_debug.empty())
+	{
+		stream << extraction_debug << " | ";
+	}
+	stream
+		<< "frame="
+		<< shape_frame.extents_cm.x
+		<< "x"
+		<< shape_frame.extents_cm.y
+		<< "cm anchor="
+		<< (pattern_config.shape.shape_anchor == ShapeAnchor::PreviewPlane
+				? "PreviewPlane"
+				: "ParticleCentroid")
+		<< " autoFit="
+		<< (pattern_config.shape.auto_fit_shape_to_particle_sphere ? "on" : "off");
+
+	return finalize_shape_assignment(
+		pattern_config,
+		shape_context,
+		local_shape_points_cm,
+		shape_frame,
+		ShapeType::ImageSilhouette,
+		stream.str(),
+		out_result);
+}
+
+bool ShapeBuilder::build_polyline_path_targets(
+	const PatternConfig& pattern_config,
+	const ShapeContext& shape_context,
+	const core::Array<Vec3>& polyline_world_points,
+	ShapeBuildResult& out_result)
+{
+	const core::Array<Vec3>& baseline = shape_context.baseline_world_positions;
+	const int32_t particle_count = static_cast<int32_t>(baseline.size());
+	if (particle_count <= 0)
+	{
+		out_result.success = false;
+		out_result.debug_info = "No baseline particles for polyline path.";
+		return false;
+	}
+
+	if (polyline_world_points.empty())
+	{
+		out_result.success = false;
+		out_result.debug_info = "Polyline path requires at least one world sample.";
+		return false;
+	}
+
+	const Vec3 centroid = compute_centroid(baseline);
+	const core::Array<Vec3> local_shape_points_cm = world_polyline_to_local_points(
+		polyline_world_points,
+		centroid,
+		pattern_config.shape.shape_width_cm);
+	const ShapeFrame shape_frame = resolve_shape_frame(pattern_config, shape_context, 0, 0);
+
+	std::ostringstream stream;
+	stream << "SplinePath samples=" << polyline_world_points.size();
+	return finalize_shape_assignment(
+		pattern_config,
+		shape_context,
+		local_shape_points_cm,
+		shape_frame,
+		ShapeType::SplinePath,
+		stream.str(),
+		out_result);
+}
+
+bool ShapeBuilder::build_bounds_grid_targets(
+	const PatternConfig& pattern_config,
+	const ShapeContext& shape_context,
+	const Vec3& bounds_origin,
+	const float bounds_width_cm,
+	const float bounds_height_cm,
+	ShapeBuildResult& out_result)
+{
+	const core::Array<Vec3>& baseline = shape_context.baseline_world_positions;
+	const int32_t particle_count = static_cast<int32_t>(baseline.size());
+	if (particle_count <= 0)
+	{
+		out_result.success = false;
+		out_result.debug_info = "No baseline particles for bounds grid.";
+		return false;
+	}
+
+	const int32_t grid_side = core::math::clamp(
+		static_cast<int32_t>(std::ceil(std::sqrt(static_cast<float>(std::max(
+			particle_count,
+			pattern_config.shape.procedural_sample_count))))),
+		2,
+		32);
+	const core::Array<Vec3> local_shape_points_cm = build_normalized_bounds_grid(grid_side);
+
+	ShapeFrame shape_frame = build_shape_frame_from_centroid(
+		baseline,
+		bounds_width_cm,
+		bounds_height_cm,
+		pattern_config.shape.z_offset_cm,
+		false,
+		pattern_config.shape.orient_shape_to_view,
+		shape_context.has_view_origin,
+		shape_context.view_origin);
+	shape_frame.origin = bounds_origin;
+
+	std::ostringstream stream;
+	stream << "MeshSilhouette grid=" << grid_side << "x" << grid_side;
+	return finalize_shape_assignment(
+		pattern_config,
+		shape_context,
+		local_shape_points_cm,
+		shape_frame,
+		ShapeType::MeshSilhouette,
+		stream.str(),
+		out_result);
+}
 
 ShapeBuildResult ShapeBuilder::build_pattern_targets(
 	const PatternConfig& pattern_config,

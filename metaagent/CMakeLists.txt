@@ -17,6 +17,7 @@ add_library(metaagent STATIC
     src/metaagent/particle/transition_graph.cpp
     src/metaagent/particle/forming_solver.cpp
     src/metaagent/particle/actuation_math.cpp
+    src/metaagent/particle/representation_actuation.cpp
     src/metaagent/particle/shape_types.cpp
     src/metaagent/particle/shape_builder.cpp
     src/metaagent/particle/image_mask_processor.cpp
@@ -51,6 +52,14 @@ add_test(NAME transition_graph_test COMMAND metaagent_transition_graph_test)
 add_executable(metaagent_forming_types_test tests/forming_types_test.cpp)
 target_link_libraries(metaagent_forming_types_test PRIVATE metaagent)
 add_test(NAME forming_types_test COMMAND metaagent_forming_types_test)
+
+add_executable(metaagent_shape_builder_polyline_test tests/shape_builder_polyline_test.cpp)
+target_link_libraries(metaagent_shape_builder_polyline_test PRIVATE metaagent)
+add_test(NAME shape_builder_polyline_test COMMAND metaagent_shape_builder_polyline_test)
+
+add_executable(metaagent_actuation_composer_test tests/actuation_composer_test.cpp)
+target_link_libraries(metaagent_actuation_composer_test PRIVATE metaagent)
+add_test(NAME actuation_composer_test COMMAND metaagent_actuation_composer_test)
 
 install(TARGETS metaagent
     EXPORT metaagentTargets

@@ -22,7 +22,7 @@ ctest --test-dir build
 
 ## Unreal integration
 
-The UE plugin compiles this library via `Source/MetaAgentPlugin/Bridge/MetaAgentCoreAggregate.cpp` and links headers through `MetaAgentPlugin.Build.cs`.
+The UE plugin compiles this library via `Source/MetaAgentPlugin/MetaAgentCoreAggregate.cpp` and links headers through `MetaAgentPlugin.Build.cs`.
 
 Runtime particle FSM tick, transition graph, representation frame build, and status text are routed through `MetaAgentParticleCoreBridge` into `metaagent::particle::ParticleScheduler`.
 

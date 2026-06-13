@@ -24,6 +24,32 @@ public:
 		const RgbaImage* source_image,
 		ShapeBuildResult& out_result);
 
+	/** Build targets from pre-extracted normalized local shape points (async mask cache path). */
+	METAAGENT_API static bool build_silhouette_from_local_points(
+		const PatternConfig& pattern_config,
+		const ShapeContext& shape_context,
+		const core::Array<core::Vec3>& local_shape_points_cm,
+		int32_t source_texture_width,
+		int32_t source_texture_height,
+		ShapeBuildResult& out_result,
+		const core::String& extraction_debug = {});
+
+	/** Build targets from world-space polyline samples (UE feeds spline points). */
+	METAAGENT_API static bool build_polyline_path_targets(
+		const PatternConfig& pattern_config,
+		const ShapeContext& shape_context,
+		const core::Array<core::Vec3>& polyline_world_points,
+		ShapeBuildResult& out_result);
+
+	/** Build targets from axis-aligned bounds grid in normalized local space (UE feeds mesh bounds). */
+	METAAGENT_API static bool build_bounds_grid_targets(
+		const PatternConfig& pattern_config,
+		const ShapeContext& shape_context,
+		const core::Vec3& bounds_origin,
+		float bounds_width_cm,
+		float bounds_height_cm,
+		ShapeBuildResult& out_result);
+
 	METAAGENT_API static ShapeFrame resolve_shape_frame(
 		const PatternConfig& pattern_config,
 		const ShapeContext& shape_context,

@@ -75,6 +75,8 @@ struct PatternRuntime {
 	core::Array<core::Vec3> dissipate_start_positions;
 	bool awaiting_async_mask = false;
 	float anticipation_handoff_elapsed_seconds = -1.0f;
+	core::Array<float> form_curve_samples;
+	core::Array<float> asset_return_curve_samples;
 	core::Array<core::String> active_pattern_tags;
 };
 

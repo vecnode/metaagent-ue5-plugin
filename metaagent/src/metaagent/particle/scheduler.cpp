@@ -33,26 +33,12 @@ core::String join_tags(const core::Array<core::String>& tags)
 
 float evaluate_phase_for_state_default(const ParticleScheduler& scheduler, const PatternState state, const float normalized_time_in_state)
 {
-	const float clamped_time = core::math::clamp(normalized_time_in_state, 0.0f, 1.0f);
-	if (state == PatternState::Returning)
-	{
-		const core::Array<float>* return_curve_samples =
-			scheduler.pattern_runtime.active_config.return_settings.get_return_curve_for_mode();
-		if (return_curve_samples && !return_curve_samples->empty())
-		{
-			return core::math::clamp(
-				1.0f - core::math::evaluate_curve01(
-					clamped_time,
-					return_curve_samples->data(),
-					static_cast<int>(return_curve_samples->size())),
-				0.0f,
-				1.0f);
-		}
-
-		return 1.0f - core::math::smooth_step01(clamped_time);
-	}
-
-	return core::math::smooth_step01(clamped_time);
+	return ActuationMath::evaluate_phase_for_state(
+		state,
+		normalized_time_in_state,
+		scheduler.pattern_runtime.active_config,
+		scheduler.pattern_runtime.form_curve_samples,
+		scheduler.pattern_runtime.asset_return_curve_samples);
 }
 
 void enter_state(ParticleScheduler& scheduler, const PatternState new_state, SchedulerCallbacks& callbacks)

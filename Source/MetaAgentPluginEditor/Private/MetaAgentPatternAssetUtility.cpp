@@ -5,7 +5,7 @@
 #include "HAL/IConsoleManager.h"
 #include "IAssetTools.h"
 #include "Misc/PackageName.h"
-#include "Systems/ParticleRuntime/MetaAgentParticlePatternAsset.h"
+#include "MetaAgentParticleTypes.h"
 #include "UObject/SavePackage.h"
 
 namespace MetaAgentPatternAssetUtility

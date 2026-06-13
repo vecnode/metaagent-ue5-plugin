@@ -10,7 +10,7 @@ public class MetaAgentPlugin : ModuleRules
 		PublicIncludePaths.AddRange(
 			new string[]
 			{
-				// Centralized module layout: Core/, Gameplay/, Systems/, UI/ live directly under ModuleDirectory.
+				// Flat module layout: all sources live directly under ModuleDirectory.
 				Path.Combine(ModuleDirectory),
 				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "include"))
 			}

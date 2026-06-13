@@ -7,6 +7,7 @@
 #include "metaagent/core/math.hpp"
 #include "metaagent/core/types.hpp"
 #include "metaagent/particle/actuation_math.hpp"
+#include "metaagent/particle/representation_actuation.hpp"
 #include "metaagent/particle/forming_solver.hpp"
 #include "metaagent/particle/forming_types.hpp"
 #include "metaagent/particle/image_mask_processor.hpp"
