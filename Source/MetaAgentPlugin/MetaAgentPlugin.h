@@ -112,15 +112,7 @@ public:
 
 private:
 	void HandleWorldBeginPlay(UWorld& InWorld);
-	void StartLocalHttpServer();
-	void StopLocalHttpServer();
 	FString BuildPlatformUrl() const;
 
-	bool HandleHealthRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
-	bool HandleEchoRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
-	bool HandleNotifyRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
-
 	bool bRuntimeActive = false;
-	TSharedPtr<IHttpRouter> LocalHttpRouter;
-	TArray<FHttpRouteHandle> RouteHandles;
 };

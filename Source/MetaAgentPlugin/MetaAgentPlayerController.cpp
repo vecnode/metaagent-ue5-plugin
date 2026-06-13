@@ -37,7 +37,14 @@
 #include "Materials/MaterialInterface.h"
 #include "MetaAgentPlugin.h"
 #include "MetaAgentPlayerController.h"
+#include "Host/MetaAgentHostSession.h"
+#include "Host/MetaAgentInputBridge.h"
+#include "metaagent/app/commands.hpp"
 #include "MetaAgentGameplay.h"
+#include "MetaAgentTypeBridge.h"
+#include "metaagent/camera/controller.hpp"
+#include "metaagent/input/policy.hpp"
+#include "Engine/GameViewportClient.h"
 #include "MetaAgentHUD.h"
 #include "MetaAgentParticleShapes.h"
 #include "MetaAgentParticleControl.h"
@@ -235,6 +242,14 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 	if (CinematicCamera.bModeEnabled)
 	{
 		UpdateCinematicCamera(DeltaTime);
+	}
+
+	TickStartupParticleFocusLock();
+	EnforceObservationInputLock();
+
+	if (GUI.bHelpPanelVisible && !ShouldUseTouchControls() && WasInputKeyJustPressed(EKeys::LeftMouseButton))
+	{
+		HandleGUIPanelMousePressed();
 	}
 
 	if (ParticleOrchestrator && IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
@@ -498,9 +513,16 @@ void AMetaAgentPlayerController::PlayerTick(float DeltaTime)
 		}
 	}
 
-	if (ControlledPawn && !CinematicCamera.bModeEnabled && !IsGUIInteractionModeActive())
+	if (IsLocalPlayerController() && !IsGUIInteractionModeActive())
 	{
-		ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
+		if (CinematicCamera.bModeEnabled)
+		{
+			ApplyCinematicMouseWheelZoom();
+		}
+		else if (ControlledPawn)
+		{
+			ApplyMouseWheelZoom(ControlledPawn, DeltaTime);
+		}
 	}
 
 	UpdateRecordingCaptureStatus();
@@ -513,15 +535,6 @@ void AMetaAgentPlayerController::BeginPlay()
 	if (!IsMetaAgentRuntimeActive())
 	{
 		return;
-	}
-
-	if (IsLocalPlayerController() && !ShouldUseTouchControls())
-	{
-		FInputModeGameOnly InputMode;
-		SetInputMode(InputMode);
-		bShowMouseCursor = false;
-		SetIgnoreLookInput(false);
-		SetIgnoreMoveInput(false);
 	}
 
 	if (IsLocalPlayerController())
@@ -565,7 +578,9 @@ void AMetaAgentPlayerController::BeginPlay()
 
 	UpdateRecordingStatusHud();
 	ApplyInitialModularRuntimeStates();
+	ApplyStartupParticleFocusView();
 	ApplyGUIHelpPanelState();
+	ApplyGUIInteractionInputModeFromPanelState();
 }
 
 void AMetaAgentPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -600,7 +615,6 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleFocusParticlesCameraPressed);
-			InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMetaAgentPlayerController::HandleGUIPanelMousePressed);
 			EnsureParticleOrchestrator();
 			FMetaAgentParticleInputRouter::BindKeyboardInput(this, InputComponent, ParticleOrchestrator);
 			InputFallback.bUtilityKeysBound = true;
@@ -847,7 +861,12 @@ void AMetaAgentPlayerController::ApplyMouseWheelZoom(APawn* ControlledPawn, floa
 
 void AMetaAgentPlayerController::HandleToggleCinematicCameraPressed()
 {
-	if (IsGUIInteractionModeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
+	if (IsGUIInteractionModeActive())
+	{
+		return;
+	}
+
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::ToggleCinematicCamera))
 	{
 		return;
 	}
@@ -868,10 +887,20 @@ void AMetaAgentPlayerController::HandleFocusParticlesCameraPressed()
 		ApplyGUIHelpPanelState();
 	}
 
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::ToggleFocusParticles))
+	{
+		return;
+	}
+
 	EnsureParticleOrchestrator();
 
 	const bool bWasEnabled = bCinematicFocusParticles;
 	bCinematicFocusParticles = !bCinematicFocusParticles;
+
+	if (bCinematicFocusParticles && !bWasEnabled)
+	{
+		TryLockParticleFocusTarget(true);
+	}
 
 	if (!CinematicCamera.bModeEnabled)
 	{
@@ -879,6 +908,7 @@ void AMetaAgentPlayerController::HandleFocusParticlesCameraPressed()
 	}
 	else if (bCinematicFocusParticles && !bWasEnabled)
 	{
+		ApplyLockedParticleFocusToCinematicCamera();
 		FMetaAgentCameraRuntime::RunRefreshCinematicFocus(*this, CinematicCamera);
 	}
 
@@ -919,6 +949,207 @@ FVector AMetaAgentPlayerController::ResolveCinematicFocusLocation(AActor* Target
 void AMetaAgentPlayerController::EnableCinematicCameraMode()
 {
 	FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(*this, CinematicCamera);
+	ApplyCharacterInputRuntimeState();
+}
+
+void AMetaAgentPlayerController::ApplyStartupParticleFocusView()
+{
+	if (!IsLocalPlayerController() || ShouldUseTouchControls())
+	{
+		return;
+	}
+
+	GUI.bCameraRuntimeEnabled = true;
+	bCinematicFocusParticles = true;
+	EnsureParticleOrchestrator();
+	EnableCinematicCameraMode();
+
+	if (TryLockParticleFocusTarget())
+	{
+		ApplyLockedParticleFocusToCinematicCamera();
+		FMetaAgentCameraRuntime::RunRefreshCinematicFocus(*this, CinematicCamera);
+	}
+	else
+	{
+		StartupParticleFocusFramesRemaining = 90;
+	}
+
+	UE_LOG(LogMetaAgent, Log, TEXT("Startup: cinematic particle observation enabled. Press Q for controls panel."));
+}
+
+bool AMetaAgentPlayerController::TryLockParticleFocusTarget(const bool bForceRelock)
+{
+	if (bHasLockedParticleFocus && !bForceRelock)
+	{
+		return true;
+	}
+
+	if (!bCinematicFocusParticles)
+	{
+		return false;
+	}
+
+	const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime();
+	if (!Runtime)
+	{
+		return false;
+	}
+
+	TArray<FVector> FocusPoints;
+	if (Runtime->GetFocusableWorldPositions(FocusPoints) <= 0)
+	{
+		return false;
+	}
+
+	const metaagent::camera::FocusTarget Focus = MetaAgentTypeBridge::make_focus_target_from_world_points(
+		FocusPoints,
+		ParticleObservationPaddingScale);
+	LockedParticleFocusPoint = MetaAgentTypeBridge::from_core_vec3(Focus.focus_point);
+	LockedParticleFocusOrbitRadius = FMath::Max(
+		ParticleObservationMinOrbitRadius,
+		Focus.orbit_radius_hint);
+	LockedParticleFocusHeightOffset = Focus.height_offset;
+	bHasLockedParticleFocus = true;
+
+	UE_LOG(LogMetaAgent, Log,
+		TEXT("Camera: locked particle observation focus (orbit=%.1f, height=%.1f, particles=%d)."),
+		LockedParticleFocusOrbitRadius,
+		LockedParticleFocusHeightOffset,
+		FocusPoints.Num());
+	return true;
+}
+
+void AMetaAgentPlayerController::BuildLockedParticleFocusTarget(
+	metaagent::camera::FocusTarget& OutFocus) const
+{
+	OutFocus.focus_point = MetaAgentTypeBridge::to_core_vec3(LockedParticleFocusPoint);
+	OutFocus.orbit_radius_hint = LockedParticleFocusOrbitRadius;
+	OutFocus.height_offset = LockedParticleFocusHeightOffset;
+}
+
+void AMetaAgentPlayerController::ApplyLockedParticleFocusToCinematicCamera()
+{
+	if (!bHasLockedParticleFocus || !CinematicCamera.bModeEnabled)
+	{
+		return;
+	}
+
+	CinematicCamera.OrbitRadius = LockedParticleFocusOrbitRadius;
+	CinematicCamera.CameraHeightOffset = LockedParticleFocusHeightOffset;
+
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(*this);
+	MetaAgentTypeBridge::sync_cinematic_runtime_to_core(CinematicCamera, CoreCamera.cinematic_state());
+}
+
+void AMetaAgentPlayerController::TickStartupParticleFocusLock()
+{
+	if (StartupParticleFocusFramesRemaining <= 0 || bHasLockedParticleFocus)
+	{
+		return;
+	}
+
+	StartupParticleFocusFramesRemaining--;
+	if (!TryLockParticleFocusTarget())
+	{
+		return;
+	}
+
+	ApplyLockedParticleFocusToCinematicCamera();
+	FMetaAgentCameraRuntime::RunRefreshCinematicFocus(*this, CinematicCamera);
+	StartupParticleFocusFramesRemaining = 0;
+}
+
+void AMetaAgentPlayerController::EnforceObservationInputLock()
+{
+	if (!IsLocalPlayerController() || ShouldUseTouchControls())
+	{
+		return;
+	}
+
+	const metaagent::input::InputPolicy Policy = metaagent::input::policy_for_runtime(
+		IsGUIInteractionModeActive(),
+		IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput),
+		CinematicCamera.bModeEnabled);
+
+	if (Policy.allow_gui_clicks)
+	{
+		return;
+	}
+
+	if (Policy.block_move)
+	{
+		SetIgnoreMoveInput(true);
+	}
+	if (Policy.block_look)
+	{
+		SetIgnoreLookInput(true);
+	}
+	bShowMouseCursor = false;
+}
+
+bool AMetaAgentPlayerController::GetViewportCanvasMousePos(float& OutX, float& OutY) const
+{
+	if (const ULocalPlayer* LocalPlayer = GetLocalPlayer())
+	{
+		if (const UGameViewportClient* ViewportClient = LocalPlayer->ViewportClient)
+		{
+			FVector2D MousePos = FVector2D::ZeroVector;
+			if (ViewportClient->GetMousePosition(MousePos))
+			{
+				OutX = MousePos.X;
+				OutY = MousePos.Y;
+				return true;
+			}
+		}
+	}
+
+	return GetMousePosition(OutX, OutY);
+}
+
+void AMetaAgentPlayerController::ApplyCinematicMouseWheelZoom()
+{
+	if (!CinematicCamera.bModeEnabled || IsGUIInteractionModeActive())
+	{
+		return;
+	}
+
+	const metaagent::input::InputPolicy Policy = metaagent::input::policy_for_runtime(
+		false,
+		IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput),
+		true);
+	if (!Policy.allow_mouse_wheel_zoom)
+	{
+		return;
+	}
+
+	metaagent::camera::ZoomInput Input;
+	if (WasInputKeyJustPressed(EKeys::MouseScrollUp))
+	{
+		Input.discrete_wheel_delta = 1.0f;
+	}
+	if (WasInputKeyJustPressed(EKeys::MouseScrollDown))
+	{
+		Input.discrete_wheel_delta = -1.0f;
+	}
+	if (FMath::IsNearlyZero(Input.discrete_wheel_delta))
+	{
+		Input.analog_wheel_axis = GetInputAnalogKeyState(EKeys::MouseWheelAxis);
+	}
+
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(*this);
+	MetaAgentTypeBridge::sync_cinematic_runtime_to_core(CinematicCamera, CoreCamera.cinematic_state());
+	metaagent::camera::apply_orbit_radius_zoom(
+		CoreCamera.cinematic_state(),
+		Input,
+		FMath::Max(120.0f, ParticleObservationMinOrbitRadius * 0.35f),
+		5000.0f,
+		35.0f);
+	MetaAgentTypeBridge::sync_cinematic_runtime_from_core(CoreCamera.cinematic_state(), CinematicCamera);
+
+	if (bHasLockedParticleFocus)
+	{
+		LockedParticleFocusOrbitRadius = CinematicCamera.OrbitRadius;
+	}
 }
 
 void AMetaAgentPlayerController::DisableCinematicCameraMode()
@@ -934,6 +1165,11 @@ void AMetaAgentPlayerController::UpdateCinematicCamera(float DeltaTime)
 // ===== MetaAgentPlayerControllerGUI.cpp =====
 void AMetaAgentPlayerController::HandleToggleHelpPanelPressed()
 {
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::ToggleGuiHelp))
+	{
+		return;
+	}
+
 	FMetaAgentGUIRuntime::RunToggleHelpPanelSequence(*this, GUI);
 }
 
@@ -969,6 +1205,11 @@ void AMetaAgentPlayerController::ApplyGUIInteractionInputModeFromPanelState()
 		bEnableClickEvents = false;
 		bEnableMouseOverEvents = false;
 		ApplyCharacterInputRuntimeState();
+		if (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput)
+		{
+			SetIgnoreMoveInput(true);
+			SetIgnoreLookInput(true);
+		}
 	}
 }
 
@@ -981,7 +1222,7 @@ void AMetaAgentPlayerController::HandleGUIPanelMousePressed()
 
 	float MouseX = 0.0f;
 	float MouseY = 0.0f;
-	if (!GetMousePosition(MouseX, MouseY))
+	if (!GetViewportCanvasMousePos(MouseX, MouseY))
 	{
 		return;
 	}
@@ -1001,123 +1242,7 @@ void AMetaAgentPlayerController::HandleGUIPanelMousePressed()
 
 void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 {
-	if (ActionId.IsNone())
-	{
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ToggleHelpPanel)
-	{
-		FMetaAgentGUIRuntime::RunToggleHelpPanelSequence(*this, GUI);
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::QuitApplication)
-	{
-		HandleEscapePressed();
-		return;
-	}
-
-	FName SectionExpandId = NAME_None;
-	if (ParseSectionExpandAction(ActionId, SectionExpandId))
-	{
-		ToggleRuntimeSectionExpanded(SectionExpandId);
-		return;
-	}
-
-	FName RuntimeToggleId = NAME_None;
-	if (ParseRuntimeToggleAction(ActionId, RuntimeToggleId))
-	{
-		EMetaAgentModularRuntime Runtime = EMetaAgentModularRuntime::GUI;
-		if (TryMapRuntimeIdToModularRuntime(RuntimeToggleId, Runtime))
-		{
-			ToggleModularRuntime(Runtime);
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ToggleCinematicCamera)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
-		{
-			ToggleCinematicCameraMode();
-			ApplyGUIHelpPanelState();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::FocusParticleCamera)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
-		{
-			HandleFocusParticlesCameraPressed();
-			ApplyGUIHelpPanelState();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ToggleAutopilot)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::AI))
-		{
-			ToggleAutopilotFromGUI();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ToggleRecording)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording))
-		{
-			HandleToggleRecordingPressed();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ReportRecording)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording))
-		{
-			HandleReportRecordingStatusPressed();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::StartAudio)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
-		{
-			HandleStartAudioPressed();
-		}
-		return;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::StartImage)
-	{
-		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
-		{
-			HandleStartImagePressed();
-		}
-		return;
-	}
-
-	if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
-	{
-		if (ActionId == MetaAgentRuntimeIds::ParticleLoadPreview) { HandleParticleLoadPreviewPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticlePlayFullCycle) { HandleParticlePlayFullCyclePressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleStepBackward) { HandleParticleStepPatternBackwardPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleStepForward) { HandleParticleStepPatternForwardPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset) { HandleParticleSlowPresetPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleDramaticPreset) { HandleParticleDramaticPresetPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleSnappyPreset) { HandleParticleSnappyPresetPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleDreamyPreset) { HandleParticleDreamyPresetPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleMorph) { HandleParticleMorphPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleCycleSampling) { HandleParticleCycleSamplingPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleCycleForming) { HandleParticleCycleFormingPressed(); return; }
-		if (ActionId == MetaAgentRuntimeIds::ParticleCycleReturning) { HandleParticleCycleReturningPressed(); return; }
-	}
-
-	ApplyGUIHelpPanelState();
+	FMetaAgentGUIRuntime::DispatchPanelAction(*this, GUI, ActionId);
 }
 
 // ===== MetaAgentPlayerControllerRuntime.cpp =====
@@ -1126,8 +1251,9 @@ bool AMetaAgentPlayerController::IsModularRuntimeEnabled(const EMetaAgentModular
 	switch (Runtime)
 	{
 	case EMetaAgentModularRuntime::GUI:
-	case EMetaAgentModularRuntime::CharacterInput:
 		return true;
+	case EMetaAgentModularRuntime::CharacterInput:
+		return GUI.bCharacterInputRuntimeEnabled;
 	case EMetaAgentModularRuntime::Camera:
 		return GUI.bCameraRuntimeEnabled;
 	case EMetaAgentModularRuntime::AI:
@@ -1143,6 +1269,24 @@ bool AMetaAgentPlayerController::IsModularRuntimeEnabled(const EMetaAgentModular
 	}
 }
 
+FMetaAgentHostSessionSnapshot AMetaAgentPlayerController::BuildHostSessionSnapshot() const
+{
+	return MetaAgentHostSession::MakeFromPlayerController(*this);
+}
+
+bool AMetaAgentPlayerController::CanExecuteAppCommand(
+	const metaagent::app::CommandId Command,
+	FString* OutUserMessage) const
+{
+	const FMetaAgentInputBridgeResult Result =
+		FMetaAgentInputBridge::ValidateCommand(Command, BuildHostSessionSnapshot());
+	if (OutUserMessage && !Result.UserMessage.IsEmpty())
+	{
+		*OutUserMessage = Result.UserMessage;
+	}
+	return Result.bHandled && Result.bSuccess;
+}
+
 bool AMetaAgentPlayerController::IsGUIInteractionModeActive() const
 {
 	return GUI.bHelpPanelVisible && IsLocalPlayerController() && !ShouldUseTouchControls();
@@ -1150,13 +1294,17 @@ bool AMetaAgentPlayerController::IsGUIInteractionModeActive() const
 
 void AMetaAgentPlayerController::SetModularRuntimeEnabled(const EMetaAgentModularRuntime Runtime, const bool bEnabled)
 {
-	if (Runtime == EMetaAgentModularRuntime::GUI || Runtime == EMetaAgentModularRuntime::CharacterInput)
+	if (Runtime == EMetaAgentModularRuntime::GUI)
 	{
 		return;
 	}
 
 	switch (Runtime)
 	{
+	case EMetaAgentModularRuntime::CharacterInput:
+		GUI.bCharacterInputRuntimeEnabled = bEnabled;
+		ApplyCharacterInputRuntimeState();
+		break;
 	case EMetaAgentModularRuntime::Camera:
 		GUI.bCameraRuntimeEnabled = bEnabled;
 		if (!bEnabled)
@@ -1237,7 +1385,7 @@ void AMetaAgentPlayerController::ApplyInitialModularRuntimeStates()
 
 void AMetaAgentPlayerController::ToggleModularRuntime(const EMetaAgentModularRuntime Runtime)
 {
-	if (Runtime == EMetaAgentModularRuntime::GUI || Runtime == EMetaAgentModularRuntime::CharacterInput)
+	if (Runtime == EMetaAgentModularRuntime::GUI)
 	{
 		return;
 	}
@@ -1563,14 +1711,20 @@ void AMetaAgentPlayerController::ApplyCharacterInputRuntimeState()
 		return;
 	}
 
-	const bool bCharacterInputAllowed =
-		IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput) && !IsGUIInteractionModeActive();
+	if (!IsGUIInteractionModeActive())
+	{
+		RemoveEnhancedInputMappingContexts();
+		SetIgnoreMoveInput(true);
+		SetIgnoreLookInput(true);
+		return;
+	}
 
+	const bool bCharacterInputAllowed = IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput);
 	if (bCharacterInputAllowed)
 	{
 		EnsureEnhancedInputMappingContexts();
-		SetIgnoreMoveInput(false);
-		SetIgnoreLookInput(false);
+		SetIgnoreMoveInput(true);
+		SetIgnoreLookInput(true);
 	}
 	else
 	{
@@ -1583,9 +1737,9 @@ void AMetaAgentPlayerController::ApplyCharacterInputRuntimeState()
 void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPawn)
 {
 	if (!ControlledPawn
+		|| !IsGUIInteractionModeActive()
 		|| !InputFallback.bEnableKeyboardMovement
 		|| InputFallback.bAddedAnyMappingContext
-		|| IsGUIInteractionModeActive()
 		|| !IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput)
 		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
 	{
@@ -1626,40 +1780,7 @@ void AMetaAgentPlayerController::ApplyFallbackMovementInput(APawn* ControlledPaw
 
 void AMetaAgentPlayerController::ApplyFallbackLookInput()
 {
-	if (!InputFallback.bEnableMouseLook
-		|| IsGUIInteractionModeActive()
-		|| !IsModularRuntimeEnabled(EMetaAgentModularRuntime::CharacterInput)
-		|| (CinematicCamera.bModeEnabled && CinematicCamera.bDisablePlayerInput))
-	{
-		return;
-	}
-
-	float MouseDeltaX = 0.0f;
-	float MouseDeltaY = 0.0f;
-	GetInputMouseDelta(MouseDeltaX, MouseDeltaY);
-
-	if (FMath::IsNearlyZero(MouseDeltaX) && FMath::IsNearlyZero(MouseDeltaY))
-	{
-		MouseDeltaX = GetInputAnalogKeyState(EKeys::MouseX);
-		MouseDeltaY = GetInputAnalogKeyState(EKeys::MouseY);
-	}
-
-	if (FMath::IsNearlyZero(MouseDeltaX) && FMath::IsNearlyZero(MouseDeltaY))
-	{
-		return;
-	}
-
-	const float EffectiveMouseSensitivity = InputFallback.MouseSensitivity * 2.0f;
-
-	if (IsLookInputIgnored())
-	{
-		SetIgnoreLookInput(false);
-	}
-
-	FRotator NewControlRotation = GetControlRotation();
-	NewControlRotation.Yaw = FRotator::NormalizeAxis(NewControlRotation.Yaw + (MouseDeltaX * EffectiveMouseSensitivity));
-	NewControlRotation.Pitch = FMath::ClampAngle(NewControlRotation.Pitch - (MouseDeltaY * EffectiveMouseSensitivity), -85.0f, 85.0f);
-	SetControlRotation(NewControlRotation);
+	// Mouse is reserved for GUI panel hit-testing only.
 }
 
 // ===== MetaAgentPlayerControllerAutopilot.cpp =====
@@ -2896,6 +3017,76 @@ namespace MetaAgentParticleControllerInternal
 	}
 }
 
+bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
+{
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		return false;
+	}
+
+	EnsureParticleOrchestrator();
+	if (!ParticleOrchestrator)
+	{
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(TEXT("Particle orchestrator unavailable."), FColor::Yellow, 2.0f);
+		}
+		return false;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ParticleLoadPreview)
+	{
+		FString Message;
+		const bool bLoaded = ParticleOrchestrator->LoadDefaultPreviewPng(Message);
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(
+				Message,
+				bLoaded ? FColor::Green : FColor::Yellow,
+				bLoaded ? 3.0f : 2.5f);
+		}
+		return bLoaded;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ParticleStepBackward)
+	{
+		MetaAgentParticleControllerInternal::TriggerEffectOnController(
+			this,
+			MetaAgentParticleEffectIds::PatternStepBackward);
+		return true;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ParticleStepForward)
+	{
+		MetaAgentParticleControllerInternal::TriggerEffectOnController(
+			this,
+			MetaAgentParticleEffectIds::PatternStepForward);
+		return true;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset)
+	{
+		MetaAgentParticleControllerInternal::TriggerEffectOnController(
+			this,
+			MetaAgentParticleEffectIds::PresetSlow);
+		return true;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ParticleDramaticPreset)
+	{
+		MetaAgentParticleControllerInternal::TriggerEffectOnController(
+			this,
+			MetaAgentParticleEffectIds::PresetDramatic);
+		return true;
+	}
+
+	if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+	{
+		HUD->AddTransientMessage(TEXT("Unknown particle panel action."), FColor::Yellow, 2.0f);
+	}
+	return false;
+}
+
 void AMetaAgentPlayerController::EnsureParticleOrchestrator()
 {
 	if (ParticleOrchestrator)
@@ -2950,7 +3141,7 @@ FMetaAgentParticleEffectResult AMetaAgentPlayerController::TriggerParticleEffect
 
 void AMetaAgentPlayerController::HandleParticleLoadPreviewPressed()
 {
-	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::LoadPreviewImage))
 	{
 		return;
 	}
@@ -3005,7 +3196,7 @@ void AMetaAgentPlayerController::HandleParticlePlayFullCyclePressed()
 
 void AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed()
 {
-	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepBackward))
 	{
 		return;
 	}
@@ -3021,7 +3212,7 @@ void AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed()
 
 void AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed()
 {
-	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepForward))
 	{
 		return;
 	}

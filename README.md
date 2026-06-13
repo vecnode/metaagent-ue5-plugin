@@ -4,9 +4,23 @@ Under heavy development.
 
 UE5 plugin for a multimodal MetaAgent runtime (character, camera, GUI, networking, recording, AI wander, particle orchestration). Modules: **MetaAgentPlugin** (runtime), **MetaAgentPluginEditor** (editor).
 
-Objective: allow an active agent to control the cinematic area — default levels, BPs, and keyboard-driven runtimes for exploration and particle choreography.
+Portable domain logic lives in [`metaagent/`](./metaagent/) and is embedded into the plugin. See [`metaagent/README.md`](./metaagent/README.md) and [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) for the core/host split.
 
-Portable particle mechanics live in [`metaagent/`](./metaagent/) and are embedded into the plugin; see [`metaagent/README.md`](./metaagent/README.md) and [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md).
+---
+
+## What is in `metaagent` vs the UE plugin?
+
+| Concern | Portable (`metaagent/`) | UE host only |
+|---------|-------------------------|--------------|
+| Particle FSM, actuation, solvers | Yes | Niagara I/O, orchestrator, assets |
+| Camera orbit / zoom / sway math | Yes | View target blend, focus queries, observation lock |
+| Inbound HTTP `/health` `/echo` `/notify` | Yes (handlers) | Epic HTTPServer bind (`Host/MetaAgentHttpBridge`) |
+| Outbound platform HTTP (H/G COMMS) | **No** (yet) | `UMetaAgentGameInstance::SendEventToPlatform` |
+| Command + GUI validation | Yes | Key binds, HUD panel, dispatch |
+| Input policy (GUI open vs observation) | Yes | Enhanced Input, `PlayerTick` mouse hit-test |
+| AI autopilot, recording, character pawn | No | `MetaAgentGameplay`, `MetaAgentPlayerController` |
+
+**Not everything is in core yet.** Particles and camera **math** are; viewport/rendering, outbound HTTP, AI, and recording remain host responsibilities.
 
 ---
 
@@ -32,94 +46,165 @@ flowchart TD
     A --> H
 ```
 
+Default play mode today: **particle observation** — cinematic camera focused on particles, movement/mouse look disabled until you open the controls panel (**Q**). Mouse wheel zooms orbit distance when the panel is closed.
+
+---
+
+## Source layout
+
+Runtime sources under `Source/MetaAgentPlugin/`:
+
+| Path | Role |
+|------|------|
+| `MetaAgentPlugin.h/.cpp` | Module startup, settings, Blueprint library, outbound HTTP helper |
+| `MetaAgentGameplay.h/.cpp` | Game mode, character, AI, game instance, HUD draw, camera sequences, **outbound COMMS** |
+| `MetaAgentHUD.h` | HUD / GUI panel types |
+| `MetaAgentPlayerController.h/.cpp` | Input, camera host state, GUI dispatch, recording, particles |
+| `MetaAgentParticle*.h/.cpp` | Orchestrator, runtime, shapes, types |
+| `MetaAgentTypeBridge.h/.cpp` | UE ↔ core conversion, scheduler + camera sync |
+| `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` |
+| `Host/MetaAgentHttpBridge.*` | Inbound HTTP server bridge |
+| `Host/MetaAgentHostSession.*` | Session snapshot for core validation |
+| `Host/MetaAgentInputBridge.*` | Command / GUI validation wrapper |
+
+Editor: `Source/MetaAgentPluginEditor/`.
+
+---
+
+## Module 1 — CharacterRuntime
+
+- Default pawn spawn/possess via `AMetaAgentGameMode`
+- Character input is **off** in default observation mode (enable via modular runtime START or future panel section)
+- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
+
+---
+
+## Module 2 — CameraRuntime
+
+Observation cinematic camera with particle focus.
+
+| Layer | What |
+|-------|------|
+| **Core** | `metaagent::camera::CameraController`, `compute_cinematic_pose`, `apply_orbit_radius_zoom` |
+| **UE** | `FMetaAgentCameraRuntime`, view-target blend, `TryLockParticleFocusTarget`, startup auto-focus |
+
+### Controls
+
+| Input | Action |
+|-------|--------|
+| **O** | Toggle cinematic mode |
+| **P** | Re-focus on particles |
+| **Wheel** | Zoom orbit radius (panel closed, cinematic on) |
+
+### Config (UE)
+
+Edit on `AMetaAgentPlayerController` → **Camera \| Cinematic** (`FMetaAgentCinematicCameraState`): pan duration, orbit radius, sway, oscillation amplitude, blend times, etc. Values sync to core `CinematicSettings` / `CinematicRuntimeState` each tick via `MetaAgentTypeBridge`.
+
+Observation tuning: `ParticleObservationPaddingScale`, `ParticleObservationMinOrbitRadius` on the player controller.
+
+### Adding camera styles / states
+
+1. Add `CinematicStyle` + motion in `metaagent/include/metaagent/camera/rig.cpp`.
+2. Add matching `EMetaAgentCinematicCameraStyle` and TypeBridge enum mapping.
+3. Optionally wire a command in `metaagent/app/commands` and a GUI panel row.
+
+Focus resolution (where to look) stays in UE: `FMetaAgentCameraRuntime::ResolveFocusTarget`.
+
+---
+
+## Module 3 — GUIRuntime
+
+Press **Q** to toggle the controls panel. Click rows or use keyboard shortcuts.
+
+**Panel sections (current):**
+
+| Section | Actions |
+|---------|---------|
+| GUI | Q — toggle panel; Esc — quit |
+| Camera | O — cinematic; P — particle focus (wheel zoom noted as status line) |
+| Particle | F — load preview; `,` / `.` — step pattern; B / N — Slow / Dramatic presets |
+
+Section headers support **START/STOP** toggles for Camera and Particle runtimes. Expand/collapse via the `>` / `v` control.
+
+Dispatch: `FMetaAgentGUIRuntime::DispatchPanelAction` → validates via core (`MetaAgentInputBridge`) → `ExecuteGuiParticleAction` for particle rows (no double keyboard gate).
+
+Keyboard shortcuts for morph, cycle modes, snappy/dreamy presets, recording, networking, and AI still exist where bound but are **not** shown as panel rows.
+
+- **Implemented in:** `MetaAgentHUD.h`, `MetaAgentGameplay.cpp` (draw/hit-test), `MetaAgentPlayerController.cpp`
+
+---
+
+## Module 4 — NetworkingRuntime
+
+Two separate paths:
+
+| Path | Implementation |
+|------|----------------|
+| **Inbound** local HTTP server | Core handlers in `metaagent/net/`; bind via `FMetaAgentHttpBridge` when networking runtime START |
+| **Outbound** platform events | UE `FHttpModule` POST from `UMetaAgentGameInstance` (**H** / **G** keys — not in current GUI panel) |
+
+Settings: `UMetaAgentPluginSettings` (port, enable flags).
+
+- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `Host/MetaAgentHttpBridge.*`, `MetaAgentPlugin.h`
+
+---
+
+## Module 5 — RecordingRuntime
+
+Viewport capture via Movie Scene Capture (**J** toggle, **U** finalize). Not exposed in the trimmed GUI panel.
+
+- **Implemented in:** `MetaAgentPlayerController.cpp`
+
+---
+
+## Module 6 — AIRuntime
+
+Autopilot toggle (**I**). Not exposed in the trimmed GUI panel.
+
+- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
+
+---
+
+## Module 7 — Particle orchestrator + runtime
+
+### Roles
+
+- **`UMetaAgentParticleOrchestrator`** — capture, preview texture, pattern config, `TriggerEffect(FName)`
+- **`UMetaAgentParticleRuntime`** — scheduler tick; builds representation frame and applies actuation
+- **`AMetaAgentPlayerController`** — input host, Niagara export callbacks, GUI particle actions
+
+FSM and actuation math run in core `ParticleScheduler` (no duplicate graph in the plugin).
+
+### Controls
+
+| Input | Action |
+|-------|--------|
+| **F** | Load `sdxl_latest.png` preview + shape source |
+| **,** / **.** | Step pattern backward / forward |
+| **B** / **N** | Slow / Dramatic preset |
+| **J** / **K** | Snappy / Dreamy preset (keyboard only; J also bound to recording toggle) |
+| **M**, **T**, **Y**, **U** | Morph, cycle sampling/forming/returning (keyboard only) |
+
+GUI panel mirrors **F**, **,**, **.**, **B**, **N** only.
+
+Console: `MetaAgent.Pattern.*` (Form, Hold, Return, Preset, Status, Shape, ScatterGrid, Cancel, …).
+
+### Pattern state machine
+
 ```mermaid
-flowchart TB
-    subgraph Settings
-        PS[UMetaAgentPluginSettings]
-        MA[AMetaAgentMainActor]
-    end
-
-    subgraph Global
-        G[GMetaAgentRuntimeActive]
-    end
-
-    subgraph Game
-        GM[AMetaAgentGameMode]
-        PC[AMetaAgentPlayerController]
-        HUD[AMetaAgentHUD]
-        GI[UMetaAgentGameInstance]
-    end
-
-    subgraph Runtimes
-        CR[FMetaAgentCameraRuntime]
-        CHR[FMetaAgentCharacterRuntime]
-        GR[FMetaAgentGUIRuntime]
-        AR[AIRuntime in MetaAgentGameplay]
-        NR[Networking in MetaAgentGameplay]
-        RR[Recording in MetaAgentPlayerController]
-        PO[UMetaAgentParticleOrchestrator]
-        PR[UMetaAgentParticleRuntime]
-    end
-
-    subgraph Portable["metaagent/ (embedded)"]
-        SC[ParticleScheduler]
-        ACT[ActuationMath + RepresentationActuationPolicy]
-    end
-
-    PS --> G
-    MA --> G
-    G --> GM
-    G --> PC
-    G --> GI
-    GM --> PC
-    PC --> CR
-    PC --> CHR
-    PC --> GR
-    PC --> AR
-    PC --> RR
-    PC --> PO
-    PO --> PR
-    PC --> HUD
-    PR --> SC
-    SC --> ACT
-    PR -->|Niagara I/O| PC
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Anticipating: step forward from Idle
+    Anticipating --> Forming: mask ready
+    Forming --> Holding: form complete
+    Holding --> Returning: hold timeout
+    Holding --> Forming: morph
+    Holding --> Dissipating: dissipate
+    Returning --> Idle: return complete
+    Dissipating --> Idle: dissipate complete
 ```
 
----
-
-## Source layout (flat module)
-
-All runtime sources sit under `Source/MetaAgentPlugin/` (no `Systems/` / `Public/` split):
-
-| File | Role |
-|------|------|
-| `MetaAgentPlugin.h/.cpp` | Module startup, settings, Blueprint library, gameplay tags |
-| `MetaAgentGameplay.h/.cpp` | Game mode, character, AI controller, BT tasks, game instance + HTTP networking |
-| `MetaAgentHUD.h` | HUD / GUI panel types (`FMetaAgentGUIRuntime` lives here) |
-| `MetaAgentPlayerController.h/.cpp` | Input owner: camera, GUI, recording, autopilot, particles UI |
-| `MetaAgentParticleTypes.h` | Pattern USTRUCTs, actuation enums, orchestrator types |
-| `MetaAgentParticleRuntime.h/.cpp` | Pattern runtime UObject, Niagara capture/actuation glue |
-| `MetaAgentParticleControl.h/.cpp` | Orchestrator, effect specs, representation drivers, Niagara profiles |
-| `MetaAgentParticleShapes.h/.cpp` | Shape providers, PNG cache, mask → core `ShapeBuilder` |
-| `MetaAgentTypeBridge.h/.cpp` | UE ↔ `metaagent` conversion + `MetaAgentParticleCoreBridge` scheduler |
-| `MetaAgentCoreAggregate.cpp` | `#include`s all `metaagent/src/**/*.cpp` into the module |
-| `MetaAgentPlugin.Build.cs` | Module rules + `metaagent/include` |
-
-Editor module: `Source/MetaAgentPluginEditor/`.
-
----
-
-## Portable core (`metaagent/`)
-
-The plugin **instances** portable logic; it should not duplicate particle math.
-
-| Portable (core) | UE bridge / I/O |
-|-----------------|-----------------|
-| `ParticleScheduler` — FSM tick, transitions, representation frame | `MetaAgentParticleCoreBridge` in `MetaAgentTypeBridge.cpp` |
-| `ActuationMath::evaluate_phase_for_state` — forming/return curves | Curves sampled in `SyncRuntimeToCore` from `ActiveFormCurve` / `ActiveReturnCurve` |
-| `ActuationMath::compose_particle_world_position` — full blend path | `build_actuation_compose_input` → Niagara buffer write |
-| `RepresentationActuationPolicy` — Direct / Parameters / Hybrid | `ApplyRepresentationFrame` in `MetaAgentParticleControl.cpp` |
-| `FormingSolverRegistry`, `ShapeBuilder`, `image_mask` | TypeBridge + `MetaAgentParticleShapes.cpp` |
+### Portable vs UE (particles)
 
 ```mermaid
 flowchart LR
@@ -134,191 +219,41 @@ flowchart LR
         TB[MetaAgentTypeBridge]
         RT[UMetaAgentParticleRuntime]
         CTL[MetaAgentParticleControl]
-        NIA[Niagara buffers / User params]
+        NIA[Niagara buffers]
     end
 
-    RT --> TB
-    TB --> Sched
+    RT --> TB --> Sched
     Sched --> Phase
-    RT --> CTL
-    CTL --> Pol
-    Pol --> TB
-    TB --> Compose
-    Compose --> NIA
+    CTL --> Pol --> TB --> Compose --> NIA
 ```
-
-Standalone tests: `cmake` + `ctest` in `metaagent/` (includes `actuation_composer_test`).
-
----
-
-## Module 1 — CharacterRuntime
-
-- Default pawn spawn/possess via `AMetaAgentGameMode`
-- Blueprint-owned camera/mesh/animation on `BP_MH_PlayerChar`
-- Minimal bootstrap on possess (no recovery pipeline)
-- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
-
----
-
-## Module 2 — CameraRuntime
-
-Environment viewer: free-look, mouse wheel zoom, cinematic orbital mode (`O`).
-
-- **Implemented in:** `MetaAgentPlayerController.h/.cpp` (`FMetaAgentCameraRuntime`, zoom/cinematic state structs)
-
----
-
-## Module 3 — GUIRuntime
-
-Help panel toggle (`Q`), keyboard reference, recording/networking status lines when visible.
-
-- **Implemented in:** `MetaAgentHUD.h`, `MetaAgentPlayerController.cpp` (`FMetaAgentGUIRuntime`, `FMetaAgentGUIState`)
-
----
-
-## Module 4 — NetworkingRuntime
-
-Embedded HTTP server on `UMetaAgentGameInstance`, platform event forwarding, bottom-left panel when GUI is open.
-
-- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlugin.h` (settings)
-
----
-
-## Module 5 — RecordingRuntime
-
-Viewport capture via Movie Scene Capture (`J` toggle, `U` finalize), AVI under `Saved/Renders/`.
-
-- **Implemented in:** `MetaAgentPlayerController.cpp` (`FMetaAgentRecordingState`)
-
----
-
-## Module 6 — AIRuntime
-
-Autopilot toggle (`I`), `AMetaAgentWanderAIController` with runtime-built behavior tree (patrol / wait loop).
-
-- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
-
----
-
-## Module 7 — Particle orchestrator + runtime
-
-### Roles
-
-- **`UMetaAgentParticleOrchestrator`** — capture, preview texture, pattern config, `TriggerEffect(FName)`
-- **`UMetaAgentParticleRuntime`** — representation scheduler; each tick builds `FMetaAgentParticleRepresentationFrame` and applies actuation
-- **`AMetaAgentPlayerController`** — thin host: input, Niagara export callbacks, Blueprint API → orchestrator
-- **Macro phases:** Prepare → Express → Sustain → Release (Anticipating / Forming / Holding / Returning | Dissipating)
-- **FSM:** core `TransitionGraph` via `ParticleScheduler` (no duplicate graph in plugin)
-- **Drivers:** Direct (buffer writes), Parameters (User params), Hybrid (direct + scalars; editor vs shipping policy in core)
-- **Registries** (defaults in `MetaAgentPlugin.cpp`): shape providers, forming solvers, representation drivers
-
-### Controls
-
-Keyboard: `F` preview, `,` / `.` step state, `B`/`N` presets, `T` sampling, `Y` forming, `U` returning. GUI (`Q`): **Play**, **<<** / **>>**, forming/returning cycle, preview thumbnails.
-
-Console: `MetaAgent.Pattern.*` (Form, Hold, Return, Preset, Status, Shape, Forming, Returning, ScatterGrid, Cancel, …).
-
-### Pattern state machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Anticipating: >> or Play
-    Anticipating --> Forming: mask ready + advance
-    Forming --> Holding: form duration
-    Holding --> Returning: hold timeout
-    Holding --> Forming: Morph
-    Holding --> Dissipating: DissipateToCenter
-    Returning --> Idle: return complete
-    Dissipating --> Idle: dissipate complete
-```
-
-### Orchestrator → runtime → core
-
-```mermaid
-flowchart TB
-    subgraph Triggers
-        Keys[Keyboard / GUI]
-        BP[Blueprint TriggerParticleEffect]
-        Console[MetaAgent.Pattern.*]
-    end
-
-    subgraph Plugin
-        PC[AMetaAgentPlayerController]
-        ORCH[UMetaAgentParticleOrchestrator]
-        RT[UMetaAgentParticleRuntime]
-        DRV[FMetaAgentParticleRepresentationDriverRegistry]
-        NIA[Niagara Direct / Parameters / Hybrid]
-    end
-
-    subgraph metaagent
-        Sched[ParticleScheduler]
-        Build[build_representation_frame]
-        Phase[evaluate_phase_for_state]
-        Compose[compose_particle_world_position]
-        Pol[RepresentationActuationPolicy]
-    end
-
-    Keys --> PC
-    BP --> PC
-    Console --> PC
-    PC --> ORCH
-    ORCH --> RT
-    RT --> Sched
-    Sched --> Phase
-    Sched --> Build
-    Build --> DRV
-    DRV --> Pol
-    Pol --> Compose
-    Compose --> NIA
-```
-
-### Forming / returning solvers
-
-| Mode | Behavior |
-|------|----------|
-| DirectLerp | Straight baseline → target by phase |
-| ArcLift | Vertical arc mid-motion |
-| SpiralIn | Spiral around `PatternCenter` |
-| DissipateToCenter | Collapse toward center (return path) |
-
-Config: `FMetaAgentParticlePatternConfig` (**Pattern \| Forming** / **Pattern \| Returning**). Solvers run in core `FormingSolverRegistry`; UE registry wraps the same modes.
-
-### Image scatter
-
-Stratified grid over mask weights (`DensityGridScale`, `TargetJitterNormalized`, `GrayscaleGamma`). Core: `image_mask` + `ShapeBuilder`. UE: PNG load/cache in `MetaAgentParticleShapes.cpp`.
-
-### Shape pipeline
-
-```mermaid
-flowchart LR
-    F[F / PNG] --> Cache[Shape cache worker thread]
-    Cache --> Mask[Core image_mask + scatter]
-    Mask --> Builder[Core ShapeBuilder]
-    Builder --> TGT[PatternWorldTargets]
-    TGT --> RT[UMetaAgentParticleRuntime]
-```
-
-Providers (UE registry): ImageSilhouette, SplinePath, MeshSilhouette, SquareGrid fallback.
-
-### Return blend
-
-On **Returning**, phase 1→0 lerps frozen idle snapshot → hold positions; below `ReturnReleaseAuthorityThreshold`, actuation policy stops direct writes so Niagara sim resumes before **Idle**.
 
 ### Implemented in
 
-- `MetaAgentParticleControl.h/.cpp` — orchestrator, drivers, actuation request, Niagara profiles
-- `MetaAgentParticleRuntime.h/.cpp` — runtime state, tick, Niagara buffer I/O
-- `MetaAgentParticleTypes.h` — pattern/orchestrator USTRUCTs
-- `MetaAgentParticleShapes.h/.cpp` — shapes, mask cache, providers
-- `MetaAgentTypeBridge.h/.cpp` — scheduler bridge, compose input, type conversion
-- `MetaAgentPlayerController.cpp` — particle input router section
-- `MetaAgentPlugin.cpp` — default registry registration
+- `MetaAgentParticleControl.h/.cpp` — orchestrator, drivers, Niagara profiles
+- `MetaAgentParticleRuntime.h/.cpp` — runtime tick, buffer I/O
+- `MetaAgentParticleShapes.h/.cpp` — PNG, mask cache, providers
+- `MetaAgentTypeBridge.h/.cpp` — scheduler bridge
+- `MetaAgentPlayerController.cpp` — input router, `ExecuteGuiParticleAction`
 
 ### Assets & Niagara
 
-- Pattern data asset: `MetaAgentParticlePattern` (see `Config/DefaultGame.ini`). Editor: `MetaAgent.CreateSamplePatternAssets`.
-- Packaged Niagara User params: `Content/MetaAgent/Niagara/PARAMETERS.md`.
+- Pattern data asset: `MetaAgentParticlePattern` (see `Config/DefaultGame.ini`)
+- Niagara User params: `Content/MetaAgent/Niagara/PARAMETERS.md`
+
+---
+
+## Build
+
+```powershell
+# UE plugin (from repo root)
+.\dev.bat build
+
+# Portable core tests
+cd metaagent
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ---
 

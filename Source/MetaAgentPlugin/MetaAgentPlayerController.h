@@ -11,6 +11,9 @@
 #include "MetaAgentParticleTypes.h"
 #include "MetaAgentPlugin.h"
 #include "MetaAgentParticleControl.h"
+#include "Host/MetaAgentHostSession.h"
+#include "metaagent/app/commands.hpp"
+#include "metaagent/camera/types.hpp"
 #include "MetaAgentPlayerController.generated.h"
 
 class AAIController;
@@ -70,10 +73,10 @@ struct FMetaAgentInputFallbackState
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback")
-	bool bEnableKeyboardMovement = true;
+	bool bEnableKeyboardMovement = false;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback")
-	bool bEnableMouseLook = true;
+	bool bEnableMouseLook = false;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Fallback", meta=(ClampMin="0.001", ClampMax="5.0"))
 	float MouseSensitivity = 0.05f;
@@ -302,7 +305,7 @@ struct FMetaAgentCinematicCameraState
 	float PanDurationSeconds = 4.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.1", ClampMax="45.0"))
-	float OscillationYawAmplitudeDegrees = 8.0f;
+	float OscillationYawAmplitudeDegrees = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="-200.0", ClampMax="400.0"))
 	float LookAtZOffset = 100.0f;
@@ -323,16 +326,16 @@ struct FMetaAgentCinematicCameraState
 	float HeadFocusAlpha = 0.80f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.0", ClampMax="80.0"))
-	float SwayHorizontalAmplitude = 8.0f;
+	float SwayHorizontalAmplitude = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.0", ClampMax="80.0"))
-	float SwayVerticalAmplitude = 4.0f;
+	float SwayVerticalAmplitude = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic", meta=(ClampMin="0.1", ClampMax="5.0"))
 	float SwayFrequency = 0.85f;
 
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic")
-	bool bDisablePlayerInput = false;
+	bool bDisablePlayerInput = true;
 
 	UPROPERTY(Transient)
 	bool bModeEnabled = false;
@@ -413,7 +416,7 @@ struct FMetaAgentGUIState
 	bool bParticleRuntimeEnabled = true;
 
 	UPROPERTY(Transient)
-	bool bCharacterInputRuntimeEnabled = true;
+	bool bCharacterInputRuntimeEnabled = false;
 
 	UPROPERTY(Transient)
 	TArray<FMetaAgentGUIRuntimeSection> RuntimeSections;
@@ -430,6 +433,8 @@ UCLASS()
 class AMetaAgentPlayerController : public APlayerController
 {
 	GENERATED_BODY()
+
+	friend struct FMetaAgentGUIRuntime;
 	
 protected:
 
@@ -522,6 +527,19 @@ protected:
 
 	bool IsCinematicFocusParticlesEnabled() const { return bCinematicFocusParticles; }
 
+	bool HasLockedParticleFocusTarget() const { return bHasLockedParticleFocus; }
+
+	/** Captures a stable particle focus frame for observation mode. */
+	bool TryLockParticleFocusTarget(bool bForceRelock = false);
+
+	void BuildLockedParticleFocusTarget(metaagent::camera::FocusTarget& OutFocus) const;
+
+	/** Applies locked orbit radius/height to the active cinematic camera state. */
+	void ApplyLockedParticleFocusToCinematicCamera();
+
+	/** Keeps player input disabled unless the GUI panel is open. */
+	void EnforceObservationInputLock();
+
 	/** Enables AI autopilot over the currently possessed pawn. */
 	void EnableAutopilotForCurrentPawn();
 
@@ -565,6 +583,9 @@ public:
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")
 	void ToggleCinematicCameraMode();
+
+	/** Executes a particle-panel row after GUI validation (skips keyboard command gates). */
+	bool ExecuteGuiParticleAction(FName ActionId);
 
 	/** C++ entry point for Niagara particle export data forwarded by the export handler. */
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles")
@@ -736,6 +757,18 @@ public:
 	void SetModularRuntimeEnabled(EMetaAgentModularRuntime Runtime, bool bEnabled);
 	void ToggleModularRuntime(EMetaAgentModularRuntime Runtime);
 
+	/** Validates an app command against the live host session via metaagent core. */
+	bool CanExecuteAppCommand(metaagent::app::CommandId Command, FString* OutUserMessage = nullptr) const;
+
+	/** Builds a host session snapshot from plugin settings and live modular runtime flags. */
+	FMetaAgentHostSessionSnapshot BuildHostSessionSnapshot() const;
+
+	/** Applies MetaAgent-owned cinematic view focused on particles (startup default). */
+	void ApplyStartupParticleFocusView();
+
+	/** Waits for particles to spawn, then locks a stable observation focus once. */
+	void TickStartupParticleFocusLock();
+
 	/** Toggles autopilot from GUI clicks (skips keyboard debounce). */
 	void ToggleAutopilotFromGUI();
 
@@ -758,6 +791,12 @@ protected:
 	 * This is the primary extension point for camera distance behavior.
 	 */
 	void ApplyMouseWheelZoom(APawn* ControlledPawn, float DeltaTime);
+
+	/** Mouse-wheel zoom for locked cinematic particle observation. */
+	void ApplyCinematicMouseWheelZoom();
+
+	/** Reads mouse position in HUD canvas space for panel hit-testing. */
+	bool GetViewportCanvasMousePos(float& OutX, float& OutY) const;
 
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
@@ -809,7 +848,7 @@ protected:
 	FMetaAgentCinematicCameraState CinematicCamera;
 
 	UPROPERTY(Transient)
-	bool bCinematicFocusParticles = false;
+	bool bCinematicFocusParticles = true;
 
 	/** Runtime GUI panel visibility and keybind help lines. */
 	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
@@ -849,6 +888,28 @@ protected:
 	/** Niagara user object parameter bound to the C++ export handler (BP_NIAGARA_1 uses User.Export particle data). */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles")
 	FName NiagaraExportUserVariableName = TEXT("User.Export particle data");
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Particles", meta=(ClampMin="1.0", ClampMax="6.0"))
+	float ParticleObservationPaddingScale = 3.5f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic|Particles", meta=(ClampMin="200.0", ClampMax="5000.0"))
+	float ParticleObservationMinOrbitRadius = 450.0f;
+
+	UPROPERTY(Transient)
+	bool bHasLockedParticleFocus = false;
+
+	UPROPERTY(Transient)
+	FVector LockedParticleFocusPoint = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	float LockedParticleFocusOrbitRadius = 450.0f;
+
+	UPROPERTY(Transient)
+	float LockedParticleFocusHeightOffset = 100.0f;
+
+	/** Frames left to capture a stable particle focus target after startup. */
+	UPROPERTY(Transient)
+	int32 StartupParticleFocusFramesRemaining = 0;
 
 	/** Rebind every frame for this many ticks after startup to win over level blueprint BeginPlay. */
 	UPROPERTY(EditAnywhere, Category = "MetaAgent|Particles", meta=(ClampMin="0", ClampMax="600"))

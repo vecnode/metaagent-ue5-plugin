@@ -932,15 +932,10 @@ TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActi
 {
 	TArray<FMetaAgentGUIActionRow> Rows;
 	Rows.Add(MakeParticleRow(TEXT("F"), TEXT("Load sdxl_latest.png preview + image shape source"), MetaAgentRuntimeIds::ParticleLoadPreview));
-	Rows.Add(MakeParticleRow(TEXT("Play"), TEXT("Full image reveal cycle (auto state machine)"), MetaAgentRuntimeIds::ParticlePlayFullCycle));
-	Rows.Add(MakeParticleRow(TEXT("<<"), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
-	Rows.Add(MakeParticleRow(TEXT(">>"), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
-	Rows.Add(MakeParticleRow(TEXT("B / N"), TEXT("Apply Slow / Dramatic preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
-	Rows.Add(MakeParticleRow(TEXT("J / K"), TEXT("Apply Snappy / Dreamy preset"), MetaAgentRuntimeIds::ParticleSnappyPreset));
-	Rows.Add(MakeParticleRow(TEXT("M"), TEXT("Morph held shape (Holding â†’ Forming, refresh targets)"), MetaAgentRuntimeIds::ParticleMorph));
-	Rows.Add(MakeParticleRow(TEXT("T"), TEXT("Cycle image sampling (Gray / Sobel)"), MetaAgentRuntimeIds::ParticleCycleSampling));
-	Rows.Add(MakeParticleRow(TEXT("Y"), TEXT("Cycle forming mode (Lerp / Arc / Spiral / Wave / Spring)"), MetaAgentRuntimeIds::ParticleCycleForming));
-	Rows.Add(MakeParticleRow(TEXT("U"), TEXT("Cycle returning mode (Lerp / Arc / Spiral / Dissipate)"), MetaAgentRuntimeIds::ParticleCycleReturning));
+	Rows.Add(MakeParticleRow(TEXT(","), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
+	Rows.Add(MakeParticleRow(TEXT("."), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
+	Rows.Add(MakeParticleRow(TEXT("B"), TEXT("Apply Slow preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
+	Rows.Add(MakeParticleRow(TEXT("N"), TEXT("Apply Dramatic preset"), MetaAgentRuntimeIds::ParticleDramaticPreset));
 	return Rows;
 }
 

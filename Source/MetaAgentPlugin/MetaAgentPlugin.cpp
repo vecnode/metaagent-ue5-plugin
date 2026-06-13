@@ -8,18 +8,16 @@
 #include "MetaAgentHUD.h"
 #include "MetaAgentParticleShapes.h"
 #include "Engine/Engine.h"
+#include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpectatorPawn.h"
 #include "HttpModule.h"
-#include "HttpPath.h"
-#include "HttpServerModule.h"
-#include "HttpServerRequest.h"
-#include "HttpServerResponse.h"
-#include "EngineUtils.h"
-#include "IHttpRouter.h"
+#include "Host/MetaAgentHostSession.h"
+#include "Host/MetaAgentHttpBridge.h"
+#include "metaagent/session/status.hpp"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Misc/ConfigCacheIni.h"
@@ -222,36 +220,6 @@ namespace
 #endif
 	}
 
-	FString EscapeJson(const FString& InText)
-	{
-		FString Out = InText;
-		Out.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
-		Out.ReplaceInline(TEXT("\""), TEXT("\\\""));
-		Out.ReplaceInline(TEXT("\n"), TEXT("\\n"));
-		Out.ReplaceInline(TEXT("\r"), TEXT("\\r"));
-		Out.ReplaceInline(TEXT("\t"), TEXT("\\t"));
-		return Out;
-	}
-
-	void AddBoundRoute(
-		const TSharedPtr<IHttpRouter>& Router,
-		TArray<FHttpRouteHandle>& Handles,
-		const TCHAR* Path,
-		EHttpServerRequestVerbs Verbs,
-		const FHttpRequestHandler& Handler)
-	{
-		if (!Router.IsValid())
-		{
-			return;
-		}
-
-		FHttpRouteHandle Handle = Router->BindRoute(FHttpPath(Path), Verbs, Handler);
-		if (Handle.IsValid())
-		{
-			Handles.Add(Handle);
-		}
-	}
-
 	bool MatchesPreferredName(const APawn* Pawn, const FString& PreferredName)
 	{
 		if (!Pawn || PreferredName.IsEmpty())
@@ -300,7 +268,7 @@ void UMetaAgentRuntimeSubsystem::Initialize(FSubsystemCollectionBase& Collection
 
 void UMetaAgentRuntimeSubsystem::Deinitialize()
 {
-	StopLocalHttpServer();
+	FMetaAgentHttpBridge::Get().Stop();
 
 	bRuntimeActive = false;
 	Super::Deinitialize();
@@ -314,17 +282,6 @@ void UMetaAgentRuntimeSubsystem::HandleWorldBeginPlay(UWorld& InWorld)
 	}
 
 	const UMetaAgentPluginSettings* Settings = GetDefault<UMetaAgentPluginSettings>();
-	UE_LOG(
-		LogMetaAgentPlugin,
-		Log,
-		TEXT("MetaAgent startup hook fired. FeatureFlags: Input=%s Camera=%s AI=%s Networking=%s Recording=%s UI=%s"),
-		(Settings && Settings->bEnableInputSystems) ? TEXT("On") : TEXT("Off"),
-		(Settings && Settings->bEnableCameraSystems) ? TEXT("On") : TEXT("Off"),
-		(Settings && Settings->bEnableAISystems) ? TEXT("On") : TEXT("Off"),
-		(Settings && Settings->bEnableNetworkingSystems) ? TEXT("On") : TEXT("Off"),
-		(Settings && Settings->bEnableRecordingSystems) ? TEXT("On") : TEXT("Off"),
-		(Settings && Settings->bEnableUISystems) ? TEXT("On") : TEXT("Off"));
-
 	bool bRequestedActive = Settings && Settings->bActive;
 	for (TActorIterator<AMetaAgentMainActor> It(&InWorld); It; ++It)
 	{
@@ -334,6 +291,29 @@ void UMetaAgentRuntimeSubsystem::HandleWorldBeginPlay(UWorld& InWorld)
 			break;
 		}
 	}
+
+	const FString StartupFeatureFlags = UTF8_TO_TCHAR(
+		metaagent::session::build_startup_feature_flags_text(
+			MetaAgentHostSession::MakeFromWorld(
+				&InWorld,
+				bRequestedActive,
+				Settings && Settings->bEnableInputSystems,
+				Settings && Settings->bEnableCameraSystems,
+				Settings && Settings->bEnableAISystems,
+				Settings && Settings->bEnableNetworkingSystems,
+				Settings && Settings->bEnableRecordingSystems,
+				Settings && Settings->bEnableUISystems,
+				true,
+				Settings ? Settings->LocalHttpServerPort : 0,
+				Settings && Settings->bEnableNetworkingSystems,
+				FMetaAgentHttpBridge::Get().IsRouterBound())
+				.ToCoreSession())
+			.c_str());
+	UE_LOG(
+		LogMetaAgentPlugin,
+		Log,
+		TEXT("MetaAgent startup hook fired. FeatureFlags: %s"),
+		*StartupFeatureFlags);
 
 	GMetaAgentRuntimeActive = bRequestedActive;
 	UE_LOG(LogMetaAgentPlugin, Log, TEXT("MetaAgent runtime global active state: %s"), GMetaAgentRuntimeActive ? TEXT("ACTIVE") : TEXT("INACTIVE"));
@@ -482,161 +462,20 @@ void UMetaAgentRuntimeSubsystem::SendEventToPlatform(const FString& EventName, c
 FString UMetaAgentRuntimeSubsystem::GetLocalHttpServerStatusText() const
 {
 	const UMetaAgentPluginSettings* Settings = GetDefault<UMetaAgentPluginSettings>();
-	const bool bEnabled = Settings && Settings->bEnableNetworkingSystems;
-	const int32 Port = Settings ? Settings->LocalHttpServerPort : 0;
-	const TCHAR* EnabledText = bEnabled ? TEXT("enabled") : TEXT("disabled");
-	const TCHAR* BoundText = LocalHttpRouter.IsValid() ? TEXT("bound") : TEXT("not-bound");
-
-	return FString::Printf(
-		TEXT("HTTP %s, port=%d, router=%s, endpoints=/health,/echo,/notify"),
-		EnabledText,
-		Port,
-		BoundText);
-}
-
-void UMetaAgentRuntimeSubsystem::StartLocalHttpServer()
-{
-	const UMetaAgentPluginSettings* Settings = GetDefault<UMetaAgentPluginSettings>();
-	if (!Settings || !Settings->bEnableNetworkingSystems)
-	{
-		UE_LOG(LogMetaAgent, Log, TEXT("HTTP server disabled by config."));
-		return;
-	}
-
-	if (!FHttpServerModule::IsAvailable())
-	{
-		FModuleManager::LoadModuleChecked<FHttpServerModule>(TEXT("HTTPServer"));
-	}
-
-	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
-	LocalHttpRouter = HttpServerModule.GetHttpRouter(static_cast<uint32>(Settings->LocalHttpServerPort), true);
-	if (!LocalHttpRouter.IsValid())
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("HTTP server failed to bind port %d."), Settings->LocalHttpServerPort);
-		return;
-	}
-
-	RouteHandles.Reset();
-
-	const FHttpRequestHandler HealthHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentRuntimeSubsystem::HandleHealthRequest);
-	const FHttpRequestHandler EchoHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentRuntimeSubsystem::HandleEchoRequest);
-	const FHttpRequestHandler NotifyHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentRuntimeSubsystem::HandleNotifyRequest);
-
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/health"), EHttpServerRequestVerbs::VERB_GET, HealthHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/health/"), EHttpServerRequestVerbs::VERB_GET, HealthHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/echo"), EHttpServerRequestVerbs::VERB_GET | EHttpServerRequestVerbs::VERB_POST, EchoHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/echo/"), EHttpServerRequestVerbs::VERB_GET | EHttpServerRequestVerbs::VERB_POST, EchoHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/notify"), EHttpServerRequestVerbs::VERB_POST, NotifyHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/notify/"), EHttpServerRequestVerbs::VERB_POST, NotifyHandler);
-
-	HttpServerModule.StartAllListeners();
-	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server listening on port %d. Endpoints: /health, /echo, /notify"), Settings->LocalHttpServerPort);
-}
-
-void UMetaAgentRuntimeSubsystem::StopLocalHttpServer()
-{
-	if (!LocalHttpRouter.IsValid())
-	{
-		return;
-	}
-
-	for (FHttpRouteHandle& RouteHandle : RouteHandles)
-	{
-		if (RouteHandle.IsValid())
-		{
-			LocalHttpRouter->UnbindRoute(RouteHandle);
-			RouteHandle.Reset();
-		}
-	}
-	RouteHandles.Reset();
-
-	LocalHttpRouter.Reset();
-	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server routes unbound."));
-}
-
-bool UMetaAgentRuntimeSubsystem::HandleHealthRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	const FString Response = FString::Printf(
-		TEXT("{\"status\":\"ok\",\"map\":\"%s\",\"build\":\"%s\"}"),
-		*EscapeJson(GetWorld() ? GetWorld()->GetMapName() : FString(TEXT("unknown"))),
-#if UE_BUILD_SHIPPING
-		TEXT("Shipping")
-#elif UE_BUILD_DEVELOPMENT
-		TEXT("Development")
-#else
-		TEXT("Other")
-#endif
-	);
-
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
-}
-
-bool UMetaAgentRuntimeSubsystem::HandleEchoRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	FString EchoText;
-	if (const FString* QueryValue = Request.QueryParams.Find(TEXT("msg")))
-	{
-		EchoText = *QueryValue;
-	}
-	else if (Request.Body.Num() > 0)
-	{
-		FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Request.Body.GetData()), Request.Body.Num());
-		EchoText = FString(Converter.Length(), Converter.Get());
-	}
-
-	const FString Response = FString::Printf(TEXT("{\"echo\":\"%s\"}"), *EscapeJson(EchoText));
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
-}
-
-bool UMetaAgentRuntimeSubsystem::HandleNotifyRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	FString NotifyMessage;
-	FString RawBody;
-	if (Request.Body.Num() > 0)
-	{
-		FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Request.Body.GetData()), Request.Body.Num());
-		RawBody = FString(Converter.Length(), Converter.Get());
-	}
-
-	if (!RawBody.IsEmpty())
-	{
-		TSharedPtr<FJsonObject> JsonObj;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawBody);
-		if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
-		{
-			JsonObj->TryGetStringField(TEXT("message"), NotifyMessage);
-		}
-	}
-
-	if (NotifyMessage.IsEmpty())
-	{
-		NotifyMessage = RawBody.IsEmpty() ? TEXT("(no message)") : RawBody;
-	}
-
-	if (UWorld* World = GetWorld())
-	{
-		if (APlayerController* PC = World->GetFirstPlayerController())
-		{
-			if (AMetaAgentHUD* HUD = Cast<AMetaAgentHUD>(PC->GetHUD()))
-			{
-				HUD->AddTransientMessage(NotifyMessage, FColor::Cyan, 3.0f);
-			}
-		}
-	}
-
-	UE_LOG(LogMetaAgent, Log, TEXT("Platform notify received: %s"), *NotifyMessage);
-
-	const FString Response = TEXT("{\"ok\":true}");
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
+	const FMetaAgentHostSessionSnapshot Snapshot = MetaAgentHostSession::MakeFromWorld(
+		GetWorld(),
+		bRuntimeActive,
+		Settings && Settings->bEnableInputSystems,
+		Settings && Settings->bEnableCameraSystems,
+		Settings && Settings->bEnableAISystems,
+		Settings && Settings->bEnableNetworkingSystems,
+		Settings && Settings->bEnableRecordingSystems,
+		Settings && Settings->bEnableUISystems,
+		true,
+		Settings ? Settings->LocalHttpServerPort : 0,
+		Settings && Settings->bEnableNetworkingSystems,
+		FMetaAgentHttpBridge::Get().IsRouterBound());
+	return FMetaAgentHttpBridge::Get().GetStatusText(Snapshot);
 }
 
 IMPLEMENT_MODULE(FMetaAgentPluginModule, MetaAgentPlugin)

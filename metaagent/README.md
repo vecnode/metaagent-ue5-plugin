@@ -1,6 +1,6 @@
 # metaagent
 
-Portable C++17 core for MetaAgent **particle pattern mechanics**: FSM, scheduler, forming/return solvers, phase curves, per-particle actuation composition, representation actuation policy, shape scatter, and image-mask sampling. No Unreal headers.
+Portable C++17 core for MetaAgent: **particle pattern mechanics**, **camera rig math**, **media/mask pipeline**, **inbound HTTP handlers**, **runtime session + command validation**, and **input policy**. No Unreal headers.
 
 Full design notes: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
@@ -9,102 +9,76 @@ Full design notes: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 ```
 metaagent/
   metaagent.h                 Public umbrella API (single include)
-  metaagent.cpp               Amalgamated implementation (includes all .cpp under include/metaagent/)
-  include/metaagent/          Headers + module .cpp implementations
+  metaagent.cpp               Amalgamated implementation
+  include/metaagent/            Headers + module .cpp implementations
   tests/                      Standalone unit tests (CMake)
   CMakeLists.txt
   ARCHITECTURE.md
 ```
 
-Embed in another engine: add `metaagent/include` and `metaagent/` to include paths, compile `metaagent.cpp` once (the UE plugin does this via `MetaAgentCoreAggregate.cpp`).
+Embed in another engine: add `metaagent/include` and compile `metaagent.cpp` once (the UE plugin does this via `MetaAgentCoreAggregate.cpp`).
 
 ## Layer diagram
 
 ```mermaid
 flowchart TB
-    subgraph UE["Unreal plugin (thin bridge)"]
+    subgraph Host["Host (UE plugin today)"]
         RT[UMetaAgentParticleRuntime]
         TB[MetaAgentTypeBridge]
-        Bridge[MetaAgentParticleCoreBridge]
-        NIAG[Niagara buffer I/O]
-        Shapes[PNG / world shape providers]
+        CamHost[FMetaAgentCameraRuntime]
+        HttpHost[FMetaAgentHttpBridge]
+        NIAG[Niagara / view target I/O]
     end
 
     subgraph Core["metaagent (portable)"]
-        Media[media: decode / store / mask pipeline]
-        Cam[camera: rig / controller]
+        Media[media]
+        Cam[camera: rig + controller]
+        Net[net + notify]
+        Sess[session + app + input]
         Sched[ParticleScheduler]
-        Graph[TransitionGraph]
-        Form[FormingSolverRegistry]
         Act[ActuationMath]
-        RepPol[RepresentationActuationPolicy]
-        RepMap[RepresentationMapping]
-        Shape[ShapeBuilder / ImageMaskProcessor]
     end
 
-    RT --> Bridge
-    Bridge --> TB
-    TB --> Sched
-    Sched --> Graph
-    Sched --> Act
+    RT --> TB --> Sched
+    CamHost --> TB --> Cam
+    HttpHost --> Net
+    Host --> Sess
     RT --> NIAG
-    RT --> Shapes
-    Shapes -.->|RGBA buffers| Shape
     Act --> NIAG
-    RepPol --> NIAG
 ```
 
-## Tick flow (scheduler bridge)
+## Portable modules (summary)
 
-```mermaid
-sequenceDiagram
-    participant RT as UMetaAgentParticleRuntime
-    participant BR as MetaAgentParticleCoreBridge
-    participant TB as MetaAgentTypeBridge
-    participant SC as ParticleScheduler
+| Namespace | Responsibility |
+|-----------|----------------|
+| `metaagent::particle` | FSM, scheduler, forming/return solvers, actuation, shape/mask |
+| `metaagent::camera` | Zoom, cinematic orbit pose, sway, `CameraController` |
+| `metaagent::media` | PNG/JPEG decode, mask pipeline, thumbnails |
+| `metaagent::net` | Router + `/health` `/echo` `/notify` handlers |
+| `metaagent::session` | `RuntimeSession`, feature flags, status text |
+| `metaagent::app` | Command parse/validate, GUI action validation |
+| `metaagent::input` | GUI-open vs observation-mode input policy |
 
-    RT->>BR: tick_pattern_runtime(dt)
-    BR->>TB: SyncRuntimeToCore (incl. curve samples)
-    BR->>SC: tick_pattern_runtime(dt, callbacks)
-    Note over SC: phase via ActuationMath::evaluate_phase_for_state
-    SC-->>BR: updated PatternRuntime
-    BR->>TB: SyncCoreToRuntime
-```
+## Camera (portable vs host)
 
-## Actuation pipeline (core vs UE)
+**In core:** orbit math, sway, oscillation, wheel zoom on orbit radius, enable/disable cinematic state.
 
-```mermaid
-flowchart LR
-    subgraph Core
-        Frame[build_representation_frame]
-        Pol[RepresentationActuationPolicy::resolve]
-        Compose[ActuationMath::compose_particle_world_position]
-        Phase[ActuationMath::evaluate_phase_for_state]
-    end
+**In UE host:** resolving focus from live particles, blending view targets, startup observation lock, applying poses to `APlayerCameraManager`.
 
-    subgraph UE
-        Req[build_actuation_compose_input]
-        Write[Niagara buffer write / User params]
-    end
+To add a new cinematic **style** (movement profile):
 
-    Frame --> Pol
-    Pol --> Req
-    Req --> Compose
-    Compose --> Write
-    Phase --> Frame
-```
+1. Extend `metaagent::camera::CinematicStyle` and `compute_cinematic_pose()` in `camera/rig.cpp`.
+2. Mirror the enum on `FMetaAgentCinematicCameraState` and sync via `MetaAgentTypeBridge`.
+3. Tune defaults on `AMetaAgentPlayerController` (`CinematicCamera` UPROPERTY block).
 
-| Core module | Responsibility |
-|-------------|----------------|
-| `pattern_types` | `PatternState`, `PatternConfig`, `PatternRuntime` (+ asset curve samples) |
-| `transition_graph` | FSM edges (internal to scheduler) |
-| `scheduler` | Tick, transitions, representation frame, status text |
-| `forming_solver` | Forming / return motion solvers (DirectLerp, ArcLift, SpiralIn, …) |
-| `actuation_math` | Anticipation, blend alpha, **phase evaluation**, **position composition** |
-| `representation_actuation` | Hybrid / Direct / Parameters delivery policy |
-| `representation_types` | Macro phases (Prepare → Express → Sustain → Release) |
-| `shape_builder` | Grid, polyline, silhouette assignment, shape frames |
-| `image_mask_processor` | CPU mask from RGBA + stratified scatter |
+To change **configs** without new styles, edit `CinematicSettings` fields (core) or `FMetaAgentCinematicCameraState` (UE) — they sync each tick through TypeBridge.
+
+## HTTP
+
+| Direction | Location |
+|-----------|----------|
+| **Inbound** (local server) | Handler logic in `metaagent/net/`; Epic bind in `Source/MetaAgentPlugin/Host/MetaAgentHttpBridge.cpp` |
+| **Outbound** (platform COMMS) | Still in UE (`UMetaAgentGameInstance::SendEventToPlatform`) — not in core yet |
 
 ## Standalone build
 
@@ -115,25 +89,28 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Tests: `transition_graph_test`, `forming_types_test`, `shape_builder_polyline_test`, `actuation_composer_test`.
-
 ## Unreal integration
 
-The UE plugin embeds this library via `Source/MetaAgentPlugin/MetaAgentCoreAggregate.cpp` and exposes headers through `MetaAgentPlugin.Build.cs`.
+The UE plugin embeds this library via `Source/MetaAgentPlugin/MetaAgentCoreAggregate.cpp`.
 
-- FSM tick, transitions, representation frame, and status strings → `metaagent::particle::ParticleScheduler` (`MetaAgentParticleCoreBridge` in `MetaAgentTypeBridge.cpp`).
-- UE ↔ core conversion, curve sampling, actuation compose scratch → `MetaAgentTypeBridge`.
-- Niagara GPU/CPU buffer I/O only → `MetaAgentParticleRuntime.cpp` / `MetaAgentParticleControl.cpp`.
+Host adapters (thin):
+
+- `Host/MetaAgentHttpBridge` — HTTPServer → core router
+- `Host/MetaAgentHostSession` — live modular runtime flags → `RuntimeSession`
+- `Host/MetaAgentInputBridge` — wraps `validate_command` / `validate_gui_action`
+
+Particle tick path: `UMetaAgentParticleRuntime` → `MetaAgentParticleCoreBridge` → `ParticleScheduler`.
+
+Camera tick path: `FMetaAgentCameraRuntime` → `CameraController::tick_cinematic()` → apply pose to viewport.
 
 ## Embed elsewhere
-
-Add `metaagent/include` to your include path and compile via the amalgamation entry point, or link the CMake static library.
 
 ```cpp
 #include <metaagent/metaagent.h>
 
 int main() {
     metaagent::initialize_defaults();
+    metaagent::camera::CameraController& cam = metaagent::camera::default_controller();
     // ...
 }
 ```

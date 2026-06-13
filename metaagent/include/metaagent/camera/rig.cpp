@@ -183,4 +183,32 @@ FocusTarget make_focus_from_bounds(const Bounds3& bounds, const float padding_sc
 	return focus;
 }
 
+void apply_orbit_radius_zoom(
+	CinematicRuntimeState& state,
+	const ZoomInput& input,
+	const float min_radius,
+	const float max_radius,
+	const float wheel_step)
+{
+	float delta = 0.0f;
+	if (std::fabs(input.discrete_wheel_delta) > 1e-4f)
+	{
+		delta = -input.discrete_wheel_delta * wheel_step;
+	}
+	else if (std::fabs(input.analog_wheel_axis) > 1e-4f)
+	{
+		delta = -input.analog_wheel_axis * wheel_step;
+	}
+
+	if (std::fabs(delta) <= 1e-4f)
+	{
+		return;
+	}
+
+	state.orbit_radius = core::math::clamp(
+		state.orbit_radius + delta,
+		min_radius,
+		max_radius);
+}
+
 } // namespace metaagent::camera

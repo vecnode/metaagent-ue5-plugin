@@ -55,6 +55,18 @@ add_executable(metaagent_camera_rig_test tests/camera_rig_test.cpp)
 target_link_libraries(metaagent_camera_rig_test PRIVATE metaagent)
 add_test(NAME camera_rig_test COMMAND metaagent_camera_rig_test)
 
+add_executable(metaagent_net_handler_test tests/net_handler_test.cpp)
+target_link_libraries(metaagent_net_handler_test PRIVATE metaagent)
+add_test(NAME net_handler_test COMMAND metaagent_net_handler_test)
+
+add_executable(metaagent_app_command_test tests/app_command_test.cpp)
+target_link_libraries(metaagent_app_command_test PRIVATE metaagent)
+add_test(NAME app_command_test COMMAND metaagent_app_command_test)
+
+add_executable(metaagent_gui_actions_test tests/gui_actions_test.cpp)
+target_link_libraries(metaagent_gui_actions_test PRIVATE metaagent)
+add_test(NAME gui_actions_test COMMAND metaagent_gui_actions_test)
+
 install(TARGETS metaagent
     EXPORT metaagentTargets
     ARCHIVE DESTINATION lib

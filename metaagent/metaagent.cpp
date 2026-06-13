@@ -29,4 +29,13 @@
 #include "metaagent/particle/image_mask_processor.cpp"
 #include "metaagent/particle/scheduler.cpp"
 
+#include "metaagent/app/commands.cpp"
+#include "metaagent/app/gui_actions.cpp"
+#include "metaagent/input/policy.cpp"
+#include "metaagent/net/json.cpp"
+#include "metaagent/net/handlers.cpp"
+#include "metaagent/net/router.cpp"
+#include "metaagent/notify/parse.cpp"
+#include "metaagent/session/status.cpp"
+
 #include "metaagent/initialize.cpp"

@@ -49,6 +49,34 @@ void resize_gray_nearest(
 	}
 }
 
+void resize_rgba_nearest(
+	const RgbaImage& source,
+	int32_t target_size,
+	core::Array<core::ColorRGBA>& out_pixels,
+	int32_t& out_width,
+	int32_t& out_height)
+{
+	out_width = target_size;
+	out_height = target_size;
+	out_pixels.resize(static_cast<size_t>(target_size * target_size));
+
+	if (source.width <= 0 || source.height <= 0 || source.pixels.empty())
+	{
+		return;
+	}
+
+	for (int32_t y = 0; y < target_size; ++y)
+	{
+		const int32_t source_y = (y * source.height) / target_size;
+		for (int32_t x = 0; x < target_size; ++x)
+		{
+			const int32_t source_x = (x * source.width) / target_size;
+			out_pixels[static_cast<size_t>(y * target_size + x)] =
+				source.pixels[static_cast<size_t>(source_y * source.width + source_x)];
+		}
+	}
+}
+
 void build_full_grayscale(const RgbaImage& image, core::Array<uint8_t>& out_gray)
 {
 	const size_t count = image.pixels.size();
@@ -125,6 +153,13 @@ void build_preview_thumbnails(
 	const int32_t thumbnail_size,
 	MaskPreviewBuffers& out_previews)
 {
+	resize_rgba_nearest(
+		source,
+		thumbnail_size,
+		out_previews.source_color,
+		out_previews.preview_width,
+		out_previews.preview_height);
+
 	core::Array<uint8_t> full_gray;
 	build_full_grayscale(source, full_gray);
 	resize_gray_nearest(

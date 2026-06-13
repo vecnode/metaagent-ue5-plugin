@@ -25,4 +25,11 @@ METAAGENT_API CameraPose compute_cinematic_pose(
 
 METAAGENT_API FocusTarget make_focus_from_bounds(const Bounds3& bounds, float padding_scale = 1.15f);
 
+METAAGENT_API void apply_orbit_radius_zoom(
+	CinematicRuntimeState& state,
+	const ZoomInput& input,
+	float min_radius,
+	float max_radius,
+	float wheel_step);
+
 } // namespace metaagent::camera

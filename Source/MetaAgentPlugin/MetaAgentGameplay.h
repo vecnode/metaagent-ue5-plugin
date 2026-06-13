@@ -306,6 +306,7 @@ public:
 
 class IHttpRouter;
 struct FHttpServerRequest;
+struct FMetaAgentHostSessionSnapshot;
 
 /**
  * Singleton Game Instance for the MetaAgent project.
@@ -394,13 +395,9 @@ public:
 	FString NetworkingRuntimeLastReceiveUtc = TEXT("n/a");
 
 private:
-	bool HandleHealthRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
-	bool HandleEchoRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
-	bool HandleNotifyRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
+	FMetaAgentHostSessionSnapshot BuildHostSessionSnapshot(bool bRouterBound) const;
+	void ApplyNotifyMessage(const FString& NotifyMessage);
 	FString BuildPlatformUrl() const;
 	void StartLocalHttpServer();
 	void StopLocalHttpServer();
-
-	TSharedPtr<IHttpRouter> LocalHttpRouter;
-	TArray<FHttpRouteHandle> RouteHandles;
 };

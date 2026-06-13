@@ -838,7 +838,9 @@ void build_actuation_compose_input(
 	return Texture;
 }
 
-metaagent::camera::FocusTarget make_focus_target_from_world_points(const TArray<FVector>& WorldPositions)
+metaagent::camera::FocusTarget make_focus_target_from_world_points(
+	const TArray<FVector>& WorldPositions,
+	const float PaddingScale)
 {
 	metaagent::core::Array<metaagent::core::Vec3> CorePoints;
 	CorePoints.reserve(static_cast<size_t>(WorldPositions.Num()));
@@ -847,7 +849,9 @@ metaagent::camera::FocusTarget make_focus_target_from_world_points(const TArray<
 		CorePoints.push_back(ToCoreVec3(Point));
 	}
 
-	return metaagent::camera::make_focus_from_bounds(metaagent::camera::compute_bounds(CorePoints));
+	return metaagent::camera::make_focus_from_bounds(
+		metaagent::camera::compute_bounds(CorePoints),
+		PaddingScale);
 }
 
 namespace

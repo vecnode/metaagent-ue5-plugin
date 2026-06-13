@@ -128,7 +128,9 @@ FMetaAgentParticleShapeFrame build_shape_frame_from_centroid(
 
 ::UTexture2D* create_texture2d_from_rgba(const metaagent::media::RgbaImage& image);
 
-metaagent::camera::FocusTarget make_focus_target_from_world_points(const TArray<FVector>& world_positions);
+metaagent::camera::FocusTarget make_focus_target_from_world_points(
+	const TArray<FVector>& world_positions,
+	float padding_scale = 1.15f);
 
 metaagent::camera::CameraController& get_camera_controller(class AMetaAgentPlayerController& controller);
 

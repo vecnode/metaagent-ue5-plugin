@@ -34,16 +34,13 @@
 #include "MetaAgentGameplay.h"
 #include "MetaAgentPlayerController.h"
 #include "MetaAgentHUD.h"
-#include "MetaAgentPlugin.h"
+#include "Host/MetaAgentInputBridge.h"
 #include "NavigationSystem.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
 #include "Engine/Canvas.h"
 #include "HttpModule.h"
-#include "HttpPath.h"
-#include "HttpServerModule.h"
-#include "HttpServerRequest.h"
-#include "HttpServerResponse.h"
-#include "IHttpRouter.h"
+#include "Host/MetaAgentHostSession.h"
+#include "Host/MetaAgentHttpBridge.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "MetaAgentParticleControl.h"
@@ -930,6 +927,13 @@ namespace
 
 metaagent::camera::FocusTarget FMetaAgentCameraRuntime::ResolveFocusTarget(const AMetaAgentPlayerController& Controller)
 {
+	if (Controller.IsCinematicFocusParticlesEnabled() && Controller.HasLockedParticleFocusTarget())
+	{
+		metaagent::camera::FocusTarget LockedFocus;
+		Controller.BuildLockedParticleFocusTarget(LockedFocus);
+		return LockedFocus;
+	}
+
 	if (Controller.IsCinematicFocusParticlesEnabled())
 	{
 		if (const UMetaAgentParticleRuntime* Runtime = Controller.GetParticleRuntime())
@@ -937,7 +941,9 @@ metaagent::camera::FocusTarget FMetaAgentCameraRuntime::ResolveFocusTarget(const
 			TArray<FVector> FocusPoints;
 			if (Runtime->GetFocusableWorldPositions(FocusPoints) > 0)
 			{
-				return MetaAgentTypeBridge::make_focus_target_from_world_points(FocusPoints);
+				return MetaAgentTypeBridge::make_focus_target_from_world_points(
+					FocusPoints,
+					Controller.ParticleObservationPaddingScale);
 			}
 		}
 	}
@@ -1062,6 +1068,21 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 	CoreCamera.enable_cinematic(MetaAgentTypeBridge::to_core_vec3(CurrentCameraLocation), Focus);
 	MetaAgentTypeBridge::sync_cinematic_runtime_from_core(CoreCamera.cinematic_state(), CinematicCamera);
 
+	if (Controller.IsCinematicFocusParticlesEnabled())
+	{
+		if (Controller.TryLockParticleFocusTarget())
+		{
+			Controller.ApplyLockedParticleFocusToCinematicCamera();
+		}
+		else
+		{
+			CinematicCamera.OrbitRadius = FMath::Max(
+				Controller.ParticleObservationMinOrbitRadius,
+				Focus.orbit_radius_hint);
+			MetaAgentTypeBridge::sync_cinematic_runtime_to_core(CinematicCamera, CoreCamera.cinematic_state());
+		}
+	}
+
 	CinematicCamera.PreViewTarget = Controller.GetViewTarget();
 	CinematicCamera.SwayPhaseOffset = FMath::FRandRange(0.0f, 2.0f * PI);
 	CoreCamera.cinematic_state().sway_phase_offset = CinematicCamera.SwayPhaseOffset;
@@ -1076,8 +1097,17 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 	CinematicCamera.bModeEnabled = true;
 	CoreCamera.cinematic_state().mode_enabled = true;
 
-	Controller.SetIgnoreMoveInput(false);
-	Controller.SetIgnoreLookInput(false);
+	if (CinematicCamera.bDisablePlayerInput)
+	{
+		Controller.SetIgnoreMoveInput(true);
+		Controller.SetIgnoreLookInput(true);
+	}
+	else
+	{
+		Controller.SetIgnoreMoveInput(false);
+		Controller.SetIgnoreLookInput(false);
+	}
+	Controller.EnforceObservationInputLock();
 
 	const FVector FocusLocation = MetaAgentTypeBridge::from_core_vec3(Focus.focus_point);
 	UE_LOG(LogMetaAgent, Log,
@@ -1243,36 +1273,6 @@ namespace
 #else
 		return TEXT("Other");
 #endif
-	}
-
-	FString EscapeJson(const FString& InText)
-	{
-		FString Out = InText;
-		Out.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
-		Out.ReplaceInline(TEXT("\""), TEXT("\\\""));
-		Out.ReplaceInline(TEXT("\n"), TEXT("\\n"));
-		Out.ReplaceInline(TEXT("\r"), TEXT("\\r"));
-		Out.ReplaceInline(TEXT("\t"), TEXT("\\t"));
-		return Out;
-	}
-
-	void AddBoundRoute(
-		const TSharedPtr<IHttpRouter>& Router,
-		TArray<FHttpRouteHandle>& Handles,
-		const TCHAR* Path,
-		EHttpServerRequestVerbs Verbs,
-		const FHttpRequestHandler& Handler)
-	{
-		if (!Router.IsValid())
-		{
-			return;
-		}
-
-		FHttpRouteHandle Handle = Router->BindRoute(FHttpPath(Path), Verbs, Handler);
-		if (Handle.IsValid())
-		{
-			Handles.Add(Handle);
-		}
 	}
 }
 
@@ -1474,14 +1474,7 @@ TArray<FString> UMetaAgentGameInstance::GetNetworkingRuntimePanelLines() const
 
 FString UMetaAgentGameInstance::GetLocalHttpServerStatusText() const
 {
-	const TCHAR* EnabledText = bEnableLocalHttpServer ? TEXT("enabled") : TEXT("disabled");
-	const TCHAR* BoundText = LocalHttpRouter.IsValid() ? TEXT("bound") : TEXT("not-bound");
-
-	return FString::Printf(
-		TEXT("HTTP %s, port=%d, router=%s, endpoints=/health,/echo,/notify"),
-		EnabledText,
-		LocalHttpServerPort,
-		BoundText);
+	return FMetaAgentHttpBridge::Get().GetStatusText(BuildHostSessionSnapshot(FMetaAgentHttpBridge::Get().IsRouterBound()));
 }
 
 void UMetaAgentGameInstance::StartNetworkingRuntime()
@@ -1494,6 +1487,42 @@ void UMetaAgentGameInstance::StopNetworkingRuntime()
 	StopLocalHttpServer();
 }
 
+FMetaAgentHostSessionSnapshot UMetaAgentGameInstance::BuildHostSessionSnapshot(const bool bRouterBound) const
+{
+	return MetaAgentHostSession::MakeFromWorld(
+		GetWorld(),
+		IsMetaAgentRuntimeActive(),
+		true,
+		true,
+		true,
+		bEnableLocalHttpServer,
+		true,
+		true,
+		true,
+		LocalHttpServerPort,
+		bEnableLocalHttpServer,
+		bRouterBound);
+}
+
+void UMetaAgentGameInstance::ApplyNotifyMessage(const FString& NotifyMessage)
+{
+	NetworkingRuntimeLastNotifyMessage = NotifyMessage;
+	NetworkingRuntimeLastReceiveUtc = FDateTime::UtcNow().ToIso8601();
+
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (AMetaAgentHUD* HUD = Cast<AMetaAgentHUD>(PC->GetHUD()))
+			{
+				HUD->AddTransientMessage(NotifyMessage, FColor::Cyan, 3.0f);
+			}
+		}
+	}
+
+	UE_LOG(LogMetaAgent, Log, TEXT("Platform notify received: %s"), *NotifyMessage);
+}
+
 void UMetaAgentGameInstance::StartLocalHttpServer()
 {
 	bNetworkingRuntimeServerEnabled = bEnableLocalHttpServer;
@@ -1504,145 +1533,38 @@ void UMetaAgentGameInstance::StartLocalHttpServer()
 	if (!bEnableLocalHttpServer)
 	{
 		NetworkingRuntimeLastPlatformResult = TEXT("server-disabled");
-		UE_LOG(LogMetaAgent, Log, TEXT("HTTP server disabled by config."));
 		return;
 	}
 
-	if (!FHttpServerModule::IsAvailable())
+	FMetaAgentHttpBridge::FCallbacks Callbacks;
+	Callbacks.BuildSessionSnapshot = [this]()
 	{
-		FModuleManager::LoadModuleChecked<FHttpServerModule>(TEXT("HTTPServer"));
-	}
+		return BuildHostSessionSnapshot(FMetaAgentHttpBridge::Get().IsRouterBound());
+	};
+	Callbacks.OnNotifyMessage = [this](const FString& Message)
+	{
+		ApplyNotifyMessage(Message);
+	};
 
-	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
-	LocalHttpRouter = HttpServerModule.GetHttpRouter(static_cast<uint32>(LocalHttpServerPort), true);
-	if (!LocalHttpRouter.IsValid())
+	const bool bStarted = FMetaAgentHttpBridge::Get().Start(LocalHttpServerPort, bEnableLocalHttpServer, Callbacks);
+	bNetworkingRuntimeRouterBound = bStarted && FMetaAgentHttpBridge::Get().IsRouterBound();
+	bNetworkingRuntimeListenersStarted = bNetworkingRuntimeRouterBound;
+	NetworkingRuntimeLastPlatformResult = bNetworkingRuntimeRouterBound ? TEXT("server-running") : TEXT("bind-failed");
+	if (!bNetworkingRuntimeRouterBound)
 	{
-		NetworkingRuntimeLastPlatformResult = TEXT("bind-failed");
 		NetworkingRuntimeLastError = FString::Printf(TEXT("HTTP server failed to bind port %d."), LocalHttpServerPort);
-		UE_LOG(LogMetaAgent, Warning, TEXT("HTTP server failed to bind port %d."), LocalHttpServerPort);
-		return;
 	}
-
-	bNetworkingRuntimeRouterBound = true;
-
-	RouteHandles.Reset();
-
-	const FHttpRequestHandler HealthHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentGameInstance::HandleHealthRequest);
-	const FHttpRequestHandler EchoHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentGameInstance::HandleEchoRequest);
-	const FHttpRequestHandler NotifyHandler = FHttpRequestHandler::CreateUObject(this, &UMetaAgentGameInstance::HandleNotifyRequest);
-
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/health"), EHttpServerRequestVerbs::VERB_GET, HealthHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/health/"), EHttpServerRequestVerbs::VERB_GET, HealthHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/echo"), EHttpServerRequestVerbs::VERB_GET | EHttpServerRequestVerbs::VERB_POST, EchoHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/echo/"), EHttpServerRequestVerbs::VERB_GET | EHttpServerRequestVerbs::VERB_POST, EchoHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/notify"), EHttpServerRequestVerbs::VERB_POST, NotifyHandler);
-	AddBoundRoute(LocalHttpRouter, RouteHandles, TEXT("/notify/"), EHttpServerRequestVerbs::VERB_POST, NotifyHandler);
-
-	HttpServerModule.StartAllListeners();
-	bNetworkingRuntimeListenersStarted = true;
-	NetworkingRuntimeLastPlatformResult = TEXT("server-running");
-	NetworkingRuntimeLastError = TEXT("none");
-	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server listening on port %d. Endpoints: /health, /echo, /notify"), LocalHttpServerPort);
+	else
+	{
+		NetworkingRuntimeLastError = TEXT("none");
+	}
 }
 
 void UMetaAgentGameInstance::StopLocalHttpServer()
 {
-	if (!LocalHttpRouter.IsValid())
-	{
-		return;
-	}
-
-	for (FHttpRouteHandle& RouteHandle : RouteHandles)
-	{
-		if (RouteHandle.IsValid())
-		{
-			LocalHttpRouter->UnbindRoute(RouteHandle);
-			RouteHandle.Reset();
-		}
-	}
-	RouteHandles.Reset();
-
-	LocalHttpRouter.Reset();
+	FMetaAgentHttpBridge::Get().Stop();
 	bNetworkingRuntimeRouterBound = false;
 	bNetworkingRuntimeListenersStarted = false;
-	UE_LOG(LogMetaAgent, Log, TEXT("HTTP server routes unbound."));
-}
-
-bool UMetaAgentGameInstance::HandleHealthRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	const FString Response = FString::Printf(
-		TEXT("{\"status\":\"ok\",\"map\":\"%s\",\"build\":\"%s\"}"),
-		*EscapeJson(GetWorld() ? GetWorld()->GetMapName() : FString(TEXT("unknown"))),
-#if UE_BUILD_SHIPPING
-		TEXT("Shipping")
-#elif UE_BUILD_DEVELOPMENT
-		TEXT("Development")
-#else
-		TEXT("Other")
-#endif
-	);
-
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
-}
-
-bool UMetaAgentGameInstance::HandleEchoRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	FString EchoText;
-	if (const FString* QueryValue = Request.QueryParams.Find(TEXT("msg")))
-	{
-		EchoText = *QueryValue;
-	}
-	else if (Request.Body.Num() > 0)
-	{
-		FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Request.Body.GetData()), Request.Body.Num());
-		EchoText = FString(Converter.Length(), Converter.Get());
-	}
-
-	const FString Response = FString::Printf(TEXT("{\"echo\":\"%s\"}"), *EscapeJson(EchoText));
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
-}
-
-bool UMetaAgentGameInstance::HandleNotifyRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
-{
-	FString NotifyMessage;
-	FString RawBody;
-	if (Request.Body.Num() > 0)
-	{
-		FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Request.Body.GetData()), Request.Body.Num());
-		RawBody = FString(Converter.Length(), Converter.Get());
-	}
-
-	if (!RawBody.IsEmpty())
-	{
-		TSharedPtr<FJsonObject> JsonObj;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawBody);
-		if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
-		{
-			JsonObj->TryGetStringField(TEXT("message"), NotifyMessage);
-		}
-	}
-
-	if (NotifyMessage.IsEmpty())
-	{
-		NotifyMessage = RawBody.IsEmpty() ? TEXT("(no message)") : RawBody;
-	}
-
-	NetworkingRuntimeLastNotifyMessage = NotifyMessage;
-	NetworkingRuntimeLastReceiveUtc = FDateTime::UtcNow().ToIso8601();
-
-	UE_LOG(LogMetaAgent, Log, TEXT("Platform notify received: %s"), *NotifyMessage);
-
-	const FString Response = TEXT("{\"ok\":true}");
-	TUniquePtr<FHttpServerResponse> HttpResponse = FHttpServerResponse::Create(Response, TEXT("application/json"));
-	HttpResponse->Code = EHttpServerResponseCodes::Ok;
-	OnComplete(MoveTemp(HttpResponse));
-	return true;
 }
 
 // ===== MetaAgentHUD.cpp =====
@@ -2148,93 +2070,17 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 	}
 
 	{
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("W/A/S/D"), TEXT("Move"), NAME_None));
-		Rows.Add(MakeActionRow(TEXT("Shift"), TEXT("Sprint modifier"), NAME_None));
-		Rows.Add(MakeActionRow(TEXT("Mouse"), TEXT("Look"), NAME_None));
-		GUI.bCharacterInputRuntimeEnabled = true;
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::CharacterInput,
-			TEXT("Character Input Runtime"),
-			true,
-			true,
-			Rows));
-	}
+		TArray<FString> StatusLines;
+		StatusLines.Add(TEXT("Wheel: zoom camera distance when panel is hidden"));
 
-	{
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("O"), TEXT("Toggle cinematic camera"), MetaAgentRuntimeIds::ToggleCinematicCamera));
 		Rows.Add(MakeActionRow(TEXT("P"), TEXT("Focus cinematic on particles"), MetaAgentRuntimeIds::FocusParticleCamera));
-		Rows.Add(MakeActionRow(TEXT("Wheel"), TEXT("Zoom camera distance"), NAME_None));
 		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Camera,
 			TEXT("Camera Runtime"),
 			false,
 			GUI.bCameraRuntimeEnabled,
-			Rows));
-	}
-
-	{
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("I"), TEXT("Toggle AI autopilot"), MetaAgentRuntimeIds::ToggleAutopilot));
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::AI,
-			TEXT("AI Runtime"),
-			false,
-			GUI.bAIRuntimeEnabled,
-			Rows));
-	}
-
-	{
-		TArray<FString> StatusLines = Controller.BuildRecordingRuntimePanelLines();
-		if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("Recording Runtime"))
-		{
-			StatusLines.RemoveAt(0);
-		}
-
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("J"), TEXT("Toggle viewport capture"), MetaAgentRuntimeIds::ToggleRecording));
-		Rows.Add(MakeActionRow(TEXT("U"), TEXT("Finalize / show capture output"), MetaAgentRuntimeIds::ReportRecording));
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::Recording,
-			TEXT("Recording Runtime"),
-			false,
-			GUI.bRecordingRuntimeEnabled,
-			Rows,
-			StatusLines));
-	}
-
-	{
-		TArray<FString> StatusLines;
-		if (const UMetaAgentGameInstance* GI = UMetaAgentGameInstance::Get(&Controller))
-		{
-			StatusLines = GI->GetNetworkingRuntimePanelLines();
-			if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("Networking Runtime"))
-			{
-				StatusLines.RemoveAt(0);
-			}
-			if (StatusLines.Num() > 0 && StatusLines[0] == TEXT("--------------------------------"))
-			{
-				StatusLines.RemoveAt(0);
-			}
-			if (StatusLines.Num() > 0 && StatusLines[0].StartsWith(TEXT("COMMS (H/G)")))
-			{
-				StatusLines.RemoveAt(0);
-			}
-		}
-		else
-		{
-			StatusLines.Add(TEXT("GameInstance : MetaAgentGameInstance NOT active"));
-		}
-
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("H"), TEXT("Send HTTP 'start audio'"), MetaAgentRuntimeIds::StartAudio));
-		Rows.Add(MakeActionRow(TEXT("G"), TEXT("Send HTTP 'start image'"), MetaAgentRuntimeIds::StartImage));
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::Networking,
-			TEXT("Networking Runtime"),
-			false,
-			GUI.bNetworkingRuntimeEnabled,
 			Rows,
 			StatusLines));
 	}
@@ -2261,6 +2107,138 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		}
 		FinalizeSection(GUI, ParticleSection);
 	}
+}
+
+namespace
+{
+	bool IsParticlePanelAction(const FName ActionId)
+	{
+		return ActionId.ToString().StartsWith(TEXT("Particle"));
+	}
+
+	void ShowPanelActionMessage(AMetaAgentPlayerController& Controller, const FString& Message, const FColor Color)
+	{
+		if (Message.IsEmpty())
+		{
+			return;
+		}
+
+		if (AMetaAgentHUD* HUD = Controller.GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(Message, Color, 2.0f);
+		}
+	}
+
+	bool ValidatePanelAction(const AMetaAgentPlayerController& Controller, const FName ActionId, FString& OutMessage)
+	{
+		if (IsParticlePanelAction(ActionId))
+		{
+			if (!Controller.IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+			{
+				OutMessage = TEXT("Enable Particle runtime (START) first.");
+				return false;
+			}
+
+			if (!IsMetaAgentRuntimeActive())
+			{
+				OutMessage = TEXT("MetaAgent runtime is inactive.");
+				return false;
+			}
+
+			return true;
+		}
+
+		const FMetaAgentInputBridgeResult Result =
+			FMetaAgentInputBridge::ValidateGuiAction(ActionId.ToString(), Controller.BuildHostSessionSnapshot());
+		if (!Result.bHandled)
+		{
+			OutMessage = TEXT("Action is not available.");
+			return false;
+		}
+
+		if (!Result.bSuccess && !Result.UserMessage.IsEmpty())
+		{
+			OutMessage = Result.UserMessage;
+		}
+
+		return Result.bSuccess;
+	}
+}
+
+void FMetaAgentGUIRuntime::DispatchPanelAction(
+	AMetaAgentPlayerController& Controller,
+	FMetaAgentGUIState& GUI,
+	const FName ActionId)
+{
+	if (ActionId.IsNone())
+	{
+		return;
+	}
+
+	FName SectionExpandId = NAME_None;
+	if (ParseSectionExpandAction(ActionId, SectionExpandId))
+	{
+		Controller.ToggleRuntimeSectionExpanded(SectionExpandId);
+		return;
+	}
+
+	FName RuntimeToggleId = NAME_None;
+	if (ParseRuntimeToggleAction(ActionId, RuntimeToggleId))
+	{
+		EMetaAgentModularRuntime Runtime = EMetaAgentModularRuntime::GUI;
+		if (TryMapRuntimeIdToModularRuntime(RuntimeToggleId, Runtime))
+		{
+			Controller.ToggleModularRuntime(Runtime);
+		}
+		return;
+	}
+
+	FString BlockMessage;
+	if (!ValidatePanelAction(Controller, ActionId, BlockMessage))
+	{
+		ShowPanelActionMessage(
+			Controller,
+			BlockMessage.IsEmpty() ? TEXT("Action is not available.") : BlockMessage,
+			FColor::Yellow);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ToggleHelpPanel)
+	{
+		RunToggleHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::QuitApplication)
+	{
+		Controller.HandleEscapePressed();
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ToggleCinematicCamera)
+	{
+		Controller.ToggleCinematicCameraMode();
+		RunApplyHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::FocusParticleCamera)
+	{
+		Controller.HandleFocusParticlesCameraPressed();
+		RunApplyHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (IsParticlePanelAction(ActionId))
+	{
+		if (Controller.ExecuteGuiParticleAction(ActionId))
+		{
+			RunApplyHelpPanelSequence(Controller, GUI);
+		}
+		return;
+	}
+
+	RunApplyHelpPanelSequence(Controller, GUI);
 }
 
 void FMetaAgentGUIRuntime::RunApplyHelpPanelSequence(

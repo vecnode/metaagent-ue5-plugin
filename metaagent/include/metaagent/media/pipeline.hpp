@@ -9,6 +9,7 @@ namespace metaagent::media {
 struct MaskPreviewBuffers {
 	int32_t preview_width = 0;
 	int32_t preview_height = 0;
+	core::Array<core::ColorRGBA> source_color;
 	core::Array<uint8_t> source_gray;
 	core::Array<uint8_t> gray_preview;
 	core::Array<uint8_t> sobel_preview;

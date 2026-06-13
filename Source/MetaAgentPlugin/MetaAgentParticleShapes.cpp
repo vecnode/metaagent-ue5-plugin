@@ -1687,11 +1687,15 @@ bool FMetaAgentImagePreviewRuntime::BuildPanelPreviewThumbnails(
 	metaagent::media::RgbaImage SourceThumb;
 	SourceThumb.width = ClampedSize;
 	SourceThumb.height = ClampedSize;
-	SourceThumb.pixels.resize(static_cast<size_t>(ClampedSize * ClampedSize));
-	for (int32 Index = 0; Index < ClampedSize * ClampedSize; ++Index)
+	SourceThumb.pixels = Previews.source_color;
+	if (SourceThumb.pixels.empty())
 	{
-		const uint8 Value = Previews.source_gray[static_cast<size_t>(Index)];
-		SourceThumb.pixels[static_cast<size_t>(Index)] = {Value, Value, Value, 255};
+		SourceThumb.pixels.resize(static_cast<size_t>(ClampedSize * ClampedSize));
+		for (int32 Index = 0; Index < ClampedSize * ClampedSize; ++Index)
+		{
+			const uint8 Value = Previews.source_gray[static_cast<size_t>(Index)];
+			SourceThumb.pixels[static_cast<size_t>(Index)] = {Value, Value, Value, 255};
+		}
 	}
 
 	AddThumbnail(MetaAgentTypeBridge::create_texture2d_from_rgba(SourceThumb), TEXT("Source"));

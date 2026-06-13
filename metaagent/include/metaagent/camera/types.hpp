@@ -23,10 +23,10 @@ struct ZoomInput {
 struct CinematicSettings {
 	CinematicStyle active_style = CinematicStyle::OscillatingHold;
 	float pan_duration_seconds = 4.0f;
-	float oscillation_yaw_amplitude_degrees = 8.0f;
+	float oscillation_yaw_amplitude_degrees = 0.0f;
 	float close_orbit_radius = 105.0f;
-	float sway_horizontal_amplitude = 8.0f;
-	float sway_vertical_amplitude = 4.0f;
+	float sway_horizontal_amplitude = 0.0f;
+	float sway_vertical_amplitude = 0.0f;
 	float sway_frequency = 0.85f;
 };
 

@@ -1,6 +1,6 @@
 # metaagent — Architecture
 
-Portable C++17 library for MetaAgent **particle pattern mechanics**. Unreal integration is a thin type bridge + Niagara I/O in the UE plugin.
+Portable C++17 library for MetaAgent **domain logic**: particle pattern mechanics, camera rig math, media/mask pipeline, HTTP route handlers, session snapshots, command validation, and input policy. Unreal (or another host) supplies I/O, rendering, and engine APIs through thin bridges.
 
 ---
 
@@ -9,9 +9,9 @@ Portable C++17 library for MetaAgent **particle pattern mechanics**. Unreal inte
 | Goal | How |
 |------|-----|
 | Portability | C++17, `metaagent::core::*` value types (no `FVector` / `FString`) |
-| Single source of truth | FSM, solvers, phase curves, actuation compose, scheduler, shape/mask algorithms |
+| Single source of truth | FSM, solvers, phase curves, actuation compose, scheduler, shape/mask algorithms, camera pose math, HTTP handler bodies |
 | Testability | CMake + unit tests without the editor |
-| Engine bridge | UE converts types and supplies I/O callbacks (Niagara, PNG, world queries) |
+| Engine bridge | Host converts types and supplies I/O callbacks (Niagara, PNG, world queries, HTTPServer bind, view-target blend) |
 
 ---
 
@@ -26,14 +26,35 @@ metaagent/
 │   ├── core/                      Vec3, math, log_sink
 │   ├── media/                     PNG/JPEG decode, MediaStore, mask pipeline
 │   ├── camera/                    Zoom + cinematic rig/controller
-│   └── particle/                  Pattern domain
+│   ├── particle/                  Pattern domain
+│   ├── net/                       Route table, JSON, /health /echo /notify handlers
+│   ├── notify/                    Notify body parsing
+│   ├── session/                   RuntimeSession + status strings
+│   ├── app/                       Command registry + GUI action validation
+│   └── input/                     Input policy (GUI vs gameplay)
 ├── tests/
 ├── CMakeLists.txt
 ├── README.md
 └── ARCHITECTURE.md
 ```
 
-Public entry point: `#include <metaagent/metaagent.h>` (amalgamation header at repo `metaagent/metaagent.h`).
+Public entry point: `#include <metaagent/metaagent.h>`.
+
+---
+
+## What lives in core vs the UE host
+
+| Area | In `metaagent` (portable) | Stays in UE plugin (host) |
+|------|---------------------------|---------------------------|
+| **Particles** | FSM, scheduler, actuation, solvers, shape/mask | Niagara buffers, orchestrator UX, UObject runtime |
+| **Camera** | Orbit pose, sway, zoom, `CameraController` state machine | `SetViewTargetWithBlend`, player camera manager, particle/world focus queries, locked observation frame |
+| **HTTP inbound** | `/health`, `/echo`, `/notify` handlers + router | Epic `HTTPServer` bind/listen (`FMetaAgentHttpBridge`) |
+| **HTTP outbound** | — (not ported yet) | `UMetaAgentGameInstance::SendEventToPlatform` (H/G COMMS via `FHttpModule`) |
+| **Session / commands** | `RuntimeSession`, `validate_command`, `validate_gui_action` | `MetaAgentHostSession`, `MetaAgentInputBridge` snapshot build |
+| **Input policy** | `policy_for_runtime()` (GUI clicks vs wheel-only gameplay) | Key binds, Enhanced Input, `PlayerTick` GUI hit-test |
+| **GUI panel** | Action validation, command IDs | HUD draw, click regions, `FMetaAgentGUIRuntime` sections |
+
+**Rule of thumb:** if it touches Epic APIs, Niagara, the viewport, or the filesystem at runtime, it stays in the host. If it is pure state + math + JSON + validation, it belongs in core.
 
 ---
 
@@ -52,32 +73,53 @@ Public entry point: `#include <metaagent/metaagent.h>` (amalgamation header at r
 
 | Module | Role |
 |--------|------|
-| `types` | Zoom/cinematic settings, focus bounds |
-| `rig` | Orbital sway math (`compute_cinematic_pose`) |
-| `controller` | Per-session camera state (zoom + cinematic tick) |
+| `types` | `ZoomSettings`, `CinematicSettings`, `CinematicRuntimeState`, `FocusTarget`, `CinematicStyle` |
+| `rig` | `compute_cinematic_pose`, `apply_orbit_radius_zoom`, `apply_zoom_input`, focus-from-bounds |
+| `controller` | Per-session `CameraController`: enable/disable cinematic, tick pose, zoom |
 
-### Core (`metaagent/core/`)
+**Camera state model (core):**
 
-| Header | Role |
+- **Settings** (`CinematicSettings`) — designer/config fields: pan duration, orbit radius floor, sway amplitudes/frequency, `active_style`.
+- **Runtime** (`CinematicRuntimeState`) — simulation state: `mode_enabled`, elapsed time, orbit radius, height offset, yaw phase.
+- **Style** (`CinematicStyle`) — today only `OscillatingHold`; extend here for new motion profiles.
+
+UE mirrors settings in `FMetaAgentCinematicCameraState` and syncs through `MetaAgentTypeBridge::sync_cinematic_*`. Each tick, `FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence` calls `CameraController::tick_cinematic()` and applies the returned `CameraPose` to the view target.
+
+**Adding a new camera style / movement state:**
+
+1. Add a value to `CinematicStyle` in `camera/types.hpp`.
+2. Implement motion in `compute_cinematic_pose()` (`camera/rig.cpp`) — switch on `active_style`.
+3. Add a matching `EMetaAgentCinematicCameraStyle` in `MetaAgentPlayerController.h`.
+4. Map enum both ways in `MetaAgentTypeBridge.cpp` (`SyncCinematicSettingsToCore`).
+5. Optionally expose toggles via `metaagent/app/commands` + GUI action IDs + panel rows.
+
+Focus resolution (particle bounds, locked observation target) remains host-side in `FMetaAgentCameraRuntime::ResolveFocusTarget`.
+
+### App / session / net / input
+
+| Module | Role |
 |--------|------|
-| `types.hpp` | `Vec2`, `Vec3`, `Rotator`, `String`, `Array<T>` |
-| `math.hpp` | `clamp`, `smooth_step01`, `evaluate_curve01`, `lerp` |
-| `log_sink.hpp` | Injectable log callbacks |
+| `session/types` | `RuntimeSession`, `FeatureFlags` (input, camera, particle, ui, networking, …) |
+| `session/status` | Status line builders for HUD / HTTP |
+| `app/commands` | `CommandId`, parse + validate (pattern step, cinematic, focus, GUI, preview load) |
+| `app/gui_actions` | Map GUI action string IDs → commands |
+| `input/policy` | Block move/look/buttons in observation mode; allow wheel zoom when GUI closed |
+| `net/router` | Route table dispatch |
+| `net/handlers` | `/health`, `/echo`, `/notify` |
+| `notify/parse` | Parse notify POST bodies |
 
 ### Particle domain (`metaagent/particle/`)
 
 | Module | Key API | Role |
 |--------|---------|------|
-| `pattern_types` | `PatternConfig`, `PatternRuntime` | FSM state, buffers, **form/return asset curve samples** |
+| `pattern_types` | `PatternConfig`, `PatternRuntime` | FSM state, buffers, curve samples |
 | `transition_graph` | `TransitionGraph` | FSM table (scheduler-internal) |
 | `scheduler` | `ParticleScheduler`, `SchedulerCallbacks` | Tick, transitions, representation frame |
 | `forming_solver` | `FormingSolverRegistry` | Per-particle forming / return motion |
-| `actuation_math` | `ActuationMath` | Anticipation, blend alpha, **`evaluate_phase_for_state`**, **`compose_particle_world_position`** |
+| `actuation_math` | `ActuationMath` | Phase evaluation, position composition |
 | `representation_actuation` | `RepresentationActuationPolicy` | Direct / Parameters / Hybrid delivery |
-| `representation_types` | `RepresentationMapping` | Macro phases |
 | `shape_builder` | `ShapeBuilder` | Targets, frames, silhouette assignment |
 | `image_mask_processor` | `image_mask::build_mask_from_rgba` | Mask + stratified scatter |
-| `forming_types` / `return_types` | Settings structs | Mode enums and curve sample arrays |
 
 ---
 
@@ -85,7 +127,7 @@ Public entry point: `#include <metaagent/metaagent.h>` (amalgamation header at r
 
 States: `Idle`, `Preparing`, `Anticipating`, `Forming`, `Holding`, `Returning`, `Dissipating`, `Releasing`.
 
-The scheduler advances via `TransitionGraph::evaluate_transition()`. UE calls `DispatchPatternTransition()` on the runtime, which bridges to the scheduler — **no parallel FSM table in the plugin**.
+The scheduler advances via `TransitionGraph::evaluate_transition()`. UE calls through `MetaAgentParticleCoreBridge` — **no parallel FSM table in the plugin**.
 
 ```mermaid
 stateDiagram-v2
@@ -102,94 +144,41 @@ stateDiagram-v2
 
 ---
 
-## Phase evaluation
+## UE plugin split
 
-`ActuationMath::evaluate_phase_for_state()` is the default for forming and returning ticks:
-
-- **Forming:** `PatternRuntime.form_curve_samples` (from UE `ActiveFormCurve`) or smoothstep
-- **Returning:** mode curve from `ReturnSettings` → asset fallback (`asset_return_curve_samples`) → inverted smoothstep
-
-UE samples `UCurveFloat` into core arrays in `SyncRuntimeToCore`; the scheduler no longer requires an `evaluate_phase_for_state` callback.
-
----
-
-## Actuation composition
-
-`ActuationMath::compose_particle_world_position()` implements the full per-particle blend path:
-
-- Return hold lerp or return forming solver
-- Anticipation motion
-- Dissipate toward center
-- Forming solvers + anticipation→forming carryover
-- Default lerp + forming steering offsets
-
-UE builds `ActuationComposeInput` via `MetaAgentTypeBridge::build_actuation_compose_input()` and only writes results into Niagara buffers.
+| Plugin path | Role |
+|-------------|------|
+| `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` |
+| `MetaAgentTypeBridge.*` | UE ↔ core conversion, scheduler bridge, camera sync |
+| `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue |
+| `MetaAgentParticleControl.*` | Orchestrator, drivers, Niagara profiles |
+| `MetaAgentParticleShapes.*` | PNG load, mask cache, shape providers |
+| `MetaAgentPlayerController.*` | Input, camera host sequences, GUI dispatch entry |
+| `MetaAgentGameplay.*` | Game mode, character, AI, **outbound HTTP client** |
+| `Host/MetaAgentHttpBridge.*` | Epic HTTPServer → core router |
+| `Host/MetaAgentHostSession.*` | Live session snapshot for validation + `/health` |
+| `Host/MetaAgentInputBridge.*` | Command / GUI validation wrapper |
+| `MetaAgentHUD.h` + HUD draw in `MetaAgentGameplay.cpp` | Panel types + canvas hit regions |
 
 ---
 
-## Representation actuation policy
+## HTTP flow
 
-`RepresentationActuationPolicy::resolve()` chooses:
+```mermaid
+flowchart LR
+    Client[External HTTP client]
+    Epic[Epic HTTPServer bind]
+    Bridge[FMetaAgentHttpBridge]
+    Router[metaagent::net::Router]
+    Handlers[handlers.cpp]
 
-| Delivery | When |
-|----------|------|
-| `ParametersWithTargets` | Parameters-only mode, or return release below threshold |
-| `DirectWrite` | Direct mode |
-| `HybridDirectWithScalars` | Hybrid: direct buffer write + scalar User params (no target UObject push) |
-
-Hybrid resolves to Direct in editor builds and Parameters in shipping (`hybrid_use_direct_path` flag).
-
----
-
-## Scheduler callbacks (UE bridge)
-
-Engine-specific work still uses `SchedulerCallbacks`:
-
-```cpp
-struct SchedulerCallbacks {
-    std::function<bool()> build_pattern_targets;
-    std::function<bool()> begin_pattern_start;
-    std::function<void(PatternState, PatternState)> enter_pattern_state;
-    // evaluate_phase_for_state optional — default uses ActuationMath + synced curves
-    // ...
-};
+    Client --> Epic
+    Epic --> Bridge
+    Bridge --> Router
+    Router --> Handlers
 ```
 
-Implemented in `FMetaAgentCoreBridgeFriend` (`MetaAgentTypeBridge.cpp`).
-
----
-
-## UE plugin split (18 flat source files)
-
-| Plugin file | Role |
-|-------------|------|
-| `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` (amalgamation) |
-| `MetaAgentTypeBridge.*` | UE ↔ core conversion, scheduler bridge, compose scratch |
-| `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue |
-| `MetaAgentParticleControl.*` | Orchestrator, drivers, Niagara profiles, representation apply |
-| `MetaAgentParticleShapes.*` | PNG load, mask cache, shape providers → core `ShapeBuilder` |
-| `MetaAgentParticleTypes.h` | USTRUCT/UENUM mirrors |
-| `MetaAgentPlayerController.*` | Input, camera, GUI, recording, AI, particles UI |
-| `MetaAgentGameplay.*` | Game mode, character, networking game instance |
-| `MetaAgentHUD.h` | HUD panel types |
-| `MetaAgentPlugin.*` | Module startup, settings, Blueprint library |
-
-**Stays in UE by design:** Niagara RHI/GPU, orchestrator UX, HUD, view-target blending, gameplay actors, world/PNG I/O.
-
----
-
-## Planned: HTTP / platform layer in core
-
-Today `/health`, `/echo`, and `/notify` live in `MetaAgentGameplay.cpp` / `MetaAgentPlugin.cpp` on Epic’s `HTTPServer` module. Target layout:
-
-| Phase | Location | Work |
-|-------|----------|------|
-| **A** | `metaagent/net/` | Platform-agnostic `HttpServer` interface, route table, JSON helpers, stub server for unit tests |
-| **B** | `Source/MetaAgentPlugin/` | `FMetaAgentHttpServerBridge` — binds Epic HTTPServer, forwards bytes to core handlers |
-| **C** | `metaagent/net/handlers/` | Move handler bodies (health, echo, notify) into core; UE passes world/session context via bridge callbacks |
-| **D** | `metaagent/tools/` (optional) | Standalone `metaagent_server` CLI using same net module for CI / headless testing |
-
-**Keep in UE:** TLS/cert binding if needed, GameInstance lifecycle, routing to live orchestrator / particle runtime, Blueprint-exposed notify hooks.
+Outbound platform events (keyboard COMMS) still use `FHttpModule` in `MetaAgentGameplay.cpp` / `MetaAgentPlugin.cpp` — planned future core module (`metaagent/net/client` or similar).
 
 ---
 
@@ -204,6 +193,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+Tests include: `transition_graph_test`, `forming_types_test`, `shape_builder_polyline_test`, `actuation_composer_test`, `media_decode_test`, `camera_rig_test`, `net_handler_test`, `app_command_test`, `gui_actions_test`.
+
 ### Unreal
 
 `MetaAgentCoreAggregate.cpp` includes portable sources; `MetaAgentPlugin.Build.cs` adds `metaagent/include`.
@@ -212,8 +203,10 @@ ctest --test-dir build --output-on-failure
 
 ## Extension points
 
-1. **New forming mode** — add solver in `forming_solver.cpp`, register in `initialize_defaults()`, mirror enum in TypeBridge.
-2. **New shape source** — UE provider in shape registry (world I/O); portable assignment in `shape_builder.cpp`.
-3. **Custom phase curves** — sample curves into `PatternRuntime.form_curve_samples` / `asset_return_curve_samples` (or optional scheduler callback override).
+1. **New forming mode** — solver in `forming_solver.cpp`, register in `initialize_defaults()`, mirror enum in TypeBridge.
+2. **New shape source** — UE provider in shape registry; portable assignment in `shape_builder.cpp`.
+3. **New camera style** — `CinematicStyle` + `compute_cinematic_pose` case + UE enum/sync (see Camera section above).
+4. **New HTTP route** — handler in `net/handlers.cpp`, register in router; bind path unchanged in `MetaAgentHttpBridge`.
+5. **New validated command** — `CommandId` + `validate_command` + host handler + optional GUI action ID.
 
 Product usage and keyboard controls: repository root [`README.md`](../README.md).
