@@ -1,82 +1,17 @@
-# metaagent - Architecture
+# metaagent — Architecture
 
-Portable C++17 library that owns MetaAgent **particle pattern mechanics**: finite-state machine, forming/return motion, anticipation math, representation mapping, shape building, image mask sampling, and the per-tick scheduler. Unreal Engine integration lives in the UE plugin as a thin bridge; this library has no dependency on Unreal headers.
+Portable C++17 library for MetaAgent **particle pattern mechanics**. Unreal integration is a thin type bridge + Niagara I/O in the UE plugin.
 
 ---
 
 ## Design goals
 
-
-| Goal                       | How it is achieved                                                                  |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| **Portability**            | Standard C++17, `metaagent::core::`* value types instead of `FVector` / `FString`   |
-| **Single source of truth** | FSM, forming solvers, actuation math, scheduler, shape/mask algorithms live here    |
-| **Testability**            | CMake build + unit tests without launching the editor                               |
-| **Engine bridge**          | UE plugin converts types, supplies I/O callbacks (Niagara, PNG load, world queries) |
-
-
----
-
-## Layer diagram
-
-```mermaid
-flowchart TB
-    subgraph UE["Unreal Plugin (MetaAgentPlugin)"]
-        Runtime["UMetaAgentParticleRuntime"]
-        Bridge["MetaAgentParticleCoreBridge"]
-        TypeBridge["MetaAgentTypeBridge"]
-        Niagara["Niagara actuation / capture"]
-        ShapeUE["Shape cache, PNG I/O, spline/mesh providers"]
-        Aggregate["MetaAgentCoreAggregate.cpp"]
-    end
-
-    subgraph Core["metaagent (portable)"]
-        Init["initialize_defaults()"]
-        Scheduler["ParticleScheduler"]
-        Graph["TransitionGraph (internal)"]
-        Forming["FormingSolverRegistry"]
-        Actuation["ActuationMath"]
-        Rep["RepresentationMapping"]
-        ShapeCore["ShapeBuilder / ImageMaskProcessor"]
-    end
-
-    Runtime --> Bridge
-    Bridge --> TypeBridge
-    Bridge --> Scheduler
-    TypeBridge --> Core
-    Aggregate --> Core
-    Runtime --> Niagara
-    Runtime --> ShapeUE
-    ShapeUE -.->|"RGBA buffers"| ShapeCore
-    Init --> Graph
-    Init --> Forming
-    Scheduler --> Graph
-    Scheduler --> Actuation
-    Scheduler --> Rep
-```
-
-
-
-**Data flow on each pattern tick**
-
-```mermaid
-sequenceDiagram
-    participant RT as UMetaAgentParticleRuntime
-    participant BR as CoreBridge
-    participant TB as TypeBridge
-    participant SC as ParticleScheduler
-
-    RT->>BR: tick_pattern_runtime(dt)
-    BR->>TB: copy UE PatternConfig/Runtime → core
-    BR->>SC: tick_pattern_runtime(dt, callbacks)
-    SC-->>BR: updated PatternRuntime
-    BR->>TB: copy core → UE
-    BR->>RT: sync fields + steering offsets
-```
-
-
-
-There is **no separate UE transition-graph module**. FSM edges are evaluated inside `ParticleScheduler` via `TransitionGraph` in the core library.
+| Goal | How |
+|------|-----|
+| Portability | C++17, `metaagent::core::*` value types (no `FVector` / `FString`) |
+| Single source of truth | FSM, solvers, phase curves, actuation compose, scheduler, shape/mask algorithms |
+| Testability | CMake + unit tests without the editor |
+| Engine bridge | UE converts types and supplies I/O callbacks (Niagara, PNG, world queries) |
 
 ---
 
@@ -84,37 +19,16 @@ There is **no separate UE transition-graph module**. FSM edges are evaluated ins
 
 ```
 metaagent/
-├── include/metaagent/          # Public API (declarations)
-│   ├── metaagent.hpp           # Umbrella include — start here
-│   ├── export.hpp              # METAAGENT_API macro
-│   ├── initialize.hpp          # initialize_defaults()
-│   ├── core/                   # Portable primitives
-│   └── particle/               # Pattern FSM domain
-├── src/metaagent/              # Implementations (one .cpp per module)
-├── tests/                      # Standalone unit tests
+├── include/metaagent/
+│   ├── metaagent.hpp              Umbrella include
+│   ├── initialize.hpp             initialize_defaults()
+│   ├── core/                      Vec3, math, log_sink
+│   └── particle/                  Pattern domain
+├── src/metaagent/                 One .cpp per module
+├── tests/
 ├── CMakeLists.txt
-└── ARCHITECTURE.md             # This file
-```
-
-### Why both `include/` and `src/`?
-
-This is the standard C++ **declaration / definition split**, not two parallel implementations.
-
-
-| Location                     | Contains                                 | Consumed by                                                 |
-| ---------------------------- | ---------------------------------------- | ----------------------------------------------------------- |
-| `include/metaagent/**/*.hpp` | Types, enums, class interfaces           | Any translation unit that *uses* the library                |
-| `src/metaagent/**/*.cpp`     | Method bodies, static tables, algorithms | Linked into `libmetaagent.a` (or compiled via UE aggregate) |
-
-
-**Entry point for embedders:**
-
-```cpp
-#include <metaagent/metaagent.hpp>
-
-int main() {
-    metaagent::initialize_defaults();
-}
+├── README.md
+└── ARCHITECTURE.md
 ```
 
 ---
@@ -123,60 +37,129 @@ int main() {
 
 ### Core (`metaagent/core/`)
 
-
-| Header         | Responsibility                                               |
-| -------------- | ------------------------------------------------------------ |
-| `types.hpp`    | `Vec2`, `Vec3`, `Rotator`, `String`, `Array<T>`, `ColorRGBA` |
-| `math.hpp`     | `clamp`, `smooth_step01`, curve sampling                     |
-| `log_sink.hpp` | Optional injectable log callbacks                            |
-
+| Header | Role |
+|--------|------|
+| `types.hpp` | `Vec2`, `Vec3`, `Rotator`, `String`, `Array<T>` |
+| `math.hpp` | `clamp`, `smooth_step01`, `evaluate_curve01`, `lerp` |
+| `log_sink.hpp` | Injectable log callbacks |
 
 ### Particle domain (`metaagent/particle/`)
 
-
-| Module                 | Key types / classes                               | Role                                                                  |
-| ---------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
-| `pattern_types`        | `PatternState`, `PatternConfig`, `PatternRuntime` | FSM state + runtime buffers                                           |
-| `transition_graph`     | `TransitionGraph`                                 | Internal FSM table (used by scheduler, not exposed to UE)             |
-| `forming_solver`       | `FormingSolverRegistry`                           | Per-particle motion during **Forming**                                |
-| `actuation_math`       | `ActuationMath`                                   | Anticipation offsets, blend alpha                                     |
-| `representation_types` | `RepresentationMapping`                           | Macro phases (Prepare/Express/Sustain/Release)                        |
-| `shape_builder`        | `ShapeBuilder`                                    | Grid, polyline path, bounds grid, silhouette assignment, shape frames |
-| `image_mask_processor` | `image_mask::build_mask_from_rgba`                | CPU silhouette sampling from RGBA                                     |
-| `scheduler`            | `ParticleScheduler`, `SchedulerCallbacks`         | Orchestrates tick, FSM, representation frame                          |
-
-
----
-
-## Pattern FSM (core-internal)
-
-Nine pattern states: `Idle`, `Preparing`, `Anticipating`, `Forming`, `Holding`, `Returning`, `Dissipating`, `Releasing`.
-
-The scheduler advances states via `TransitionGraph::evaluate_transition()` on timeout, manual advance, cancel, morph, etc. UE code calls `DispatchPatternTransition()` on the runtime, which bridges to the scheduler — it does not maintain a parallel FSM table.
+| Module | Key API | Role |
+|--------|---------|------|
+| `pattern_types` | `PatternConfig`, `PatternRuntime` | FSM state, buffers, **form/return asset curve samples** |
+| `transition_graph` | `TransitionGraph` | FSM table (scheduler-internal) |
+| `scheduler` | `ParticleScheduler`, `SchedulerCallbacks` | Tick, transitions, representation frame |
+| `forming_solver` | `FormingSolverRegistry` | Per-particle forming / return motion |
+| `actuation_math` | `ActuationMath` | Anticipation, blend alpha, **`evaluate_phase_for_state`**, **`compose_particle_world_position`** |
+| `representation_actuation` | `RepresentationActuationPolicy` | Direct / Parameters / Hybrid delivery |
+| `representation_types` | `RepresentationMapping` | Macro phases |
+| `shape_builder` | `ShapeBuilder` | Targets, frames, silhouette assignment |
+| `image_mask_processor` | `image_mask::build_mask_from_rgba` | Mask + stratified scatter |
+| `forming_types` / `return_types` | Settings structs | Mode enums and curve sample arrays |
 
 ---
 
-## Scheduler and callbacks
+## Pattern FSM
 
-`ParticleScheduler` injects engine-specific work through `SchedulerCallbacks`:
+States: `Idle`, `Preparing`, `Anticipating`, `Forming`, `Holding`, `Returning`, `Dissipating`, `Releasing`.
+
+The scheduler advances via `TransitionGraph::evaluate_transition()`. UE calls `DispatchPatternTransition()` on the runtime, which bridges to the scheduler — **no parallel FSM table in the plugin**.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Anticipating: start pattern
+    Anticipating --> Forming: mask ready
+    Forming --> Holding: form complete
+    Holding --> Returning: hold timeout / advance
+    Holding --> Forming: morph
+    Holding --> Dissipating: dissipate mode
+    Returning --> Idle: return complete
+    Dissipating --> Idle: dissipate complete
+```
+
+---
+
+## Phase evaluation
+
+`ActuationMath::evaluate_phase_for_state()` is the default for forming and returning ticks:
+
+- **Forming:** `PatternRuntime.form_curve_samples` (from UE `ActiveFormCurve`) or smoothstep
+- **Returning:** mode curve from `ReturnSettings` → asset fallback (`asset_return_curve_samples`) → inverted smoothstep
+
+UE samples `UCurveFloat` into core arrays in `SyncRuntimeToCore`; the scheduler no longer requires an `evaluate_phase_for_state` callback.
+
+---
+
+## Actuation composition
+
+`ActuationMath::compose_particle_world_position()` implements the full per-particle blend path:
+
+- Return hold lerp or return forming solver
+- Anticipation motion
+- Dissipate toward center
+- Forming solvers + anticipation→forming carryover
+- Default lerp + forming steering offsets
+
+UE builds `ActuationComposeInput` via `MetaAgentTypeBridge::build_actuation_compose_input()` and only writes results into Niagara buffers.
+
+---
+
+## Representation actuation policy
+
+`RepresentationActuationPolicy::resolve()` chooses:
+
+| Delivery | When |
+|----------|------|
+| `ParametersWithTargets` | Parameters-only mode, or return release below threshold |
+| `DirectWrite` | Direct mode |
+| `HybridDirectWithScalars` | Hybrid: direct buffer write + scalar User params (no target UObject push) |
+
+Hybrid resolves to Direct in editor builds and Parameters in shipping (`hybrid_use_direct_path` flag).
+
+---
+
+## Scheduler callbacks (UE bridge)
+
+Engine-specific work still uses `SchedulerCallbacks`:
 
 ```cpp
 struct SchedulerCallbacks {
     std::function<bool()> build_pattern_targets;
     std::function<bool()> begin_pattern_start;
     std::function<void(PatternState, PatternState)> enter_pattern_state;
-    std::function<float(PatternState, float)> evaluate_phase_for_state;
+    // evaluate_phase_for_state optional — default uses ActuationMath + synced curves
     // ...
 };
 ```
 
-The UE bridge implements these via `friend struct FMetaAgentCoreBridgeFriend` on `UMetaAgentParticleRuntime`.
+Implemented in `FMetaAgentCoreBridgeFriend` (`MetaAgentTypeBridge.cpp`).
 
 ---
 
-## Build and embed
+## UE plugin split (18 flat source files)
 
-### Standalone (CMake)
+| Plugin file | Role |
+|-------------|------|
+| `MetaAgentCoreAggregate.cpp` | Embeds all `metaagent/src/**/*.cpp` |
+| `MetaAgentTypeBridge.*` | UE ↔ core conversion, scheduler bridge, compose scratch |
+| `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue |
+| `MetaAgentParticleControl.*` | Orchestrator, drivers, Niagara profiles, representation apply |
+| `MetaAgentParticleShapes.*` | PNG load, mask cache, shape providers → core `ShapeBuilder` |
+| `MetaAgentParticleTypes.h` | USTRUCT/UENUM mirrors |
+| `MetaAgentPlayerController.*` | Input, camera, GUI, recording, AI, particles UI |
+| `MetaAgentGameplay.*` | Game mode, character, networking game instance |
+| `MetaAgentHUD.h` | HUD panel types |
+| `MetaAgentPlugin.*` | Module startup, settings, Blueprint library |
+
+**Stays in UE by design:** Niagara RHI/GPU, orchestrator UX, HUD, networking HTTP, gameplay, world/PNG I/O.
+
+---
+
+## Build
+
+### Standalone
 
 ```powershell
 cd metaagent
@@ -185,65 +168,16 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-### Unreal Engine
+### Unreal
 
-`MetaAgentCoreAggregate.cpp` `#include`s all `metaagent/src/**/*.cpp` into the module. `MetaAgentPlugin.Build.cs` adds `metaagent/include` to public include paths.
-
-**UE facades that delegate to core (no duplicate logic):**
-
-
-| UE file                                     | Core delegate                                               |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `MetaAgentParticleCoreBridge`               | `ParticleScheduler`                                         |
-| `MetaAgentTypeBridge`                       | All struct/enum conversion                                  |
-| `MetaAgentParticleFormingSolver`            | `FormingSolverRegistry`                                     |
-| `MetaAgentParticleActuation` (anticipation) | `ActuationMath`                                             |
-| `MetaAgentParticleShapeBuilder`             | `ShapeBuilder` (UE feeds spline samples / mesh bounds only) |
-| `MetaAgentParticleImageMaskProcessor`       | `image_mask::build_mask_from_rgba`                          |
-| `MetaAgentParticlePatternTypes` (presets)   | `PatternConfig::apply_preset`                               |
-
-
----
-
-## What stays in the UE plugin
-
-Flat layout under `Source/MetaAgentPlugin/` (~55 files). The plugin **instances** portable logic from `metaagent/`; it should not reimplement particle math.
-
-
-| File(s)                         | Role                                                               |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `MetaAgentCoreAggregate.cpp`    | Embeds portable `metaagent` sources                                |
-| `MetaAgentTypeBridge.`*         | UE ↔ core conversion + thin USTRUCT method delegates               |
-| `MetaAgentParticleCoreBridge.*` | Scheduler bridge into `UMetaAgentParticleRuntime`                  |
-| `MetaAgentParticleRuntime.*`    | UObject instance + Niagara tick glue                               |
-| `MetaAgentParticleActuation.*`  | Niagara/RHI actuation I/O only                                     |
-| `MetaAgentParticleShapes.cpp`   | World queries, PNG load, mask cache → feeds core `ShapeBuilder`    |
-| `MetaAgentParticleControl.cpp`  | Orchestrator, input router, representation driver (product wiring) |
-| `MetaAgentNiagara.cpp`          | Niagara profiles/export glue                                       |
-| `MetaAgentPlayerController.*`   | Input, HUD hooks, particles UI (merged implementation)             |
-| `MetaAgentGameplay.cpp`         | Game mode, character, AI, camera, main actor                       |
-| `MetaAgentUI.cpp`               | HUD + GUI runtime                                                  |
-| `MetaAgentNetworking.cpp`       | Game instance + HTTP                                               |
-| `MetaAgentPlugin.*`             | Module startup, settings, Blueprint library                        |
-| `MetaAgentParticleTypes*.h`     | USTRUCT/UENUM mirrors of core types                                |
-
-
-### What could move to `metaagent` next
-
-
-| Candidate                    | Blocker                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| Return curve evaluation      | Already sampled in TypeBridge; could push curve sampling into core-only tests |
-| Orchestrator / input routing | Product UX, not core mechanics                                                |
-| GUI / camera / networking    | Engine-bound by design                                                        |
-
+`MetaAgentCoreAggregate.cpp` includes portable sources; `MetaAgentPlugin.Build.cs` adds `metaagent/include`.
 
 ---
 
 ## Extension points
 
-1. **New forming mode** — implement in `forming_solver.cpp`, register in `initialize_defaults()`, mirror enum in TypeBridge.
-2. **New shape source** — UE provider in `MetaAgentParticleShapeRegistry` (world I/O only); portable sampling/assignment in `shape_builder.cpp` (`build_polyline_path_targets`, `build_bounds_grid_targets`, `build_silhouette_from_local_points`).
-3. **Custom phase curves** — override `SchedulerCallbacks::evaluate_phase_for_state` (UE supplies `UCurveFloat`).
+1. **New forming mode** — add solver in `forming_solver.cpp`, register in `initialize_defaults()`, mirror enum in TypeBridge.
+2. **New shape source** — UE provider in shape registry (world I/O); portable assignment in `shape_builder.cpp`.
+3. **Custom phase curves** — sample curves into `PatternRuntime.form_curve_samples` / `asset_return_curve_samples` (or optional scheduler callback override).
 
-For product-level usage, see the repository root `README.md`.
+Product usage and keyboard controls: repository root [`README.md`](../README.md).
