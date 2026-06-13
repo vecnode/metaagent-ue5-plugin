@@ -35,8 +35,7 @@ bool guard_hold_timeout(const TransitionContext& context)
 }
 bool guard_return_timeout(const TransitionContext& context)
 {
-	return !context.manual_state_advance
-		&& context.state_elapsed_seconds >= std::max(0.1f, context.return_duration_seconds);
+	return context.state_elapsed_seconds >= std::max(0.1f, context.return_duration_seconds);
 }
 bool guard_dissipate_timeout(const TransitionContext& context)
 {

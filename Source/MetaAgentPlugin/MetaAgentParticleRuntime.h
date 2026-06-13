@@ -299,6 +299,9 @@ private:
 	void TryStartQueuedPattern();
 	void CompletePatternRun();
 	void ResetPatternRuntime();
+	void SeedIdleAmbientBaseline(const TArray<FVector>& Positions);
+	void TryBootstrapIdleAmbientBaseline();
+	void EnsureIdleAmbientBaselineFromSnapshot();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
 	void CommitAnticipationBaselineForForming();
 

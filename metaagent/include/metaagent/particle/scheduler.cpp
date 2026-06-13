@@ -57,9 +57,18 @@ SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleSchedul
 	input.baseline_world_positions = runtime.baseline_world_positions.empty()
 		? nullptr
 		: &runtime.baseline_world_positions;
-	input.pattern_world_targets = runtime.pattern_world_targets.empty()
-		? nullptr
-		: &runtime.pattern_world_targets;
+	if (!runtime.pattern_world_targets.empty())
+	{
+		input.pattern_world_targets = &runtime.pattern_world_targets;
+	}
+	else if (runtime.state == PatternState::Idle && !runtime.baseline_world_positions.empty())
+	{
+		input.pattern_world_targets = &runtime.baseline_world_positions;
+	}
+	else
+	{
+		input.pattern_world_targets = nullptr;
+	}
 	input.return_hold_positions = runtime.return_hold_positions.empty()
 		? nullptr
 		: &runtime.return_hold_positions;
@@ -116,13 +125,7 @@ SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleSchedul
 
 	if (runtime.state == PatternState::Anticipating)
 	{
-		input.anticipating_motion = true;
-		input.anticipation_elapsed_seconds = runtime.state_elapsed_seconds;
-		input.anticipation_amplitude_cm = config.anticipation_amplitude_cm;
-		input.anticipation_frequency_hz = config.anticipation_frequency_hz;
-		input.anticipation_idle_blend_duration_seconds = std::max(
-			0.05f,
-			config.anticipation_idle_blend_duration_seconds);
+		// Soft bridge: keep idle rest pose + ambient breathing until Forming begins.
 		input.blend_alpha = 0.0f;
 	}
 	else if (dissipating)
@@ -227,15 +230,7 @@ void enter_state(ParticleScheduler& scheduler, const PatternState new_state, Sch
 {
 	const PatternState previous_state = scheduler.pattern_runtime.state;
 
-	if (previous_state == PatternState::Anticipating && new_state == PatternState::Forming
-		&& !scheduler.settings.manual_pattern_state_advance)
-	{
-		if (callbacks.commit_anticipation_baseline_for_forming)
-		{
-			callbacks.commit_anticipation_baseline_for_forming();
-		}
-	}
-	else if (new_state == PatternState::Forming)
+	if (new_state == PatternState::Forming)
 	{
 		scheduler.pattern_runtime.anticipation_handoff_elapsed_seconds = -1.0f;
 	}
@@ -344,7 +339,14 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 	case TransitionAction::None:
 		return true;
 	case TransitionAction::BeginPatternStart:
-		return callbacks.begin_pattern_start ? callbacks.begin_pattern_start() : false;
+		if (!callbacks.begin_pattern_start || !callbacks.begin_pattern_start())
+		{
+			return false;
+		}
+		pattern_runtime.state = PatternState::Anticipating;
+		pattern_runtime.state_elapsed_seconds = 0.0f;
+		pattern_runtime.phase = 0.0f;
+		return true;
 	case TransitionAction::CompleteRun:
 		if (callbacks.complete_pattern_run)
 		{
@@ -352,7 +354,14 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 		}
 		return true;
 	case TransitionAction::BeginConfiguredReturn:
-		return callbacks.begin_configured_return ? callbacks.begin_configured_return() : false;
+		if (!callbacks.begin_configured_return || !callbacks.begin_configured_return())
+		{
+			return false;
+		}
+		pattern_runtime.state = PatternState::Returning;
+		pattern_runtime.state_elapsed_seconds = 0.0f;
+		pattern_runtime.phase = 1.0f;
+		return true;
 	case TransitionAction::RequestDissipate:
 		return callbacks.request_dissipate_to_center ? callbacks.request_dissipate_to_center() : false;
 	case TransitionAction::EnterState:
@@ -385,9 +394,7 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 
 	case PatternState::Anticipating:
 	{
-		const float frequency = std::max(0.1f, timings.anticipation_frequency_hz);
-		pattern_runtime.phase = 0.5f + 0.5f * std::sin(
-			pattern_runtime.state_elapsed_seconds * core::math::k_two_pi * frequency);
+		pattern_runtime.phase = 0.0f;
 
 		if (pattern_runtime.awaiting_async_mask && callbacks.build_pattern_targets)
 		{
@@ -488,13 +495,10 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 			: evaluate_phase_for_state_default(*this, PatternState::Returning, normalized_time);
 		pattern_runtime.phase = core::math::clamp(evaluated_phase, 0.0f, 1.0f);
 
-		if (settings.manual_pattern_state_advance && pattern_runtime.state_elapsed_seconds >= return_duration)
+		if (pattern_runtime.state_elapsed_seconds >= return_duration)
 		{
 			pattern_runtime.state_elapsed_seconds = return_duration;
 			pattern_runtime.phase = 0.0f;
-		}
-		else if (!settings.manual_pattern_state_advance && pattern_runtime.state_elapsed_seconds >= return_duration)
-		{
 			dispatch_pattern_transition(TransitionTrigger::Timeout, callbacks);
 		}
 		break;
@@ -537,10 +541,16 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 	out_frame.pattern_state = pattern_runtime.state;
 	out_frame.macro_phase = RepresentationMapping::macro_phase_from_pattern_state(pattern_runtime.state);
 	out_frame.pattern_center = pattern_runtime.pattern_center;
-	out_frame.pattern_active = true;
+	out_frame.pattern_active = pattern_runtime.state != PatternState::Idle;
 
 	out_frame.baseline_world_positions = pattern_runtime.baseline_world_positions;
 	out_frame.pattern_world_targets = pattern_runtime.pattern_world_targets;
+	if (out_frame.pattern_world_targets.empty()
+		&& pattern_runtime.state == PatternState::Idle
+		&& !pattern_runtime.baseline_world_positions.empty())
+	{
+		out_frame.pattern_world_targets = pattern_runtime.baseline_world_positions;
+	}
 	out_frame.idle_baseline_world_positions = pattern_runtime.idle_baseline_world_positions;
 	out_frame.return_hold_positions = pattern_runtime.return_hold_positions;
 	out_frame.return_rest_positions = pattern_runtime.return_rest_positions;
@@ -597,13 +607,6 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 
 	if (pattern_runtime.state == PatternState::Anticipating)
 	{
-		out_frame.anticipating_motion = true;
-		out_frame.anticipation_elapsed_seconds = pattern_runtime.state_elapsed_seconds;
-		out_frame.anticipation_amplitude_cm = pattern_runtime.active_config.anticipation_amplitude_cm;
-		out_frame.anticipation_frequency_hz = pattern_runtime.active_config.anticipation_frequency_hz;
-		out_frame.anticipation_idle_blend_duration_seconds = std::max(
-			0.05f,
-			pattern_runtime.active_config.anticipation_idle_blend_duration_seconds);
 		blend_alpha = 0.0f;
 	}
 	else if (dissipating)

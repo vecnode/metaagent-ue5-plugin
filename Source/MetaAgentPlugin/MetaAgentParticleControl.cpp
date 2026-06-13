@@ -180,7 +180,7 @@ void UMetaAgentParticleOrchestrator::RequestImageMaskBuild()
 		return;
 	}
 
-	const int32 ParticleCount = FMath::Max(ParticleRuntime->GetKnownParticleCount(), 128);
+	const int32 ParticleCount = FMath::Max(1, ParticleRuntime->GetKnownParticleCount());
 	FMetaAgentParticleShapeBuilder::RequestImageMaskBuild(
 		LastLoadedPreviewImagePath,
 		PatternConfig.Shape,
@@ -535,9 +535,10 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 		return Result;
 	}
 
+	ParticleRuntime->SetManualPatternStateAdvance(true);
+
 	if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Idle)
 	{
-		ParticleRuntime->SetManualPatternStateAdvance(true);
 		ParticleRuntime->ForceCaptureParticles();
 		PrepareShapeContextForPlay();
 		PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
@@ -1304,6 +1305,13 @@ int32 FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
 		Request.bPatternActive = false;
 		Request.BlendAlpha = PolicyResult.override_blend_alpha;
 		ApplyParametersPath(PolicyResult.push_target_payload);
+		if (Request.StateEffectOffsets
+			&& Request.StateEffectOffsets->Num() > 0
+			&& Request.BaselineWorldPositions
+			&& Request.BaselineWorldPositions->Num() > 0)
+		{
+			return DirectDriver.ApplyFrame(Frame, Request, Profile, OutAppliedWorldPositions);
+		}
 		return 0;
 	}
 

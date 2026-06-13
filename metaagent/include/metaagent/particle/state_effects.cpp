@@ -10,8 +10,65 @@ namespace {
 constexpr uint32_t k_all_pattern_states_mask = (1u << 9) - 1u;
 
 // Slow dramatic ambient breathing — always on, including Idle.
-constexpr float k_ambient_breath_frequency_hz = 0.45f;
-constexpr float k_ambient_breath_amplitude_cm = 12.0f;
+constexpr float k_ambient_breath_frequency_hz = 0.225f;
+constexpr float k_ambient_breath_amplitude_cm = 8.0f;
+
+core::Vec3 cross_vec3(const core::Vec3& a, const core::Vec3& b)
+{
+	return core::Vec3(
+		a.y * b.z - a.z * b.y,
+		a.z * b.x - a.x * b.z,
+		a.x * b.y - a.y * b.x);
+}
+
+core::Vec3 compute_ambient_breath_offset(
+	const size_t index,
+	const core::Vec3& anchor,
+	const core::Vec3& pattern_center,
+	const float elapsed_seconds)
+{
+	core::Vec3 from_center = anchor - pattern_center;
+	const float radius = from_center.length();
+	if (radius <= core::math::k_epsilon)
+	{
+		return core::Vec3 {};
+	}
+
+	const float particle_phase = static_cast<float>(index) * 2.3999632f;
+	const float amplitude_scale = 0.78f + 0.22f * std::sin(particle_phase * 1.13f);
+	const float time_rad = elapsed_seconds * core::math::k_two_pi * k_ambient_breath_frequency_hz;
+	const float breath = std::sin(time_rad + particle_phase * 0.31f);
+
+	float motion_scale = 1.0f;
+	if (breath < 0.0f)
+	{
+		const float inward_phase = time_rad * 1.37f + particle_phase * 1.91f;
+		motion_scale = 0.55f + 0.45f * (0.5f + 0.5f * std::sin(inward_phase));
+	}
+
+	const float amount = k_ambient_breath_amplitude_cm * breath * amplitude_scale * motion_scale;
+	const core::Vec3 radial = from_center * (1.0f / radius);
+
+	core::Vec3 up_reference(0.0f, 0.0f, 1.0f);
+	core::Vec3 tangent = cross_vec3(radial, up_reference);
+	if (tangent.length_squared() <= core::math::k_epsilon)
+	{
+		tangent = cross_vec3(radial, core::Vec3(0.0f, 1.0f, 0.0f));
+	}
+	if (tangent.length_squared() > core::math::k_epsilon)
+	{
+		tangent = tangent * (1.0f / std::sqrt(tangent.length_squared()));
+	}
+	const core::Vec3 bitangent = cross_vec3(radial, tangent);
+
+	const float wobble_strength = std::abs(breath) * 0.22f;
+	const float wobble_a = std::sin(time_rad * 0.83f + particle_phase * 1.47f);
+	const float wobble_b = std::cos(time_rad * 1.19f + particle_phase * 0.63f);
+
+	return radial * (-amount)
+		+ tangent * (wobble_a * amount * wobble_strength)
+		+ bitangent * (wobble_b * amount * wobble_strength * 0.7f);
+}
 
 StateEffectDefinition make_cohesion_definition()
 {
@@ -174,22 +231,14 @@ void StateEffectStack::integrate_ambient_breathing(
 		return;
 	}
 
-	const float breath = std::sin(
-		ambient_breathing_elapsed_seconds_ * core::math::k_two_pi * k_ambient_breath_frequency_hz);
-	const float amount = k_ambient_breath_amplitude_cm * breath;
-
 	for (size_t index = 0; index < context.composed_positions->size(); ++index)
 	{
 		const core::Vec3 anchor = (*context.composed_positions)[index];
-		core::Vec3 from_center = anchor - context.pattern_center;
-		const float radius = from_center.length();
-		if (radius <= core::math::k_epsilon)
-		{
-			continue;
-		}
-
-		const core::Vec3 radial = from_center * (1.0f / radius);
-		offsets_[index] = offsets_[index] + radial * (-amount);
+		offsets_[index] = offsets_[index] + compute_ambient_breath_offset(
+			index,
+			anchor,
+			context.pattern_center,
+			ambient_breathing_elapsed_seconds_);
 	}
 }
 

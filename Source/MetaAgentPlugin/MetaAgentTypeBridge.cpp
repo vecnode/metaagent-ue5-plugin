@@ -1260,6 +1260,7 @@ struct FMetaAgentCoreBridgeFriend
 {
 	static void SyncRuntimeToCore(UMetaAgentParticleRuntime& Runtime, metaagent::particle::ParticleScheduler& Scheduler)
 	{
+		Runtime.EnsureIdleAmbientBaselineFromSnapshot();
 		MetaAgentTypeBridge::copy_pattern_config_to_core(Runtime.PatternConfig, Scheduler.pattern_config);
 		MetaAgentTypeBridge::copy_pattern_runtime_to_core(Runtime.PatternRuntime, Scheduler.pattern_runtime);
 		Scheduler.settings.manual_pattern_state_advance = Runtime.bManualPatternStateAdvance;

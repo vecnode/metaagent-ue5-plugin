@@ -603,6 +603,11 @@ namespace
 		FString DebugInfo;
 	};
 
+	bool IsMaskCacheEntryUsable(const FMetaAgentImageMaskCacheEntry& Entry)
+	{
+		return Entry.bSuccess && Entry.LocalPointsCm.Num() > 0;
+	}
+
 	struct FMetaAgentImageMaskAsyncJob
 	{
 		FMetaAgentImageMaskCacheKey Key;
@@ -683,9 +688,13 @@ void FMetaAgentParticleShapeCache::Tick()
 	for (const TPair<FMetaAgentImageMaskCacheKey, FMetaAgentImageMaskBuildOutput>& CompletedJob : CompletedJobs)
 	{
 		FMetaAgentImageMaskCacheEntry Entry;
-		Entry.bSuccess = CompletedJob.Value.bSuccess;
+		Entry.bSuccess = CompletedJob.Value.bSuccess && CompletedJob.Value.LocalPointsCm.Num() > 0;
 		Entry.LocalPointsCm = CompletedJob.Value.LocalPointsCm;
 		Entry.DebugInfo = CompletedJob.Value.DebugInfo;
+		if (!Entry.bSuccess && Entry.DebugInfo.IsEmpty())
+		{
+			Entry.DebugInfo = TEXT("Image mask build produced no silhouette points.");
+		}
 
 		FScopeLock Lock(&GMaskCacheMutex);
 		GMaskCache.Add(CompletedJob.Key, MoveTemp(Entry));
@@ -722,7 +731,7 @@ EMetaAgentImageMaskAvailability FMetaAgentParticleShapeCache::RequestBuild(
 		FScopeLock Lock(&GMaskCacheMutex);
 		if (const FMetaAgentImageMaskCacheEntry* CachedEntry = GMaskCache.Find(Key))
 		{
-			return CachedEntry->bSuccess
+			return IsMaskCacheEntryUsable(*CachedEntry)
 				? EMetaAgentImageMaskAvailability::Ready
 				: EMetaAgentImageMaskAvailability::Failed;
 		}
@@ -748,7 +757,7 @@ EMetaAgentImageMaskAvailability FMetaAgentParticleShapeCache::RequestBuild(
 		FScopeLock Lock(&GMaskCacheMutex);
 		if (const FMetaAgentImageMaskCacheEntry* CachedEntry = GMaskCache.Find(Key))
 		{
-			return CachedEntry->bSuccess
+			return IsMaskCacheEntryUsable(*CachedEntry)
 				? EMetaAgentImageMaskAvailability::Ready
 				: EMetaAgentImageMaskAvailability::Failed;
 		}
@@ -798,7 +807,7 @@ FMetaAgentImageMaskLookupResult FMetaAgentParticleShapeCache::ResolveMask(
 		{
 			Result.LocalPointsCm = CachedEntry->LocalPointsCm;
 			Result.DebugInfo = CachedEntry->DebugInfo;
-			Result.Availability = CachedEntry->bSuccess
+			Result.Availability = IsMaskCacheEntryUsable(*CachedEntry)
 				? EMetaAgentImageMaskAvailability::Ready
 				: EMetaAgentImageMaskAvailability::Failed;
 			return Result;
@@ -848,7 +857,7 @@ bool FMetaAgentParticleShapeCache::IsMaskReady(const FMetaAgentImageMaskBuildPar
 	FScopeLock Lock(&GMaskCacheMutex);
 	if (const FMetaAgentImageMaskCacheEntry* CachedEntry = GMaskCache.Find(Key))
 	{
-		return CachedEntry->bSuccess && CachedEntry->LocalPointsCm.Num() > 0;
+		return IsMaskCacheEntryUsable(*CachedEntry);
 	}
 
 	return false;
@@ -1247,6 +1256,11 @@ bool BuildMaskOnWorkerThread(const FMetaAgentImageMaskBuildParams& Params, FMeta
 	}
 
 	MetaAgentTypeBridge::copy_image_mask_output_from_core(Built.mask, OutOutput);
+	OutOutput.bSuccess = OutOutput.bSuccess && OutOutput.LocalPointsCm.Num() > 0;
+	if (!OutOutput.bSuccess && OutOutput.DebugInfo.IsEmpty())
+	{
+		OutOutput.DebugInfo = TEXT("Image mask build produced no silhouette points.");
+	}
 	return OutOutput.bSuccess;
 }
 } // namespace MetaAgentImageMask
