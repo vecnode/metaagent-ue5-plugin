@@ -13,6 +13,11 @@
 #include "ImageCore.h"
 #include "ImageUtils.h"
 #include "MetaAgentPlugin.h"
+#include "MetaAgentTypeBridge.h"
+#include "metaagent/media/decode.hpp"
+#include "metaagent/media/mask_cache.hpp"
+#include "metaagent/media/pipeline.hpp"
+#include "metaagent/media/store.hpp"
 #include "metaagent/particle/image_mask_processor.hpp"
 #include "metaagent/particle/shape_builder.hpp"
 #include "MetaAgentParticleShapes.h"
@@ -96,6 +101,8 @@ FString FMetaAgentParticleShapeDefinition::GetImageSamplingDisplayName() const
 void FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache()
 {
 	FMetaAgentParticleShapeCache::InvalidateAll();
+	metaagent::media::MaskBuildCache::instance().invalidate_all();
+	metaagent::media::MediaStore::instance().invalidate_all();
 }
 
 void FMetaAgentParticleShapeBuilder::RequestImageMaskBuild(
@@ -645,6 +652,9 @@ void FMetaAgentParticleShapeCache::Tick()
 	TArray<TPair<FMetaAgentImageMaskCacheKey, FMetaAgentImageMaskBuildOutput>> CompletedJobs;
 	CompletedJobs.Reserve(4);
 
+	TArray<TPair<FMetaAgentImageMaskCacheKey, TSharedPtr<FMetaAgentImageMaskAsyncJob>>> ReadyJobs;
+	ReadyJobs.Reserve(4);
+
 	{
 		FScopeLock Lock(&GMaskCacheMutex);
 		for (auto It = GInFlightJobs.CreateIterator(); It; ++It)
@@ -655,8 +665,18 @@ void FMetaAgentParticleShapeCache::Tick()
 				continue;
 			}
 
-			CompletedJobs.Add(TPair<FMetaAgentImageMaskCacheKey, FMetaAgentImageMaskBuildOutput>(It.Key(), Job->Future.Get()));
+			ReadyJobs.Add(TPair<FMetaAgentImageMaskCacheKey, TSharedPtr<FMetaAgentImageMaskAsyncJob>>(It.Key(), Job));
 			It.RemoveCurrent();
+		}
+	}
+
+	for (const TPair<FMetaAgentImageMaskCacheKey, TSharedPtr<FMetaAgentImageMaskAsyncJob>>& ReadyJob : ReadyJobs)
+	{
+		if (ReadyJob.Value.IsValid())
+		{
+			CompletedJobs.Add(TPair<FMetaAgentImageMaskCacheKey, FMetaAgentImageMaskBuildOutput>(
+				ReadyJob.Key,
+				ReadyJob.Value->Future.Get()));
 		}
 	}
 
@@ -905,6 +925,19 @@ namespace
 				ShapeContext.SourceImagePath,
 				PatternConfig.Shape,
 				DesiredPointCount);
+			const FMetaAgentImageMaskLookupResult Lookup = FMetaAgentParticleShapeCache::ResolveMask(Params);
+			if (Lookup.Availability == EMetaAgentImageMaskAvailability::Failed
+				|| Lookup.Availability == EMetaAgentImageMaskAvailability::Unavailable)
+			{
+				// Let the sync build path run so ShapeBuilder can fall back (e.g. Sobel produced no edges).
+				return false;
+			}
+
+			if (Lookup.Availability == EMetaAgentImageMaskAvailability::Building)
+			{
+				return true;
+			}
+
 			return !FMetaAgentParticleShapeCache::IsMaskReady(Params);
 		}
 
@@ -1157,14 +1190,17 @@ bool GetImageFileIdentity(const FString& SourceImagePath, FDateTime& OutTimestam
 	}
 
 	const FString FullPath = FPaths::ConvertRelativePathToFull(SourceImagePath);
-	if (!FPaths::FileExists(FullPath))
+	FTCHARToUTF8 Utf8Path(*FullPath);
+	const metaagent::core::String CorePath(Utf8Path.Get(), static_cast<size_t>(Utf8Path.Length()));
+
+	int64 ModifiedUnix = 0;
+	if (!metaagent::media::get_file_identity(CorePath, OutFileSize, ModifiedUnix))
 	{
 		return false;
 	}
 
-	OutTimestamp = IFileManager::Get().GetTimeStamp(*FullPath);
-	OutFileSize = IFileManager::Get().FileSize(*FullPath);
-	return OutTimestamp != FDateTime::MinValue() && OutFileSize > 0;
+	OutTimestamp = FDateTime::FromUnixTimestamp(ModifiedUnix);
+	return OutFileSize > 0;
 }
 
 FMetaAgentImageMaskBuildParams MakeBuildParams(
@@ -1191,29 +1227,26 @@ bool BuildMaskOnWorkerThread(const FMetaAgentImageMaskBuildParams& Params, FMeta
 {
 	OutOutput = FMetaAgentImageMaskBuildOutput();
 
-	TArray<FColor> SourcePixels;
-	int32 SourceWidth = 0;
-	int32 SourceHeight = 0;
-	if (!ReadTexturePixelsFromPngFile(Params.SourceImagePath, SourcePixels, SourceWidth, SourceHeight))
-	{
-		OutOutput.DebugInfo = FString::Printf(
-			TEXT("Failed to read PNG '%s'."),
-			Params.SourceImagePath.IsEmpty() ? TEXT("<none>") : *FPaths::GetCleanFilename(Params.SourceImagePath));
-		return false;
-	}
+	FTCHARToUTF8 Utf8Path(*Params.SourceImagePath);
+	const metaagent::core::String CorePath(Utf8Path.Get(), static_cast<size_t>(Utf8Path.Length()));
 
 	metaagent::particle::ImageMaskBuildParams CoreParams;
 	MetaAgentTypeBridge::copy_image_mask_params_to_core(Params, CoreParams);
 
-	metaagent::particle::ImageMaskBuildOutput CoreOutput;
-	const metaagent::particle::RgbaImage CoreImage = ToCoreRgbaImage(SourcePixels, SourceWidth, SourceHeight);
-	if (!metaagent::particle::image_mask::build_mask_from_rgba(CoreImage, CoreParams, CoreOutput))
+	metaagent::media::MaskBuildResult Built;
+	if (!metaagent::media::build_mask_from_file(CorePath, CoreParams, Built))
 	{
-		MetaAgentTypeBridge::copy_image_mask_output_from_core(CoreOutput, OutOutput);
+		OutOutput.DebugInfo = FString(UTF8_TO_TCHAR(Built.mask.debug_info.c_str()));
+		if (OutOutput.DebugInfo.IsEmpty())
+		{
+			OutOutput.DebugInfo = FString::Printf(
+				TEXT("Failed to build mask for '%s'."),
+				Params.SourceImagePath.IsEmpty() ? TEXT("<none>") : *FPaths::GetCleanFilename(Params.SourceImagePath));
+		}
 		return false;
 	}
 
-	MetaAgentTypeBridge::copy_image_mask_output_from_core(CoreOutput, OutOutput);
+	MetaAgentTypeBridge::copy_image_mask_output_from_core(Built.mask, OutOutput);
 	return OutOutput.bSuccess;
 }
 } // namespace MetaAgentImageMask
@@ -1558,15 +1591,16 @@ UTexture2D* FMetaAgentImagePreviewRuntime::ImportPngTexture(const FString& PngPa
 		return nullptr;
 	}
 
-	UTexture2D* ImportedTexture = FImageUtils::ImportFileAsTexture2D(PngPath);
-	if (!ImportedTexture)
+	FTCHARToUTF8 Utf8Path(*PngPath);
+	const metaagent::core::String CorePath(Utf8Path.Get(), static_cast<size_t>(Utf8Path.Length()));
+
+	metaagent::media::RgbaImage Image;
+	if (!metaagent::media::MediaStore::instance().load_file(CorePath, Image))
 	{
 		return nullptr;
 	}
 
-	ImportedTexture->SRGB = true;
-	ImportedTexture->UpdateResource();
-	return ImportedTexture;
+	return MetaAgentTypeBridge::create_texture2d_from_rgba(Image);
 }
 
 bool FMetaAgentImagePreviewRuntime::EnsurePreviewTextureLoaded(
@@ -1607,32 +1641,35 @@ bool FMetaAgentImagePreviewRuntime::BuildPanelPreviewThumbnails(
 	OutThumbnails.Reset();
 
 	const int32 ClampedSize = FMath::Clamp(PreviewSize, 16, 256);
-	TArray<FColor> SourcePixels;
-	int32 SourceWidth = 0;
-	int32 SourceHeight = 0;
-	if (!ReadTexturePixelsFromPngFile(PngPath, SourcePixels, SourceWidth, SourceHeight))
+	FTCHARToUTF8 Utf8Path(*PngPath);
+	const metaagent::core::String CorePath(Utf8Path.Get(), static_cast<size_t>(Utf8Path.Length()));
+
+	metaagent::media::RgbaImage Image;
+	if (!metaagent::media::MediaStore::instance().load_file(CorePath, Image))
 	{
 		return false;
 	}
 
-	TArray<FColor> SourceThumb;
-	DownsampleToSize(SourcePixels, SourceWidth, SourceHeight, ClampedSize, ClampedSize, SourceThumb);
+	metaagent::media::MaskPreviewBuffers Previews;
+	metaagent::media::build_preview_thumbnails(Image, ClampedSize, Previews);
 
-	TArray<FColor> GrayscaleThumb;
-	BuildGrayscalePixels(SourceThumb, ClampedSize, ClampedSize, GrayscaleThumb);
-
-	TArray<float> GrayValues;
-	GrayValues.SetNum(ClampedSize * ClampedSize);
-	for (int32 Index = 0; Index < SourceThumb.Num(); ++Index)
+	auto GrayBytesToTexture = [ClampedSize](const metaagent::core::Array<uint8_t>& GrayBytes) -> UTexture2D*
 	{
-		const FColor& Pixel = SourceThumb[Index];
-		GrayValues[Index] = (0.2126f * Pixel.R + 0.7152f * Pixel.G + 0.0722f * Pixel.B) / 255.0f;
-	}
+		if (static_cast<int32>(GrayBytes.size()) != ClampedSize * ClampedSize)
+		{
+			return nullptr;
+		}
 
-	TArray<float> SobelMagnitudes;
-	ComputeSobelMagnitudes(GrayValues, ClampedSize, ClampedSize, SobelMagnitudes);
-	TArray<FColor> SobelThumb;
-	MagnitudesToPixels(SobelMagnitudes, ClampedSize, ClampedSize, SobelThumb);
+		TArray<FColor> Pixels;
+		Pixels.SetNum(ClampedSize * ClampedSize);
+		for (int32 Index = 0; Index < Pixels.Num(); ++Index)
+		{
+			const uint8 Value = GrayBytes[static_cast<size_t>(Index)];
+			Pixels[Index] = FColor(Value, Value, Value, 255);
+		}
+
+		return CreateTextureFromPixels(Pixels, ClampedSize, ClampedSize);
+	};
 
 	auto AddThumbnail = [&OutThumbnails](UTexture2D* Texture, const FString& Label)
 	{
@@ -1647,8 +1684,18 @@ bool FMetaAgentImagePreviewRuntime::BuildPanelPreviewThumbnails(
 		OutThumbnails.Add(Thumbnail);
 	};
 
-	AddThumbnail(CreateTextureFromPixels(SourceThumb, ClampedSize, ClampedSize), TEXT("Source"));
-	AddThumbnail(CreateTextureFromPixels(GrayscaleThumb, ClampedSize, ClampedSize), TEXT("Gray"));
-	AddThumbnail(CreateTextureFromPixels(SobelThumb, ClampedSize, ClampedSize), TEXT("Sobel"));
+	metaagent::media::RgbaImage SourceThumb;
+	SourceThumb.width = ClampedSize;
+	SourceThumb.height = ClampedSize;
+	SourceThumb.pixels.resize(static_cast<size_t>(ClampedSize * ClampedSize));
+	for (int32 Index = 0; Index < ClampedSize * ClampedSize; ++Index)
+	{
+		const uint8 Value = Previews.source_gray[static_cast<size_t>(Index)];
+		SourceThumb.pixels[static_cast<size_t>(Index)] = {Value, Value, Value, 255};
+	}
+
+	AddThumbnail(MetaAgentTypeBridge::create_texture2d_from_rgba(SourceThumb), TEXT("Source"));
+	AddThumbnail(GrayBytesToTexture(Previews.gray_preview), TEXT("Gray"));
+	AddThumbnail(GrayBytesToTexture(Previews.sobel_preview), TEXT("Sobel"));
 	return OutThumbnails.Num() > 0;
 }

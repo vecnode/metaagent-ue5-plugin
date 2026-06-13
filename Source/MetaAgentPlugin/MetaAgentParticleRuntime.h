@@ -266,8 +266,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Representation")
 	FMetaAgentParticleRepresentationFrame GetLastRepresentationFrame() const { return LastRepresentationFrame; }
 
+	const TArray<FVector>& GetLastAppliedWorldPositions() const { return LastAppliedWorldPositions; }
+
+	/** Returns the best available world positions for camera focus (applied, captured, or composed). */
+	int32 GetFocusableWorldPositions(TArray<FVector>& OutWorldPositions) const;
+
+	/** Applies the current representation frame to Niagara immediately (used after manual state steps). */
+	void ApplyPatternRepresentation();
+
+	/** Rebuilds pattern targets after live config changes (e.g. Gray/Sobel toggle). */
+	void RefreshPatternTargetsAfterConfigChange();
+
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
+	void PruneStaleTrackedNiagaraComponents();
 	void BuildComponentSnapshot();
 	void RebuildSuggestedSteeringDirections();
 	void CaptureParticlesDirectly();

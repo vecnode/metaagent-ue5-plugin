@@ -212,10 +212,16 @@ void UMetaAgentParticleRuntime::RefreshTrajectoryBaselineAtHoldStart()
 
 void UMetaAgentParticleRuntime::BeginReturnFromHold()
 {
-	PatternRuntime.ReturnHoldPositions = LastAppliedWorldPositions;
 	if (PatternRuntime.ReturnHoldPositions.Num() <= 0)
 	{
-		PatternRuntime.ReturnHoldPositions = PatternRuntime.PatternWorldTargets;
+		if (LastAppliedWorldPositions.Num() > 0)
+		{
+			PatternRuntime.ReturnHoldPositions = LastAppliedWorldPositions;
+		}
+		else
+		{
+			PatternRuntime.ReturnHoldPositions = PatternRuntime.PatternWorldTargets;
+		}
 	}
 
 	const int32 ParticleCount = PatternRuntime.ReturnHoldPositions.Num();
@@ -399,14 +405,27 @@ bool UMetaAgentParticleRuntime::PassesNameFilter(const AActor* OwnerActor, const
 		|| NiagaraComponent->GetName().Contains(EffectiveFilter, ESearchCase::IgnoreCase);
 }
 
+void UMetaAgentParticleRuntime::PruneStaleTrackedNiagaraComponents()
+{
+	for (int32 Index = TrackedNiagaraComponents.Num() - 1; Index >= 0; --Index)
+	{
+		UNiagaraComponent* NiagaraComponent = TrackedNiagaraComponents[Index].Get();
+		if (!IsValid(NiagaraComponent) || !NiagaraComponent->IsActive())
+		{
+			TrackedNiagaraComponents.RemoveAtSwap(Index);
+		}
+	}
+}
+
 void UMetaAgentParticleRuntime::BuildComponentSnapshot()
 {
 	LatestSnapshot.TrackedComponents.Reset();
+	PruneStaleTrackedNiagaraComponents();
 
 	for (int32 Index = TrackedNiagaraComponents.Num() - 1; Index >= 0; --Index)
 	{
 		UNiagaraComponent* NiagaraComponent = TrackedNiagaraComponents[Index].Get();
-		if (!NiagaraComponent)
+		if (!IsValid(NiagaraComponent))
 		{
 			TrackedNiagaraComponents.RemoveAtSwap(Index);
 			continue;
@@ -987,6 +1006,12 @@ void UMetaAgentParticleRuntime::ApplyPatternConfig(const FMetaAgentParticlePatte
 	{
 		PatternRuntime.ActiveConfig.Return = PatternConfig.Return;
 	}
+
+	if (PatternRuntime.State != EMetaAgentParticlePatternState::Idle
+		&& PatternRuntime.State != EMetaAgentParticlePatternState::Preparing)
+	{
+		PatternRuntime.ActiveConfig.Shape = PatternConfig.Shape;
+	}
 }
 
 void UMetaAgentParticleRuntime::SetPatternTimings(
@@ -1061,7 +1086,8 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
 
 	if (PreviousState == EMetaAgentParticlePatternState::Anticipating
-		&& NewState == EMetaAgentParticlePatternState::Forming)
+		&& NewState == EMetaAgentParticlePatternState::Forming
+		&& !bManualPatternStateAdvance)
 	{
 		CommitAnticipationBaselineForForming();
 	}
@@ -1102,23 +1128,48 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 
 bool UMetaAgentParticleRuntime::AdvancePatternStateForward()
 {
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating && PatternRuntime.bAwaitingAsyncMask)
+	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
+
+	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating
+		&& PatternRuntime.bAwaitingAsyncMask
+		&& PatternRuntime.PatternWorldTargets.Num() <= 0
+		&& PatternRuntime.CanonicalPatternWorldTargets.Num() <= 0)
 	{
 		BuildPatternTargets();
 	}
 
-	const bool bHandled = DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Advance);
-	if (!bHandled && PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating)
+	if (bManualPatternStateAdvance && IsPatternActive())
 	{
-		return PatternRuntime.bAwaitingAsyncMask;
+		ApplyPatternActuation();
 	}
 
-	return bHandled;
+	const bool bHandled = DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Advance);
+
+	if (bHandled && IsPatternActive())
+	{
+		ApplyPatternActuation();
+	}
+
+	return bHandled || PreviousState != PatternRuntime.State;
 }
 
 bool UMetaAgentParticleRuntime::RetreatPatternStateBackward()
 {
-	return DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Retreat);
+	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
+
+	if (bManualPatternStateAdvance && IsPatternActive())
+	{
+		ApplyPatternActuation();
+	}
+
+	const bool bHandled = DispatchPatternTransition(EMetaAgentPatternTransitionTrigger::Retreat);
+
+	if (bHandled && IsPatternActive())
+	{
+		ApplyPatternActuation();
+	}
+
+	return bHandled || PreviousState != PatternRuntime.State;
 }
 
 bool UMetaAgentParticleRuntime::DispatchPatternTransition(
@@ -1156,6 +1207,7 @@ bool UMetaAgentParticleRuntime::BuildPatternTargets()
 	}
 
 	PatternRuntime.PatternWorldTargets = BuildResult.PatternWorldTargets;
+	PatternRuntime.CanonicalPatternWorldTargets = BuildResult.PatternWorldTargets;
 	PatternRuntime.PatternColumns = BuildResult.PatternColumns;
 	PatternRuntime.PatternCenter = BuildResult.PatternCenter;
 	PatternRuntime.ActiveShape = BuildResult.ResolvedShape;
@@ -1174,8 +1226,57 @@ void UMetaAgentParticleRuntime::BuildRepresentationFrame(FMetaAgentParticleRepre
 	MetaAgentParticleCoreBridge::build_representation_frame(*this, OutFrame);
 }
 
+void UMetaAgentParticleRuntime::ApplyPatternRepresentation()
+{
+	ApplyPatternActuation();
+}
+
+void UMetaAgentParticleRuntime::RefreshPatternTargetsAfterConfigChange()
+{
+	if (!IsPatternActive())
+	{
+		return;
+	}
+
+	BuildPatternTargets();
+	ApplyPatternRepresentation();
+}
+
+int32 UMetaAgentParticleRuntime::GetFocusableWorldPositions(TArray<FVector>& OutWorldPositions) const
+{
+	OutWorldPositions.Reset();
+
+	if (LastAppliedWorldPositions.Num() > 0)
+	{
+		OutWorldPositions = LastAppliedWorldPositions;
+		return OutWorldPositions.Num();
+	}
+
+	if (LatestSnapshot.ExportedParticlePositions.Num() > 0)
+	{
+		OutWorldPositions = LatestSnapshot.ExportedParticlePositions;
+		return OutWorldPositions.Num();
+	}
+
+	if (PatternRuntime.BaselineWorldPositions.Num() <= 0)
+	{
+		return 0;
+	}
+
+	FMetaAgentParticleRepresentationFrame Frame;
+	BuildRepresentationFrame(Frame);
+
+	FMetaAgentParticleActuationRequest Request;
+	FMetaAgentParticleRepresentationDriverRegistry::BuildActuationRequestFromFrame(Frame, Request);
+	Request.ParticleBlocks = &LatestSnapshot.ParticleBlocks;
+
+	return FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(Request, OutWorldPositions);
+}
+
 void UMetaAgentParticleRuntime::ApplyPatternActuation()
 {
+	PruneStaleTrackedNiagaraComponents();
+
 	if (PatternRuntime.BaselineWorldPositions.Num() <= 0)
 	{
 		return;
@@ -1513,9 +1614,8 @@ namespace MetaAgentParticleActuationInternal
 							true);
 					}
 				);
-				FlushRenderingCommands();
 
-				ExtractPositionsFromDataSet(*GPUDataSet, EmitterInstance, NiagaraComponent, SystemInstance, OutAppliedWorldPositions);
+				FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(Request, OutAppliedWorldPositions);
 			}
 
 			return;
@@ -1779,6 +1879,47 @@ void FMetaAgentParticleActuation::ApplyParameters(const FMetaAgentParticleActuat
 		NiagaraComponent->SetVariableFloat(FormingArcLiftParameterName, FormingSettings.ArcLiftHeightCm);
 		NiagaraComponent->SetVariableFloat(FormingSpiralTurnsParameterName, FormingSettings.SpiralTurns);
 	}
+}
+
+int32 FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(
+	const FMetaAgentParticleActuationRequest& Request,
+	TArray<FVector>& OutAppliedWorldPositions)
+{
+	if (!Request.BaselineWorldPositions || Request.BaselineWorldPositions->Num() <= 0)
+	{
+		OutAppliedWorldPositions.Reset();
+		return 0;
+	}
+
+	MetaAgentTypeBridge::FMetaAgentActuationComposeScratch ComposeScratch;
+	MetaAgentTypeBridge::build_actuation_compose_input(Request, ComposeScratch);
+
+	const int32 ParticleCount = Request.BaselineWorldPositions->Num();
+	OutAppliedWorldPositions.Reset();
+	OutAppliedWorldPositions.Reserve(ParticleCount);
+
+	int32 AppliedCount = 0;
+	for (int32 GlobalIndex = 0; GlobalIndex < ParticleCount; ++GlobalIndex)
+	{
+		const metaagent::particle::ActuationComposeResult Composed =
+			metaagent::particle::ActuationMath::compose_particle_world_position(
+				ComposeScratch.input,
+				GlobalIndex);
+		if (Composed.valid)
+		{
+			OutAppliedWorldPositions.Add(FVector(
+				Composed.world_position.x,
+				Composed.world_position.y,
+				Composed.world_position.z));
+		}
+		else
+		{
+			OutAppliedWorldPositions.Add((*Request.BaselineWorldPositions)[GlobalIndex]);
+		}
+		++AppliedCount;
+	}
+
+	return AppliedCount;
 }
 
 FVector FMetaAgentParticleActuation::SolveFormingPosition(FMetaAgentParticleFormingContext& Context)

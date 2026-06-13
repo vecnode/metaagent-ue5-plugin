@@ -32,7 +32,9 @@ ActuationPolicyResult RepresentationActuationPolicy::resolve(const ActuationPoli
 		result.force_pattern_inactive = true;
 		result.override_blend_alpha = 0.0f;
 		result.delivery = ActuationDelivery::ParametersWithTargets;
-		result.push_target_payload = true;
+		// Positions are composed in C++; uploading UObject targets here has crashed Niagara
+		// when the live instance is tearing down or the user params are not bound.
+		result.push_target_payload = false;
 		return result;
 	}
 

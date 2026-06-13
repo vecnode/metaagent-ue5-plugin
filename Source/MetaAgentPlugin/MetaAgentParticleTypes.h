@@ -486,6 +486,10 @@ struct FMetaAgentParticlePatternRuntime
 	UPROPERTY()
 	TArray<FVector> PatternWorldTargets;
 
+	/** Mask targets from the last successful shape build; not overwritten by manual hold freezes. */
+	UPROPERTY()
+	TArray<FVector> CanonicalPatternWorldTargets;
+
 	/** Positions frozen when Returning begins (end of Holding actuation). */
 	UPROPERTY()
 	TArray<FVector> ReturnHoldPositions;

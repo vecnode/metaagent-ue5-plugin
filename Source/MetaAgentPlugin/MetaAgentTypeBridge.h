@@ -21,7 +21,20 @@ enum class TransitionTrigger : uint8_t;
 }
 
 #include "metaagent/particle/actuation_math.hpp"
+#include "metaagent/camera/types.hpp"
 
+#include "metaagent/particle/actuation_math.hpp"
+#include "metaagent/camera/types.hpp"
+#include "metaagent/media/image.hpp"
+
+namespace metaagent::camera {
+class CameraController;
+struct FocusTarget;
+}
+
+class UTexture2D;
+struct FMetaAgentCinematicCameraState;
+struct FMetaAgentCameraZoomState;
 class UMetaAgentParticleRuntime;
 struct FMetaAgentParticleActuationRequest;
 
@@ -112,5 +125,39 @@ FMetaAgentParticleShapeFrame build_shape_frame_from_centroid(
 	bool orient_shape_to_view,
 	bool has_view_origin,
 	const FVector& view_origin);
+
+::UTexture2D* create_texture2d_from_rgba(const metaagent::media::RgbaImage& image);
+
+metaagent::camera::FocusTarget make_focus_target_from_world_points(const TArray<FVector>& world_positions);
+
+metaagent::camera::CameraController& get_camera_controller(class AMetaAgentPlayerController& controller);
+
+void sync_cinematic_settings_to_core(
+	const ::FMetaAgentCinematicCameraState& source,
+	metaagent::camera::CinematicSettings& destination);
+
+void sync_zoom_settings_to_core(
+	const ::FMetaAgentCameraZoomState& source,
+	metaagent::camera::ZoomSettings& destination);
+
+void sync_zoom_settings_from_core(
+	const metaagent::camera::ZoomSettings& source,
+	::FMetaAgentCameraZoomState& destination);
+
+void sync_cinematic_runtime_to_core(
+	const ::FMetaAgentCinematicCameraState& source,
+	metaagent::camera::CinematicRuntimeState& destination);
+
+void sync_cinematic_runtime_from_core(
+	const metaagent::camera::CinematicRuntimeState& source,
+	::FMetaAgentCinematicCameraState& destination);
+
+metaagent::core::Vec3 to_core_vec3(const FVector& value);
+FVector from_core_vec3(const metaagent::core::Vec3& value);
+FRotator from_core_rotator(const metaagent::core::Rotator& value);
+
+metaagent::camera::FocusTarget make_focus_target_from_world_location(
+	const FVector& world_location,
+	float look_at_z_offset = 100.0f);
 
 } // namespace MetaAgentTypeBridge

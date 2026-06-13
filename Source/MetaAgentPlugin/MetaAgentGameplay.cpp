@@ -47,7 +47,11 @@
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "MetaAgentParticleControl.h"
+#include "MetaAgentParticleRuntime.h"
+#include "MetaAgentTypeBridge.h"
 #include "Modules/ModuleManager.h"
+#include "metaagent/camera/controller.hpp"
+#include "metaagent/camera/rig.hpp"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
@@ -924,6 +928,25 @@ namespace
 	}
 }
 
+metaagent::camera::FocusTarget FMetaAgentCameraRuntime::ResolveFocusTarget(const AMetaAgentPlayerController& Controller)
+{
+	if (Controller.IsCinematicFocusParticlesEnabled())
+	{
+		if (const UMetaAgentParticleRuntime* Runtime = Controller.GetParticleRuntime())
+		{
+			TArray<FVector> FocusPoints;
+			if (Runtime->GetFocusableWorldPositions(FocusPoints) > 0)
+			{
+				return MetaAgentTypeBridge::make_focus_target_from_world_points(FocusPoints);
+			}
+		}
+	}
+
+	return MetaAgentTypeBridge::make_focus_target_from_world_location(
+		FVector(0.0f, 0.0f, 100.0f),
+		Controller.CinematicCamera.LookAtZOffset);
+}
+
 const TCHAR* FMetaAgentCameraRuntime::GetCinematicStyleLabel(const EMetaAgentCinematicCameraStyle Style)
 {
 	switch (Style)
@@ -939,38 +962,30 @@ void FMetaAgentCameraRuntime::RunEnvironmentZoomSequence(
 	const float DeltaTime,
 	FMetaAgentCameraZoomState& CameraZoom)
 {
-	SanitizeCameraZoomState(CameraZoom);
-
 	if (!Controller.IsLocalPlayerController())
 	{
 		return;
 	}
 
-	// Consume discrete mouse wheel input
-	bool bConsumedDiscreteWheelInput = false;
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(Controller);
+	MetaAgentTypeBridge::sync_zoom_settings_to_core(CameraZoom, CoreCamera.zoom_settings());
+
+	metaagent::camera::ZoomInput Input;
 	if (Controller.WasInputKeyJustPressed(EKeys::MouseScrollUp))
 	{
-		CameraZoom.DesiredDistance -= CameraZoom.MouseWheelStep;
-		bConsumedDiscreteWheelInput = true;
+		Input.discrete_wheel_delta = 1.0f;
 	}
 	if (Controller.WasInputKeyJustPressed(EKeys::MouseScrollDown))
 	{
-		CameraZoom.DesiredDistance += CameraZoom.MouseWheelStep;
-		bConsumedDiscreteWheelInput = true;
+		Input.discrete_wheel_delta = -1.0f;
 	}
-
-	// Consume analog wheel-axis input if discrete was not used
-	if (!bConsumedDiscreteWheelInput)
+	if (FMath::IsNearlyZero(Input.discrete_wheel_delta))
 	{
-		const float WheelAxis = Controller.GetInputAnalogKeyState(EKeys::MouseWheelAxis);
-		if (!FMath::IsNearlyZero(WheelAxis, KINDA_SMALL_NUMBER))
-		{
-			CameraZoom.DesiredDistance -= WheelAxis * CameraZoom.MouseWheelStep;
-		}
+		Input.analog_wheel_axis = Controller.GetInputAnalogKeyState(EKeys::MouseWheelAxis);
 	}
 
-	// Clamp zoom distance to bounds
-	CameraZoom.DesiredDistance = FMath::Clamp(CameraZoom.DesiredDistance, CameraZoom.MinDistance, CameraZoom.MaxDistance);
+	CoreCamera.tick_zoom(Input);
+	MetaAgentTypeBridge::sync_zoom_settings_from_core(CoreCamera.zoom_settings(), CameraZoom);
 }
 
 void FMetaAgentCameraRuntime::RunToggleCinematicCameraSequence(
@@ -982,23 +997,19 @@ void FMetaAgentCameraRuntime::RunToggleCinematicCameraSequence(
 		return;
 	}
 
-	// Calculate a default focus location at the scene origin
-	const FVector DefaultFocusLocation = FVector(0.0f, 0.0f, 100.0f);
-
 	if (CinematicCamera.bModeEnabled)
 	{
 		RunDisableCinematicCameraSequence(Controller, CinematicCamera);
 	}
 	else
 	{
-		RunEnableCinematicCameraSequence(Controller, CinematicCamera, DefaultFocusLocation);
+		RunEnableCinematicCameraSequence(Controller, CinematicCamera);
 	}
 }
 
 void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 	AMetaAgentPlayerController& Controller,
-	FMetaAgentCinematicCameraState& CinematicCamera,
-	FVector TargetFocusLocation)
+	FMetaAgentCinematicCameraState& CinematicCamera)
 {
 	if (CinematicCamera.bModeEnabled)
 	{
@@ -1014,20 +1025,17 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 		return;
 	}
 
-	// Clean up invalid runtime camera actor
 	if (CinematicCamera.RuntimeCameraActor && !IsValid(CinematicCamera.RuntimeCameraActor))
 	{
 		CinematicCamera.RuntimeCameraActor = nullptr;
 	}
 
-	// Destroy if world mismatch
 	if (CinematicCamera.RuntimeCameraActor && CinematicCamera.RuntimeCameraActor->GetWorld() != World)
 	{
 		CinematicCamera.RuntimeCameraActor->Destroy();
 		CinematicCamera.RuntimeCameraActor = nullptr;
 	}
 
-	// Spawn new runtime camera actor if needed
 	if (!CinematicCamera.RuntimeCameraActor || !IsValid(CinematicCamera.RuntimeCameraActor))
 	{
 		FActorSpawnParameters SpawnParams;
@@ -1046,38 +1054,19 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 		return;
 	}
 
-	// Initialize cinematic camera state
-	CinematicCamera.PreViewTarget = Controller.GetViewTarget();
-	CinematicCamera.PanElapsedSeconds = 0.0f;
-	CinematicCamera.SwayPhaseOffset = FMath::FRandRange(0.0f, 2.0f * PI);
-	CinematicCamera.OrbitAccumulatedYawDegrees = 0.0f;
-	CinematicCamera.OrbitDirectionSign = 1;
-	CinematicCamera.DirectionTravelDegrees = 0.0f;
-	CinematicCamera.CompletedTurnsThisDirection = 0;
-
-	// Calculate initial orbit radius from current camera position
 	const FVector CurrentCameraLocation = Controller.PlayerCameraManager->GetCameraLocation();
-	const FVector ToCamera = CurrentCameraLocation - TargetFocusLocation;
-	const FVector ToCameraXY(ToCamera.X, ToCamera.Y, 0.0f);
+	const metaagent::camera::FocusTarget Focus = FMetaAgentCameraRuntime::ResolveFocusTarget(Controller);
 
-	CinematicCamera.OrbitRadius = FMath::Clamp(
-		ToCameraXY.Size(),
-		60.0f,
-		5000.0f);
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(Controller);
+	MetaAgentTypeBridge::sync_cinematic_settings_to_core(CinematicCamera, CoreCamera.cinematic_settings());
+	CoreCamera.enable_cinematic(MetaAgentTypeBridge::to_core_vec3(CurrentCameraLocation), Focus);
+	MetaAgentTypeBridge::sync_cinematic_runtime_from_core(CoreCamera.cinematic_state(), CinematicCamera);
 
-	if (ToCameraXY.IsNearlyZero())
-	{
-		CinematicCamera.OrbitRadius = CinematicCamera.CloseOrbitRadius;
-		CinematicCamera.StartOrbitYawDegrees = 0.0f;
-	}
-	else
-	{
-		CinematicCamera.StartOrbitYawDegrees = ToCameraXY.Rotation().Yaw;
-	}
+	CinematicCamera.PreViewTarget = Controller.GetViewTarget();
+	CinematicCamera.SwayPhaseOffset = FMath::FRandRange(0.0f, 2.0f * PI);
+	CoreCamera.cinematic_state().sway_phase_offset = CinematicCamera.SwayPhaseOffset;
+	MetaAgentTypeBridge::sync_cinematic_runtime_to_core(CinematicCamera, CoreCamera.cinematic_state());
 
-	CinematicCamera.CameraHeightOffset = FMath::Clamp(ToCamera.Z, 30.0f, 160.0f);
-
-	// Position runtime camera at current location
 	CinematicCamera.RuntimeCameraActor->SetActorLocationAndRotation(
 		CurrentCameraLocation,
 		Controller.PlayerCameraManager->GetCameraRotation());
@@ -1085,17 +1074,17 @@ void FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(
 	Controller.bAutoManageActiveCameraTarget = false;
 	Controller.SetViewTargetWithBlend(CinematicCamera.RuntimeCameraActor, CinematicCamera.BlendInSeconds);
 	CinematicCamera.bModeEnabled = true;
+	CoreCamera.cinematic_state().mode_enabled = true;
 
-	// Keep player input fully enabled during cinematic for environment exploration
 	Controller.SetIgnoreMoveInput(false);
 	Controller.SetIgnoreLookInput(false);
 
+	const FVector FocusLocation = MetaAgentTypeBridge::from_core_vec3(Focus.focus_point);
 	UE_LOG(LogMetaAgent, Log,
-		TEXT("CinematicCamera: ENABLED at focus (%.1f, %.1f, %.1f) style=%s radius=%.1f speedScale=%.2f. Press O to exit."),
-		TargetFocusLocation.X, TargetFocusLocation.Y, TargetFocusLocation.Z,
+		TEXT("CinematicCamera: ENABLED at focus (%.1f, %.1f, %.1f) style=%s radius=%.1f. Press O to exit, P to toggle particle focus."),
+		FocusLocation.X, FocusLocation.Y, FocusLocation.Z,
 		GetCinematicStyleLabel(CinematicCamera.ActiveStyle),
-		CinematicCamera.OrbitRadius,
-		CinematicCamera.OrbitSpeedScale);
+		CinematicCamera.OrbitRadius);
 }
 
 void FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(
@@ -1107,13 +1096,16 @@ void FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(
 		return;
 	}
 
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(Controller);
+	CoreCamera.disable_cinematic();
+	MetaAgentTypeBridge::sync_cinematic_runtime_from_core(CoreCamera.cinematic_state(), CinematicCamera);
+
 	CinematicCamera.bModeEnabled = false;
 	CinematicCamera.PanElapsedSeconds = 0.0f;
 	CinematicCamera.OrbitAccumulatedYawDegrees = 0.0f;
 	CinematicCamera.DirectionTravelDegrees = 0.0f;
 	CinematicCamera.CompletedTurnsThisDirection = 0;
 
-	// Restore pre-cinematic view target
 	AActor* RestoreViewTarget = nullptr;
 	if (CinematicCamera.PreViewTarget.IsValid())
 	{
@@ -1133,8 +1125,7 @@ void FMetaAgentCameraRuntime::RunDisableCinematicCameraSequence(
 void FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(
 	AMetaAgentPlayerController& Controller,
 	const float DeltaTime,
-	FMetaAgentCinematicCameraState& CinematicCamera,
-	FVector TargetFocusLocation)
+	FMetaAgentCinematicCameraState& CinematicCamera)
 {
 	if (!CinematicCamera.bModeEnabled)
 	{
@@ -1162,45 +1153,29 @@ void FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(
 		return;
 	}
 
-	// Accumulate pan time
-	CinematicCamera.PanElapsedSeconds += DeltaTime;
-	const float Duration = FMath::Max(0.1f, CinematicCamera.PanDurationSeconds);
-	float StyleTimeScale = 1.0f;
-	const float TimeWithPhase = CinematicCamera.PanElapsedSeconds + CinematicCamera.SwayPhaseOffset;
-	float CurrentOrbitYaw = CinematicCamera.StartOrbitYawDegrees;
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(Controller);
+	MetaAgentTypeBridge::sync_cinematic_settings_to_core(CinematicCamera, CoreCamera.cinematic_settings());
+	MetaAgentTypeBridge::sync_cinematic_runtime_to_core(CinematicCamera, CoreCamera.cinematic_state());
 
-	// Apply oscillating hold cinematic style (smooth sway motion)
-	switch (CinematicCamera.ActiveStyle)
+	const metaagent::camera::FocusTarget Focus = FMetaAgentCameraRuntime::ResolveFocusTarget(Controller);
+	const metaagent::camera::CameraPose Pose = CoreCamera.tick_cinematic(Focus, DeltaTime);
+	MetaAgentTypeBridge::sync_cinematic_runtime_from_core(CoreCamera.cinematic_state(), CinematicCamera);
+
+	CinematicCamera.RuntimeCameraActor->SetActorLocationAndRotation(
+		MetaAgentTypeBridge::from_core_vec3(Pose.location),
+		MetaAgentTypeBridge::from_core_rotator(Pose.rotation));
+}
+
+void FMetaAgentCameraRuntime::RunRefreshCinematicFocus(
+	AMetaAgentPlayerController& Controller,
+	FMetaAgentCinematicCameraState& CinematicCamera)
+{
+	if (!Controller.IsLocalPlayerController() || !CinematicCamera.bModeEnabled)
 	{
-	case EMetaAgentCinematicCameraStyle::OscillatingHold:
-	default:
-		{
-			StyleTimeScale = 0.1f;
-			const float OscillationFrequencyRadians = ((2.0f * PI) / Duration) * StyleTimeScale;
-			const float YawOffset = FMath::Sin(CinematicCamera.PanElapsedSeconds * OscillationFrequencyRadians)
-				* CinematicCamera.OscillationYawAmplitudeDegrees;
-			CurrentOrbitYaw += YawOffset;
-			break;
-		}
+		return;
 	}
 
-	// Apply sway motion (horizontal and vertical oscillation)
-	const float BaseFrequencyRadians = (FMath::Max(0.1f, CinematicCamera.SwayFrequency) * 2.0f * PI) * StyleTimeScale;
-	const float OrbitYawRadians = FMath::DegreesToRadians(CurrentOrbitYaw);
-	const float HorizontalSway = FMath::Sin(TimeWithPhase * BaseFrequencyRadians) * CinematicCamera.SwayHorizontalAmplitude;
-	const float VerticalSway = FMath::Sin((TimeWithPhase * BaseFrequencyRadians * 0.57f) + 1.2f) * CinematicCamera.SwayVerticalAmplitude;
-
-	// Calculate orbital camera position
-	const FVector OrbitDirection(FMath::Cos(OrbitYawRadians), FMath::Sin(OrbitYawRadians), 0.0f);
-	const FVector OrbitRight(-OrbitDirection.Y, OrbitDirection.X, 0.0f);
-	const FVector NewCameraLocation(
-		TargetFocusLocation.X + (OrbitDirection.X * CinematicCamera.OrbitRadius) + (OrbitRight.X * HorizontalSway),
-		TargetFocusLocation.Y + (OrbitDirection.Y * CinematicCamera.OrbitRadius) + (OrbitRight.Y * HorizontalSway),
-		TargetFocusLocation.Z + CinematicCamera.CameraHeightOffset + VerticalSway);
-
-	// Look at focus point
-	const FRotator NewCameraRotation = (TargetFocusLocation - NewCameraLocation).Rotation();
-	CinematicCamera.RuntimeCameraActor->SetActorLocationAndRotation(NewCameraLocation, NewCameraRotation);
+	RunUpdateCinematicCameraSequence(Controller, 1.0f / 60.0f, CinematicCamera);
 }
 
 // ===== MetaAgentMainActor.cpp =====
@@ -2189,6 +2164,7 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 	{
 		TArray<FMetaAgentGUIActionRow> Rows;
 		Rows.Add(MakeActionRow(TEXT("O"), TEXT("Toggle cinematic camera"), MetaAgentRuntimeIds::ToggleCinematicCamera));
+		Rows.Add(MakeActionRow(TEXT("P"), TEXT("Focus cinematic on particles"), MetaAgentRuntimeIds::FocusParticleCamera));
 		Rows.Add(MakeActionRow(TEXT("Wheel"), TEXT("Zoom camera distance"), NAME_None));
 		FinalizeSection(GUI, MakeSection(
 			MetaAgentRuntimeIds::Camera,

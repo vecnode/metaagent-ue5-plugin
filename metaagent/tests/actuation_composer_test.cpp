@@ -104,7 +104,7 @@ int main()
 	policy_input.return_release_authority_threshold = 0.05f;
 	const ActuationPolicyResult release_policy = RepresentationActuationPolicy::resolve(policy_input);
 	if (!expect_true(release_policy.force_pattern_inactive, "return release inactive")
-		|| !expect_true(release_policy.push_target_payload, "return release payload"))
+		|| !expect_true(!release_policy.push_target_payload, "return release skips target upload"))
 	{
 		return 1;
 	}

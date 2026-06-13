@@ -21,10 +21,20 @@ int main()
 
 	context.state = PatternState::Anticipating;
 	context.awaiting_async_mask = true;
+	const bool manual_forming_while_awaiting = TransitionGraph::evaluate_transition(
+		context,
+		TransitionTrigger::Advance,
+		result);
+	assert(manual_forming_while_awaiting);
+	assert(result.action == TransitionAction::EnterState);
+	assert(result.new_state == PatternState::Forming);
+
+	context.manual_state_advance = false;
 	const bool blocked = TransitionGraph::evaluate_transition(context, TransitionTrigger::Advance, result);
 	assert(blocked);
 	assert(result.action == TransitionAction::None);
 
+	context.manual_state_advance = true;
 	context.awaiting_async_mask = false;
 	context.pattern_target_count = 128;
 	const bool forming = TransitionGraph::evaluate_transition(context, TransitionTrigger::Advance, result);

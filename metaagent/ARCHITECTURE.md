@@ -19,21 +19,42 @@ Portable C++17 library for MetaAgent **particle pattern mechanics**. Unreal inte
 
 ```
 metaagent/
+├── metaagent.h                    Umbrella public API
+├── metaagent.cpp                  Single TU — #includes all module .cpp files
 ├── include/metaagent/
-│   ├── metaagent.hpp              Umbrella include
 │   ├── initialize.hpp             initialize_defaults()
 │   ├── core/                      Vec3, math, log_sink
+│   ├── media/                     PNG/JPEG decode, MediaStore, mask pipeline
+│   ├── camera/                    Zoom + cinematic rig/controller
 │   └── particle/                  Pattern domain
-├── src/metaagent/                 One .cpp per module
 ├── tests/
 ├── CMakeLists.txt
 ├── README.md
 └── ARCHITECTURE.md
 ```
 
+Public entry point: `#include <metaagent/metaagent.h>` (amalgamation header at repo `metaagent/metaagent.h`).
+
 ---
 
 ## Module map
+
+### Media (`metaagent/media/`)
+
+| Module | Role |
+|--------|------|
+| `decode` | PNG/JPEG via stb_image (file + memory) |
+| `store` | Load/cache images by path identity |
+| `pipeline` | Mask build + preview thumbnails |
+| `mask_cache` | Sync mask result cache |
+
+### Camera (`metaagent/camera/`)
+
+| Module | Role |
+|--------|------|
+| `types` | Zoom/cinematic settings, focus bounds |
+| `rig` | Orbital sway math (`compute_cinematic_pose`) |
+| `controller` | Per-session camera state (zoom + cinematic tick) |
 
 ### Core (`metaagent/core/`)
 
@@ -142,7 +163,7 @@ Implemented in `FMetaAgentCoreBridgeFriend` (`MetaAgentTypeBridge.cpp`).
 
 | Plugin file | Role |
 |-------------|------|
-| `MetaAgentCoreAggregate.cpp` | Embeds all `metaagent/src/**/*.cpp` |
+| `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` (amalgamation) |
 | `MetaAgentTypeBridge.*` | UE ↔ core conversion, scheduler bridge, compose scratch |
 | `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue |
 | `MetaAgentParticleControl.*` | Orchestrator, drivers, Niagara profiles, representation apply |
@@ -153,7 +174,22 @@ Implemented in `FMetaAgentCoreBridgeFriend` (`MetaAgentTypeBridge.cpp`).
 | `MetaAgentHUD.h` | HUD panel types |
 | `MetaAgentPlugin.*` | Module startup, settings, Blueprint library |
 
-**Stays in UE by design:** Niagara RHI/GPU, orchestrator UX, HUD, networking HTTP, gameplay, world/PNG I/O.
+**Stays in UE by design:** Niagara RHI/GPU, orchestrator UX, HUD, view-target blending, gameplay actors, world/PNG I/O.
+
+---
+
+## Planned: HTTP / platform layer in core
+
+Today `/health`, `/echo`, and `/notify` live in `MetaAgentGameplay.cpp` / `MetaAgentPlugin.cpp` on Epic’s `HTTPServer` module. Target layout:
+
+| Phase | Location | Work |
+|-------|----------|------|
+| **A** | `metaagent/net/` | Platform-agnostic `HttpServer` interface, route table, JSON helpers, stub server for unit tests |
+| **B** | `Source/MetaAgentPlugin/` | `FMetaAgentHttpServerBridge` — binds Epic HTTPServer, forwards bytes to core handlers |
+| **C** | `metaagent/net/handlers/` | Move handler bodies (health, echo, notify) into core; UE passes world/session context via bridge callbacks |
+| **D** | `metaagent/tools/` (optional) | Standalone `metaagent_server` CLI using same net module for CI / headless testing |
+
+**Keep in UE:** TLS/cert binding if needed, GameInstance lifecycle, routing to live orchestrator / particle runtime, Blueprint-exposed notify hooks.
 
 ---
 

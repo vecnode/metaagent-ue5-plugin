@@ -8,12 +8,15 @@ Full design notes: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ```
 metaagent/
-  include/metaagent/          Public headers (#include <metaagent/metaagent.hpp>)
-  src/metaagent/              Implementations
+  metaagent.h                 Public umbrella API (single include)
+  metaagent.cpp               Amalgamated implementation (includes all .cpp under include/metaagent/)
+  include/metaagent/          Headers + module .cpp implementations
   tests/                      Standalone unit tests (CMake)
   CMakeLists.txt
   ARCHITECTURE.md
 ```
+
+Embed in another engine: add `metaagent/include` and `metaagent/` to include paths, compile `metaagent.cpp` once (the UE plugin does this via `MetaAgentCoreAggregate.cpp`).
 
 ## Layer diagram
 
@@ -28,6 +31,8 @@ flowchart TB
     end
 
     subgraph Core["metaagent (portable)"]
+        Media[media: decode / store / mask pipeline]
+        Cam[camera: rig / controller]
         Sched[ParticleScheduler]
         Graph[TransitionGraph]
         Form[FormingSolverRegistry]
@@ -122,10 +127,10 @@ The UE plugin embeds this library via `Source/MetaAgentPlugin/MetaAgentCoreAggre
 
 ## Embed elsewhere
 
-Add `metaagent/include` to your include path and compile all `.cpp` under `metaagent/src/metaagent`, or link the CMake static library.
+Add `metaagent/include` to your include path and compile via the amalgamation entry point, or link the CMake static library.
 
 ```cpp
-#include <metaagent/metaagent.hpp>
+#include <metaagent/metaagent.h>
 
 int main() {
     metaagent::initialize_defaults();

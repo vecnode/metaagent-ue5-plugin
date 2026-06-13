@@ -1,32 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
-project(metaagent VERSION 0.1.0 LANGUAGES CXX)
+project(metaagent VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(metaagent STATIC
-    src/metaagent/initialize.cpp
-    src/metaagent/core/types.cpp
-    src/metaagent/core/math.cpp
-    src/metaagent/core/log_sink.cpp
-    src/metaagent/particle/forming_types.cpp
-    src/metaagent/particle/return_types.cpp
-    src/metaagent/particle/pattern_types.cpp
-    src/metaagent/particle/representation_types.cpp
-    src/metaagent/particle/transition_graph.cpp
-    src/metaagent/particle/forming_solver.cpp
-    src/metaagent/particle/actuation_math.cpp
-    src/metaagent/particle/representation_actuation.cpp
-    src/metaagent/particle/shape_types.cpp
-    src/metaagent/particle/shape_builder.cpp
-    src/metaagent/particle/image_mask_processor.cpp
-    src/metaagent/particle/scheduler.cpp
+    metaagent.cpp
 )
 
 target_include_directories(metaagent
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<INSTALL_INTERFACE:include>
 )
 
@@ -61,6 +47,14 @@ add_executable(metaagent_actuation_composer_test tests/actuation_composer_test.c
 target_link_libraries(metaagent_actuation_composer_test PRIVATE metaagent)
 add_test(NAME actuation_composer_test COMMAND metaagent_actuation_composer_test)
 
+add_executable(metaagent_media_decode_test tests/media_decode_test.cpp)
+target_link_libraries(metaagent_media_decode_test PRIVATE metaagent)
+add_test(NAME media_decode_test COMMAND metaagent_media_decode_test)
+
+add_executable(metaagent_camera_rig_test tests/camera_rig_test.cpp)
+target_link_libraries(metaagent_camera_rig_test PRIVATE metaagent)
+add_test(NAME camera_rig_test COMMAND metaagent_camera_rig_test)
+
 install(TARGETS metaagent
     EXPORT metaagentTargets
     ARCHIVE DESTINATION lib
@@ -68,6 +62,7 @@ install(TARGETS metaagent
     RUNTIME DESTINATION bin
 )
 
+install(FILES metaagent.h DESTINATION include)
 install(DIRECTORY include/metaagent DESTINATION include)
 
 install(EXPORT metaagentTargets

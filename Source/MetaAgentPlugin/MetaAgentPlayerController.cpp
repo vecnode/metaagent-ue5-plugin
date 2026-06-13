@@ -599,6 +599,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleRecordingPressed);
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
+			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleFocusParticlesCameraPressed);
 			InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMetaAgentPlayerController::HandleGUIPanelMousePressed);
 			EnsureParticleOrchestrator();
 			FMetaAgentParticleInputRouter::BindKeyboardInput(this, InputComponent, ParticleOrchestrator);
@@ -854,6 +855,49 @@ void AMetaAgentPlayerController::HandleToggleCinematicCameraPressed()
 	ToggleCinematicCameraMode();
 }
 
+void AMetaAgentPlayerController::HandleFocusParticlesCameraPressed()
+{
+	if (IsGUIInteractionModeActive())
+	{
+		return;
+	}
+
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
+	{
+		SetModularRuntimeEnabled(EMetaAgentModularRuntime::Camera, true);
+		ApplyGUIHelpPanelState();
+	}
+
+	EnsureParticleOrchestrator();
+
+	const bool bWasEnabled = bCinematicFocusParticles;
+	bCinematicFocusParticles = !bCinematicFocusParticles;
+
+	if (!CinematicCamera.bModeEnabled)
+	{
+		EnableCinematicCameraMode();
+	}
+	else if (bCinematicFocusParticles && !bWasEnabled)
+	{
+		FMetaAgentCameraRuntime::RunRefreshCinematicFocus(*this, CinematicCamera);
+	}
+
+	int32 FocusCount = 0;
+	if (bCinematicFocusParticles)
+	{
+		if (const UMetaAgentParticleRuntime* Runtime = GetParticleRuntime())
+		{
+			TArray<FVector> FocusPoints;
+			FocusCount = Runtime->GetFocusableWorldPositions(FocusPoints);
+		}
+	}
+
+	UE_LOG(LogMetaAgent, Log,
+		TEXT("Camera: particle focus %s (%d focusable particles). Press O if cinematic mode is off."),
+		bCinematicFocusParticles ? TEXT("ENABLED") : TEXT("DISABLED"),
+		FocusCount);
+}
+
 void AMetaAgentPlayerController::ToggleCinematicCameraMode()
 {
 	// Default focus at scene origin, environment-only mode
@@ -874,9 +918,7 @@ FVector AMetaAgentPlayerController::ResolveCinematicFocusLocation(AActor* Target
 
 void AMetaAgentPlayerController::EnableCinematicCameraMode()
 {
-	// Default focus at scene origin
-	const FVector DefaultFocusLocation = FVector(0.0f, 0.0f, 100.0f);
-	FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(*this, CinematicCamera, DefaultFocusLocation);
+	FMetaAgentCameraRuntime::RunEnableCinematicCameraSequence(*this, CinematicCamera);
 }
 
 void AMetaAgentPlayerController::DisableCinematicCameraMode()
@@ -886,9 +928,7 @@ void AMetaAgentPlayerController::DisableCinematicCameraMode()
 
 void AMetaAgentPlayerController::UpdateCinematicCamera(float DeltaTime)
 {
-	// Default focus at scene origin
-	const FVector DefaultFocusLocation = FVector(0.0f, 0.0f, 100.0f);
-	FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(*this, DeltaTime, CinematicCamera, DefaultFocusLocation);
+	FMetaAgentCameraRuntime::RunUpdateCinematicCameraSequence(*this, DeltaTime, CinematicCamera);
 }
 
 // ===== MetaAgentPlayerControllerGUI.cpp =====
@@ -1001,6 +1041,16 @@ void AMetaAgentPlayerController::DispatchGUIAction(const FName ActionId)
 		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
 		{
 			ToggleCinematicCameraMode();
+			ApplyGUIHelpPanelState();
+		}
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::FocusParticleCamera)
+	{
+		if (IsModularRuntimeEnabled(EMetaAgentModularRuntime::Camera))
+		{
+			HandleFocusParticlesCameraPressed();
 			ApplyGUIHelpPanelState();
 		}
 		return;

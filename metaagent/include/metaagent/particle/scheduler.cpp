@@ -41,11 +41,160 @@ float evaluate_phase_for_state_default(const ParticleScheduler& scheduler, const
 		scheduler.pattern_runtime.asset_return_curve_samples);
 }
 
+struct SchedulerComposeBundle {
+	FormingSettings return_forming_settings;
+	ActuationComposeInput input;
+};
+
+SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleScheduler& scheduler)
+{
+	const PatternRuntime& runtime = scheduler.pattern_runtime;
+	SchedulerComposeBundle bundle;
+	ActuationComposeInput& input = bundle.input;
+	input.pattern_state = runtime.state;
+	input.pattern_center = runtime.pattern_center;
+	input.baseline_world_positions = runtime.baseline_world_positions.empty()
+		? nullptr
+		: &runtime.baseline_world_positions;
+	input.pattern_world_targets = runtime.pattern_world_targets.empty()
+		? nullptr
+		: &runtime.pattern_world_targets;
+	input.return_hold_positions = runtime.return_hold_positions.empty()
+		? nullptr
+		: &runtime.return_hold_positions;
+	input.return_rest_positions = runtime.return_rest_positions.empty()
+		? nullptr
+		: &runtime.return_rest_positions;
+	input.dissipate_start_positions = runtime.dissipate_start_positions.empty()
+		? nullptr
+		: &runtime.dissipate_start_positions;
+	input.idle_baseline_world_positions = runtime.idle_baseline_world_positions.empty()
+		? nullptr
+		: &runtime.idle_baseline_world_positions;
+	input.forming_steering_offsets = scheduler.forming_steering_offsets.empty()
+		? nullptr
+		: &scheduler.forming_steering_offsets;
+
+	const bool returning = runtime.state == PatternState::Returning;
+	const bool dissipating = runtime.state == PatternState::Dissipating;
+	const PatternConfig& config = scheduler.get_timing_config_for_tick();
+
+	input.blend_alpha = ActuationMath::compute_actuation_blend_alpha(runtime.state, runtime.phase);
+	if (returning)
+	{
+		input.blend_alpha = core::math::clamp(runtime.phase, 0.0f, 1.0f);
+	}
+
+	input.use_return_hold_blend = returning;
+	input.forming_settings = &config.forming;
+	input.forming_state_elapsed_seconds = runtime.state_elapsed_seconds;
+	input.forming_duration_seconds = std::max(0.1f, config.form_duration_seconds);
+	input.forming_delta_time_seconds = scheduler.last_pattern_tick_delta_seconds;
+
+	if (returning)
+	{
+		const ReturnSettings& return_settings = config.return_settings;
+		if (return_settings.uses_motion_solver())
+		{
+			bundle.return_forming_settings = return_settings.as_forming_settings();
+			input.forming_settings = &bundle.return_forming_settings;
+		}
+		input.forming_duration_seconds = std::max(0.1f, config.return_duration_seconds);
+	}
+
+	if (runtime.state == PatternState::Forming
+		&& scheduler.steering_target_enabled
+		&& scheduler.forming_steering_blend_duration_seconds > core::math::k_epsilon
+		&& !scheduler.forming_steering_offsets.empty())
+	{
+		input.forming_steering_weight = core::math::clamp(
+			1.0f - (scheduler.forming_steering_blend_elapsed_seconds / scheduler.forming_steering_blend_duration_seconds),
+			0.0f,
+			1.0f);
+	}
+
+	if (runtime.state == PatternState::Anticipating)
+	{
+		input.anticipating_motion = true;
+		input.anticipation_elapsed_seconds = runtime.state_elapsed_seconds;
+		input.anticipation_amplitude_cm = config.anticipation_amplitude_cm;
+		input.anticipation_frequency_hz = config.anticipation_frequency_hz;
+		input.anticipation_idle_blend_duration_seconds = std::max(
+			0.05f,
+			config.anticipation_idle_blend_duration_seconds);
+		input.blend_alpha = 0.0f;
+	}
+	else if (dissipating)
+	{
+		input.dissipating_motion = true;
+		input.blend_alpha = runtime.phase;
+	}
+	else if (runtime.state == PatternState::Forming && runtime.anticipation_handoff_elapsed_seconds >= 0.0f
+		&& !runtime.idle_baseline_world_positions.empty())
+	{
+		input.anticipation_handoff_elapsed_seconds = runtime.anticipation_handoff_elapsed_seconds;
+		input.anticipation_amplitude_cm = config.anticipation_amplitude_cm;
+		input.anticipation_frequency_hz = config.anticipation_frequency_hz;
+		input.anticipation_idle_blend_duration_seconds = std::max(
+			0.05f,
+			config.anticipation_idle_blend_duration_seconds);
+		input.forming_anticipation_carryover_duration_seconds = std::max(
+			0.05f,
+			config.forming_anticipation_carryover_duration_seconds);
+	}
+
+	return bundle;
+}
+
+void capture_visual_continuity_for_manual_transition(
+	ParticleScheduler& scheduler,
+	const TransitionResult& result)
+{
+	if (scheduler.pattern_runtime.baseline_world_positions.empty())
+	{
+		return;
+	}
+
+	const SchedulerComposeBundle bundle = build_compose_bundle_from_scheduler(scheduler);
+	core::Array<core::Vec3> composed;
+	ActuationMath::compose_world_positions(bundle.input, composed);
+	if (composed.empty())
+	{
+		return;
+	}
+
+	if (result.new_state == PatternState::Holding)
+	{
+		// Freeze display: baseline and targets match so Holding actuation does not drift.
+		scheduler.pattern_runtime.baseline_world_positions = composed;
+		scheduler.pattern_runtime.pattern_world_targets = composed;
+	}
+	else if (result.new_state == PatternState::Forming
+		&& !scheduler.pattern_runtime.canonical_pattern_world_targets.empty())
+	{
+		// Continue from the current visual pose toward the original mask layout.
+		scheduler.pattern_runtime.baseline_world_positions = composed;
+		scheduler.pattern_runtime.pattern_world_targets =
+			scheduler.pattern_runtime.canonical_pattern_world_targets;
+	}
+	else if (result.new_state == PatternState::Returning
+		|| result.action == TransitionAction::BeginConfiguredReturn)
+	{
+		// Snapshot hold pose for return only; do not inflate baseline or pattern targets.
+		scheduler.pattern_runtime.return_hold_positions = composed;
+	}
+	else
+	{
+		scheduler.pattern_runtime.baseline_world_positions = composed;
+	}
+}
+
 void enter_state(ParticleScheduler& scheduler, const PatternState new_state, SchedulerCallbacks& callbacks)
 {
 	const PatternState previous_state = scheduler.pattern_runtime.state;
 
-	if (previous_state == PatternState::Anticipating && new_state == PatternState::Forming)
+	if (previous_state == PatternState::Anticipating && new_state == PatternState::Forming
+		&& !scheduler.settings.manual_pattern_state_advance)
 	{
 		if (callbacks.commit_anticipation_baseline_for_forming)
 		{
@@ -134,6 +283,15 @@ bool ParticleScheduler::dispatch_pattern_transition(
 		result))
 	{
 		return false;
+	}
+
+	if (settings.manual_pattern_state_advance
+		&& (trigger == TransitionTrigger::Advance || trigger == TransitionTrigger::Retreat)
+		&& result.action != TransitionAction::None
+		&& result.action != TransitionAction::CompleteRun
+		&& result.action != TransitionAction::BeginPatternStart)
+	{
+		capture_visual_continuity_for_manual_transition(*this, result);
 	}
 
 	return apply_transition_result(result, callbacks);

@@ -12,6 +12,12 @@
 #include "GameplayTagContainer.h"
 #include "Containers/StringConv.h"
 
+#include "MetaAgentPlayerController.h"
+#include "metaagent/camera/controller.hpp"
+#include "metaagent/camera/rig.hpp"
+#include "metaagent/media/decode.hpp"
+#include "metaagent/media/pipeline.hpp"
+#include "metaagent/media/store.hpp"
 #include "metaagent/particle/image_mask_processor.hpp"
 #include "metaagent/particle/pattern_types.hpp"
 #include "metaagent/particle/representation_types.hpp"
@@ -465,6 +471,7 @@ void copy_pattern_runtime_to_core(const FMetaAgentParticlePatternRuntime& Source
 	CopyVec3ArrayToCore(Source.BaselineWorldPositions, Destination.baseline_world_positions);
 	CopyVec3ArrayToCore(Source.IdleBaselineWorldPositions, Destination.idle_baseline_world_positions);
 	CopyVec3ArrayToCore(Source.PatternWorldTargets, Destination.pattern_world_targets);
+	CopyVec3ArrayToCore(Source.CanonicalPatternWorldTargets, Destination.canonical_pattern_world_targets);
 	CopyVec3ArrayToCore(Source.ReturnHoldPositions, Destination.return_hold_positions);
 	CopyVec3ArrayToCore(Source.ReturnRestPositions, Destination.return_rest_positions);
 	CopyVec3ArrayToCore(Source.TrajectoryWorldPositions, Destination.trajectory_world_positions);
@@ -495,6 +502,7 @@ void copy_pattern_runtime_from_core(const metaagent::particle::PatternRuntime& S
 	CopyVec3ArrayFromCore(Source.baseline_world_positions, Destination.BaselineWorldPositions);
 	CopyVec3ArrayFromCore(Source.idle_baseline_world_positions, Destination.IdleBaselineWorldPositions);
 	CopyVec3ArrayFromCore(Source.pattern_world_targets, Destination.PatternWorldTargets);
+	CopyVec3ArrayFromCore(Source.canonical_pattern_world_targets, Destination.CanonicalPatternWorldTargets);
 	CopyVec3ArrayFromCore(Source.return_hold_positions, Destination.ReturnHoldPositions);
 	CopyVec3ArrayFromCore(Source.return_rest_positions, Destination.ReturnRestPositions);
 	CopyVec3ArrayFromCore(Source.trajectory_world_positions, Destination.TrajectoryWorldPositions);
@@ -799,6 +807,172 @@ void build_actuation_compose_input(
 	Scratch.input.forming_steering_offsets = Scratch.forming_steering_offsets.empty()
 		? nullptr
 		: &Scratch.forming_steering_offsets;
+}
+
+::UTexture2D* create_texture2d_from_rgba(const metaagent::media::RgbaImage& Image)
+{
+	if (!Image.valid())
+	{
+		return nullptr;
+	}
+
+	::UTexture2D* Texture = ::UTexture2D::CreateTransient(Image.width, Image.height, PF_B8G8R8A8);
+	if (!Texture)
+	{
+		return nullptr;
+	}
+
+	Texture->SRGB = true;
+
+	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FColor* Dest = static_cast<FColor*>(Data);
+	const int32 PixelCount = Image.width * Image.height;
+	for (int32 Index = 0; Index < PixelCount; ++Index)
+	{
+		const metaagent::core::ColorRGBA& Source = Image.pixels[static_cast<size_t>(Index)];
+		Dest[Index] = FColor(Source.r, Source.g, Source.b, Source.a);
+	}
+	Mip.BulkData.Unlock();
+	Texture->UpdateResource();
+	return Texture;
+}
+
+metaagent::camera::FocusTarget make_focus_target_from_world_points(const TArray<FVector>& WorldPositions)
+{
+	metaagent::core::Array<metaagent::core::Vec3> CorePoints;
+	CorePoints.reserve(static_cast<size_t>(WorldPositions.Num()));
+	for (const FVector& Point : WorldPositions)
+	{
+		CorePoints.push_back(ToCoreVec3(Point));
+	}
+
+	return metaagent::camera::make_focus_from_bounds(metaagent::camera::compute_bounds(CorePoints));
+}
+
+namespace
+{
+TMap<TWeakObjectPtr<AMetaAgentPlayerController>, metaagent::camera::CameraController>& GetCameraControllerMap()
+{
+	static TMap<TWeakObjectPtr<AMetaAgentPlayerController>, metaagent::camera::CameraController> Controllers;
+	return Controllers;
+}
+
+void SyncCinematicSettingsToCore(
+	const FMetaAgentCinematicCameraState& Source,
+	metaagent::camera::CinematicSettings& Destination)
+{
+	Destination.active_style = metaagent::camera::CinematicStyle::OscillatingHold;
+	Destination.pan_duration_seconds = Source.PanDurationSeconds;
+	Destination.oscillation_yaw_amplitude_degrees = Source.OscillationYawAmplitudeDegrees;
+	Destination.close_orbit_radius = Source.CloseOrbitRadius;
+	Destination.sway_horizontal_amplitude = Source.SwayHorizontalAmplitude;
+	Destination.sway_vertical_amplitude = Source.SwayVerticalAmplitude;
+	Destination.sway_frequency = Source.SwayFrequency;
+}
+
+void SyncZoomSettingsToCore(
+	const FMetaAgentCameraZoomState& Source,
+	metaagent::camera::ZoomSettings& Destination)
+{
+	Destination.min_distance = Source.MinDistance;
+	Destination.max_distance = Source.MaxDistance;
+	Destination.mouse_wheel_step = Source.MouseWheelStep;
+	Destination.desired_distance = Source.DesiredDistance;
+}
+
+void SyncZoomSettingsFromCore(
+	const metaagent::camera::ZoomSettings& Source,
+	FMetaAgentCameraZoomState& Destination)
+{
+	Destination.DesiredDistance = Source.desired_distance;
+}
+} // namespace
+
+metaagent::camera::CameraController& get_camera_controller(AMetaAgentPlayerController& Controller)
+{
+	TMap<TWeakObjectPtr<AMetaAgentPlayerController>, metaagent::camera::CameraController>& Controllers =
+		GetCameraControllerMap();
+
+	for (auto It = Controllers.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	return Controllers.FindOrAdd(&Controller);
+}
+
+void sync_cinematic_settings_to_core(
+	const FMetaAgentCinematicCameraState& Source,
+	metaagent::camera::CinematicSettings& Destination)
+{
+	SyncCinematicSettingsToCore(Source, Destination);
+}
+
+void sync_zoom_settings_to_core(
+	const FMetaAgentCameraZoomState& Source,
+	metaagent::camera::ZoomSettings& Destination)
+{
+	SyncZoomSettingsToCore(Source, Destination);
+}
+
+void sync_zoom_settings_from_core(
+	const metaagent::camera::ZoomSettings& Source,
+	FMetaAgentCameraZoomState& Destination)
+{
+	SyncZoomSettingsFromCore(Source, Destination);
+}
+
+void sync_cinematic_runtime_to_core(
+	const FMetaAgentCinematicCameraState& Source,
+	metaagent::camera::CinematicRuntimeState& Destination)
+{
+	Destination.mode_enabled = Source.bModeEnabled;
+	Destination.pan_elapsed_seconds = Source.PanElapsedSeconds;
+	Destination.orbit_radius = Source.OrbitRadius;
+	Destination.camera_height_offset = Source.CameraHeightOffset;
+	Destination.start_orbit_yaw_degrees = Source.StartOrbitYawDegrees;
+	Destination.sway_phase_offset = Source.SwayPhaseOffset;
+}
+
+void sync_cinematic_runtime_from_core(
+	const metaagent::camera::CinematicRuntimeState& Source,
+	FMetaAgentCinematicCameraState& Destination)
+{
+	Destination.bModeEnabled = Source.mode_enabled;
+	Destination.PanElapsedSeconds = Source.pan_elapsed_seconds;
+	Destination.OrbitRadius = Source.orbit_radius;
+	Destination.CameraHeightOffset = Source.camera_height_offset;
+	Destination.StartOrbitYawDegrees = Source.start_orbit_yaw_degrees;
+	Destination.SwayPhaseOffset = Source.sway_phase_offset;
+}
+
+metaagent::core::Vec3 to_core_vec3(const FVector& Value)
+{
+	return ToCoreVec3(Value);
+}
+
+FVector from_core_vec3(const metaagent::core::Vec3& Value)
+{
+	return FromCoreVec3(Value);
+}
+
+FRotator from_core_rotator(const metaagent::core::Rotator& Value)
+{
+	return FromCoreRotator(Value);
+}
+
+metaagent::camera::FocusTarget make_focus_target_from_world_location(
+	const FVector& WorldLocation,
+	const float LookAtZOffset)
+{
+	TArray<FVector> Points;
+	Points.Add(WorldLocation);
+	Points.Add(WorldLocation + FVector(0.0f, 0.0f, LookAtZOffset));
+	return make_focus_target_from_world_points(Points);
 }
 
 metaagent::particle::TransitionTrigger to_core_transition_trigger(const EMetaAgentPatternTransitionTrigger Trigger)
@@ -1130,10 +1304,11 @@ struct FMetaAgentCoreBridgeFriend
 			SyncFromRuntime();
 			return bResult;
 		};
-		Callbacks.begin_configured_return = [&Runtime, SyncFromRuntime]() -> bool
+		Callbacks.begin_configured_return = [&Runtime, &State]() -> bool
 		{
+			FMetaAgentCoreBridgeFriend::SyncCoreToRuntime(Runtime, State.Scheduler);
 			const bool bResult = Runtime.BeginConfiguredReturn();
-			SyncFromRuntime();
+			FMetaAgentCoreBridgeFriend::SyncRuntimeToCore(Runtime, State.Scheduler);
 			return bResult;
 		};
 		Callbacks.request_dissipate_to_center = [&Runtime, SyncFromRuntime]() -> bool
@@ -1148,12 +1323,13 @@ struct FMetaAgentCoreBridgeFriend
 			SyncFromRuntime();
 		};
 		Callbacks.enter_pattern_state =
-			[&Runtime, SyncFromRuntime](
+			[&Runtime, &State](
 				const metaagent::particle::PatternState NewState,
 				const metaagent::particle::PatternState /*PreviousState*/)
 		{
+			FMetaAgentCoreBridgeFriend::SyncCoreToRuntime(Runtime, State.Scheduler);
 			Runtime.EnterPatternState(MetaAgentTypeBridge::from_core_pattern_state(NewState));
-			SyncFromRuntime();
+			FMetaAgentCoreBridgeFriend::SyncRuntimeToCore(Runtime, State.Scheduler);
 		};
 		Callbacks.commit_anticipation_baseline_for_forming = [&Runtime, SyncFromRuntime]()
 		{

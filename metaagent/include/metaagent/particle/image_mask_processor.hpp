@@ -1,6 +1,7 @@
 #pragma once
 
 #include "metaagent/export.hpp"
+#include "metaagent/media/image.hpp"
 #include "metaagent/particle/pattern_types.hpp"
 #include "metaagent/particle/shape_types.hpp"
 
@@ -25,12 +26,6 @@ struct ImageMaskBuildOutput {
 	bool success = false;
 	core::Array<core::Vec3> local_points_cm;
 	core::String debug_info;
-};
-
-struct RgbaImage {
-	int32_t width = 0;
-	int32_t height = 0;
-	core::Array<core::ColorRGBA> pixels;
 };
 
 namespace image_mask {

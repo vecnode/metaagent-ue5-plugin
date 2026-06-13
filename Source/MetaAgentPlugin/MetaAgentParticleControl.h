@@ -114,6 +114,11 @@ public:
 		const FMetaAgentParticleActuationRequest& Request,
 		TArray<FVector>& OutAppliedWorldPositions);
 
+	/** Composes logical world positions from actuation inputs without touching Niagara buffers. */
+	static int32 ComposeWorldPositionsFromRequest(
+		const FMetaAgentParticleActuationRequest& Request,
+		TArray<FVector>& OutAppliedWorldPositions);
+
 	static void ApplyParameters(const FMetaAgentParticleActuationRequest& Request);
 
 	static EMetaAgentParticleActuationMode ResolveEffectiveMode(

@@ -14,7 +14,10 @@
 #include "MetaAgentPlayerController.h"
 #include "Misc/Paths.h"
 #include "NiagaraComponent.h"
+#include "NiagaraParameterStore.h"
 #include "NiagaraSystem.h"
+#include "NiagaraSystemInstance.h"
+#include "NiagaraSystemInstanceController.h"
 #include "NiagaraTypes.h"
 
 // ===== MetaAgentParticleOrchestrator.cpp =====
@@ -481,6 +484,12 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleImageSamplin
 
 	SyncConfigToRuntime();
 	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+
+	if (ParticleRuntime && ParticleRuntime->IsPatternActive())
+	{
+		ParticleRuntime->RefreshPatternTargetsAfterConfigChange();
+	}
+
 	Result.bSuccess = true;
 	Result.UserMessage = FText::FromString(
 		FString::Printf(TEXT("Image sampling: %s"), *PatternConfig.Shape.GetImageSamplingDisplayName()));
@@ -526,6 +535,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 
 	if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Idle)
 	{
+		ParticleRuntime->SetManualPatternStateAdvance(true);
 		ParticleRuntime->ForceCaptureParticles();
 		PrepareShapeContextForPlay();
 		PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
@@ -540,6 +550,10 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 	}
 
 	const bool bAdvanced = ParticleRuntime->AdvancePatternStateForward();
+	if (bAdvanced && ParticleRuntime->IsPatternActive())
+	{
+		ParticleRuntime->ApplyPatternRepresentation();
+	}
 	Result.bSuccess = bAdvanced;
 	Result.bAwaitingAsyncPrepare =
 		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
@@ -563,6 +577,10 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateB
 	}
 
 	const bool bRetreated = ParticleRuntime->RetreatPatternStateBackward();
+	if (bRetreated && ParticleRuntime->IsPatternActive())
+	{
+		ParticleRuntime->ApplyPatternRepresentation();
+	}
 	Result.bSuccess = bRetreated;
 	Result.UserMessage = FText::FromString(
 		bRetreated
@@ -932,32 +950,52 @@ namespace MetaAgentRepresentationDriverInternal
 	static const FName DirectDriverId(TEXT("DirectPosition"));
 	static const FName ParameterDriverId(TEXT("NiagaraParameters"));
 
-	bool CanPushTargetPayload(
-		const UNiagaraComponent& NiagaraComponent,
-		const UMetaAgentNiagaraSystemProfile* Profile)
+	bool ComponentHasLiveNiagaraInstance(const UNiagaraComponent& NiagaraComponent)
 	{
-		if (!Profile || !Profile->HasCapability(EMetaAgentNiagaraDriverCapability::TargetArrayUpload))
+		if (!IsValid(&NiagaraComponent) || !NiagaraComponent.IsActive() || !IsValid(NiagaraComponent.GetOwner()))
 		{
 			return false;
 		}
 
-		if (!Profile->TargetDataParameterName.IsNone()
-			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
-				NiagaraComponent,
-				Profile->TargetDataParameterName))
+		if (UWorld* World = NiagaraComponent.GetWorld())
 		{
-			return true;
+			if (!IsValid(World) || World->bIsTearingDown)
+			{
+				return false;
+			}
 		}
 
-		if (!Profile->TargetCountParameterName.IsNone()
-			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
-				NiagaraComponent,
-				Profile->TargetCountParameterName))
+		const FNiagaraSystemInstanceControllerConstPtr InstanceController =
+			NiagaraComponent.GetSystemInstanceController();
+		if (!InstanceController.IsValid() || !InstanceController->IsValid())
 		{
-			return true;
+			return false;
 		}
 
-		return false;
+		FNiagaraSystemInstance* SystemInstance = InstanceController->GetSoloSystemInstance();
+		if (!SystemInstance)
+		{
+			SystemInstance = InstanceController->GetSystemInstance_Unsafe();
+		}
+
+		return SystemInstance != nullptr && !SystemInstance->IsComplete();
+	}
+
+	bool CanPushTargetPayload(
+		const UNiagaraComponent& NiagaraComponent,
+		const UMetaAgentNiagaraSystemProfile* Profile)
+	{
+		if (!Profile || !IsValid(Profile) || !Profile->HasCapability(EMetaAgentNiagaraDriverCapability::TargetArrayUpload))
+		{
+			return false;
+		}
+
+		if (!ComponentHasLiveNiagaraInstance(NiagaraComponent))
+		{
+			return false;
+		}
+
+		return !Profile->TargetDataParameterName.IsNone() || !Profile->TargetCountParameterName.IsNone();
 	}
 
 	void PushTargetArrays(
@@ -981,7 +1019,8 @@ namespace MetaAgentRepresentationDriverInternal
 		}
 
 		if (!Profile->TargetDataParameterName.IsNone()
-			&& SharedTargetData
+			&& IsValid(SharedTargetData)
+			&& TargetCount > 0
 			&& UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
 				NiagaraComponent,
 				Profile->TargetDataParameterName))
@@ -1050,9 +1089,10 @@ namespace MetaAgentRepresentationDriverInternal
 			const UMetaAgentNiagaraSystemProfile* Profile,
 			TArray<FVector>& OutAppliedWorldPositions) const override
 		{
-			(void)OutAppliedWorldPositions;
+			(void)Frame;
+			(void)Profile;
 			FMetaAgentParticleActuation::ApplyParameters(Request);
-			return 0;
+			return FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(Request, OutAppliedWorldPositions);
 		}
 	};
 
@@ -1062,12 +1102,27 @@ namespace MetaAgentRepresentationDriverInternal
 		const FMetaAgentParticleRepresentationFrame& Frame,
 		UMetaAgentNiagaraTargetData* SharedTargetData)
 	{
+		if (!Profile || !IsValid(Profile))
+		{
+			return;
+		}
+
 		for (const TWeakObjectPtr<UNiagaraComponent>& WeakComponent : Request.TrackedComponents)
 		{
-			if (UNiagaraComponent* NiagaraComponent = WeakComponent.Get())
+			UNiagaraComponent* NiagaraComponent = WeakComponent.Get();
+			if (!IsValid(NiagaraComponent)
+				|| !NiagaraComponent->IsActive()
+				|| !IsValid(NiagaraComponent->GetOwner()))
 			{
-				PushTargetArrays(*NiagaraComponent, Profile, Frame, SharedTargetData);
+				continue;
 			}
+
+			if (!ComponentHasLiveNiagaraInstance(*NiagaraComponent))
+			{
+				continue;
+			}
+
+			PushTargetArrays(*NiagaraComponent, Profile, Frame, SharedTargetData);
 		}
 	}
 }
@@ -1225,7 +1280,13 @@ int32 FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
 	auto ApplyParametersPath = [&](const bool bPushTargetPayload)
 	{
 		ParameterDriver.ApplyFrame(Frame, Request, Profile, OutAppliedWorldPositions);
-		if (bPushTargetPayload)
+		const bool bShouldUploadTargets = bPushTargetPayload
+			&& Profile
+			&& IsValid(Profile)
+			&& Profile->HasCapability(EMetaAgentNiagaraDriverCapability::TargetArrayUpload)
+			&& PolicyResult.delivery != metaagent::particle::ActuationDelivery::DirectWrite
+			&& PolicyResult.delivery != metaagent::particle::ActuationDelivery::HybridDirectWithScalars;
+		if (bShouldUploadTargets)
 		{
 			PushTargetPayloadToComponents(Request, Profile, Frame, SharedTargetData);
 		}
@@ -1244,7 +1305,7 @@ int32 FMetaAgentParticleRepresentationDriverRegistry::ApplyRepresentationFrame(
 	case metaagent::particle::ActuationDelivery::ParametersOnly:
 	case metaagent::particle::ActuationDelivery::ParametersWithTargets:
 		ApplyParametersPath(PolicyResult.push_target_payload);
-		return 0;
+		return FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(Request, OutAppliedWorldPositions);
 	case metaagent::particle::ActuationDelivery::DirectWrite:
 		return DirectDriver.ApplyFrame(Frame, Request, Profile, OutAppliedWorldPositions);
 	case metaagent::particle::ActuationDelivery::HybridDirectWithScalars:
@@ -1304,6 +1365,68 @@ namespace MetaAgentNiagaraProfileInternal
 	static const FName FormingModeParameterName(TEXT("MetaAgentFormingMode"));
 	static const FName FormingArcLiftParameterName(TEXT("MetaAgentFormingArcLift"));
 	static const FName FormingSpiralTurnsParameterName(TEXT("MetaAgentFormingSpiralTurns"));
+
+	bool ParameterNameMatchesExposed(const FName ParameterName, const FName ExposedName)
+	{
+		if (ParameterName.IsNone() || ExposedName.IsNone())
+		{
+			return false;
+		}
+
+		if (ExposedName == ParameterName)
+		{
+			return true;
+		}
+
+		const FString ParameterString = ParameterName.ToString();
+		const FString ExposedString = ExposedName.ToString();
+		const FString ParameterSuffix = FString::Printf(TEXT(".%s"), *ParameterString);
+		return ExposedString.Equals(ParameterString, ESearchCase::CaseSensitive)
+			|| ExposedString.EndsWith(ParameterSuffix, ESearchCase::CaseSensitive);
+	}
+
+	bool StoreContainsParameterName(const FNiagaraParameterStore& Store, const FName ParameterName)
+	{
+		TArray<FNiagaraVariable> Parameters;
+		Store.GetParameters(Parameters);
+		for (const FNiagaraVariable& Parameter : Parameters)
+		{
+			if (ParameterNameMatchesExposed(ParameterName, Parameter.GetName()))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool ComponentHasLiveInstance(const UNiagaraComponent& NiagaraComponent)
+	{
+		if (!IsValid(&NiagaraComponent) || !NiagaraComponent.IsActive() || !IsValid(NiagaraComponent.GetOwner()))
+		{
+			return false;
+		}
+
+		const FNiagaraSystemInstanceControllerConstPtr InstanceController =
+			NiagaraComponent.GetSystemInstanceController();
+		return InstanceController.IsValid() && InstanceController->IsValid();
+	}
+
+	FNiagaraSystemInstance* ResolveLiveSystemInstance(const UNiagaraComponent& NiagaraComponent)
+	{
+		const FNiagaraSystemInstanceControllerConstPtr InstanceController =
+			NiagaraComponent.GetSystemInstanceController();
+		if (!InstanceController.IsValid() || !InstanceController->IsValid())
+		{
+			return nullptr;
+		}
+
+		if (FNiagaraSystemInstance* SoloInstance = InstanceController->GetSoloSystemInstance())
+		{
+			return SoloInstance;
+		}
+
+		return InstanceController->GetSystemInstance_Unsafe();
+	}
 }
 
 bool UMetaAgentNiagaraSystemProfile::HasCapability(const EMetaAgentNiagaraDriverCapability Capability) const
@@ -1315,36 +1438,25 @@ bool UMetaAgentNiagaraSystemProfile::ComponentExposesUserParameter(
 	const UNiagaraComponent& NiagaraComponent,
 	const FName ParameterName)
 {
-	if (ParameterName.IsNone())
+	using namespace MetaAgentNiagaraProfileInternal;
+
+	if (ParameterName.IsNone() || !ComponentHasLiveInstance(NiagaraComponent))
 	{
 		return false;
 	}
 
-	const UNiagaraSystem* NiagaraSystem = NiagaraComponent.GetAsset();
-	if (!NiagaraSystem)
+	// Never query UNiagaraSystem::GetExposedParameters() here. The asset pointer can be stale
+	// mid-reload and crash inside the exposed-parameter store (seen as AV at ~0x138).
+	if (StoreContainsParameterName(NiagaraComponent.GetOverrideParameters(), ParameterName))
 	{
-		return false;
+		return true;
 	}
 
-	const FString ParameterSuffix = FString::Printf(TEXT(".%s"), *ParameterName.ToString());
-
-	TArray<FNiagaraVariable> ExposedParameters;
-	NiagaraSystem->GetExposedParameters().GetParameters(ExposedParameters);
-	for (const FNiagaraVariable& ExposedParameter : ExposedParameters)
+	if (FNiagaraSystemInstance* SystemInstance = ResolveLiveSystemInstance(NiagaraComponent))
 	{
-		const FName ExposedName = ExposedParameter.GetName();
-		if (ExposedName == ParameterName)
-		{
-			return true;
-		}
-
-		const FString ExposedString = ExposedName.ToString();
-		if (ExposedString.Equals(ParameterName.ToString(), ESearchCase::CaseSensitive)
-			|| ExposedString.EndsWith(ParameterSuffix, ESearchCase::CaseSensitive))
-		{
-			return true;
-		}
+		return StoreContainsParameterName(SystemInstance->GetInstanceParameters(), ParameterName);
 	}
+
 	return false;
 }
 

@@ -1,17 +1,39 @@
 #pragma once
 
+/**
+ * MetaAgent portable library — public entry point.
+ *
+ * Implementation is compiled from a single translation unit:
+ *   metaagent/metaagent.cpp
+ *
+ * Embed in other engines by adding `metaagent/include` to your include path and
+ * compiling `metaagent.cpp` once (see MetaAgentCoreAggregate.cpp in the UE plugin).
+ */
+
 #include "metaagent/export.hpp"
 #include "metaagent/version.hpp"
 #include "metaagent/initialize.hpp"
+
 #include "metaagent/core/log_sink.hpp"
 #include "metaagent/core/math.hpp"
 #include "metaagent/core/types.hpp"
+
+#include "metaagent/media/decode.hpp"
+#include "metaagent/media/image.hpp"
+#include "metaagent/media/mask_cache.hpp"
+#include "metaagent/media/pipeline.hpp"
+#include "metaagent/media/store.hpp"
+
+#include "metaagent/camera/controller.hpp"
+#include "metaagent/camera/rig.hpp"
+#include "metaagent/camera/types.hpp"
+
 #include "metaagent/particle/actuation_math.hpp"
-#include "metaagent/particle/representation_actuation.hpp"
 #include "metaagent/particle/forming_solver.hpp"
 #include "metaagent/particle/forming_types.hpp"
 #include "metaagent/particle/image_mask_processor.hpp"
 #include "metaagent/particle/pattern_types.hpp"
+#include "metaagent/particle/representation_actuation.hpp"
 #include "metaagent/particle/representation_types.hpp"
 #include "metaagent/particle/return_types.hpp"
 #include "metaagent/particle/scheduler.hpp"

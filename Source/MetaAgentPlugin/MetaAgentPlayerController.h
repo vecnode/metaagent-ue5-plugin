@@ -493,6 +493,9 @@ protected:
 	/** Bound to O: toggles cinematic camera mode on/off. */
 	void HandleToggleCinematicCameraPressed();
 
+	/** Bound to P: focus cinematic camera on live particle positions. */
+	void HandleFocusParticlesCameraPressed();
+
 	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();
 
@@ -516,6 +519,8 @@ protected:
 
 	/** Updates runtime cinematic camera transform each tick while mode is active. */
 	void UpdateCinematicCamera(float DeltaTime);
+
+	bool IsCinematicFocusParticlesEnabled() const { return bCinematicFocusParticles; }
 
 	/** Enables AI autopilot over the currently possessed pawn. */
 	void EnableAutopilotForCurrentPawn();
@@ -803,6 +808,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Camera|Cinematic")
 	FMetaAgentCinematicCameraState CinematicCamera;
 
+	UPROPERTY(Transient)
+	bool bCinematicFocusParticles = false;
+
 	/** Runtime GUI panel visibility and keybind help lines. */
 	UPROPERTY(EditAnywhere, Category = "UI|Runtime")
 	FMetaAgentGUIState GUI;
@@ -862,10 +870,18 @@ protected:
 	UPROPERTY(Transient)
 	TSet<TWeakObjectPtr<UNiagaraComponent>> NiagaraExportBoundComponents;
 
+	friend struct FMetaAgentCameraRuntime;
 };
+
+namespace metaagent::camera
+{
+struct FocusTarget;
+}
 
 struct FMetaAgentCameraRuntime
 {
+	static metaagent::camera::FocusTarget ResolveFocusTarget(const AMetaAgentPlayerController& Controller);
+
 	static void RunEnvironmentZoomSequence(
 		AMetaAgentPlayerController& Controller,
 		float DeltaTime,
@@ -877,8 +893,7 @@ struct FMetaAgentCameraRuntime
 
 	static void RunEnableCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
-		FMetaAgentCinematicCameraState& CinematicCamera,
-		FVector TargetFocusLocation);
+		FMetaAgentCinematicCameraState& CinematicCamera);
 
 	static void RunDisableCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
@@ -887,8 +902,11 @@ struct FMetaAgentCameraRuntime
 	static void RunUpdateCinematicCameraSequence(
 		AMetaAgentPlayerController& Controller,
 		float DeltaTime,
-		FMetaAgentCinematicCameraState& CinematicCamera,
-		FVector TargetFocusLocation);
+		FMetaAgentCinematicCameraState& CinematicCamera);
+
+	static void RunRefreshCinematicFocus(
+		AMetaAgentPlayerController& Controller,
+		FMetaAgentCinematicCameraState& CinematicCamera);
 
 	static const TCHAR* GetCinematicStyleLabel(EMetaAgentCinematicCameraStyle Style);
 };

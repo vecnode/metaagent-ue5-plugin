@@ -1,0 +1,60 @@
+#include "metaagent.h"
+
+#include <cstdint>
+#include <iostream>
+
+namespace {
+
+// 1x1 red PNG
+constexpr uint8_t k_one_by_one_png[] = {
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+	0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+	0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+	0x44, 0xAE, 0x42, 0x60, 0x82};
+
+bool expect_true(const bool value, const char* label)
+{
+	if (value)
+	{
+		return true;
+	}
+
+	std::cerr << label << " failed\n";
+	return false;
+}
+
+} // namespace
+
+int main()
+{
+	metaagent::media::RgbaImage image;
+	const bool decoded = metaagent::media::decode_image_from_memory(
+		k_one_by_one_png,
+		sizeof(k_one_by_one_png),
+		image,
+		"test.png");
+
+	if (!expect_true(decoded, "decode_image_from_memory"))
+	{
+		return 1;
+	}
+
+	if (!expect_true(image.width == 1 && image.height == 1, "image dimensions"))
+	{
+		return 1;
+	}
+
+	if (!expect_true(image.pixels.size() == 1, "pixel count"))
+	{
+		return 1;
+	}
+
+	const metaagent::core::ColorRGBA& pixel = image.pixels.front();
+	if (!expect_true(pixel.r == 255 && pixel.g == 0 && pixel.b == 0 && pixel.a == 255, "pixel rgba"))
+	{
+		return 1;
+	}
+
+	return 0;
+}

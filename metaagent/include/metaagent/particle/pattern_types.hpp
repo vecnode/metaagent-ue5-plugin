@@ -69,6 +69,8 @@ struct PatternRuntime {
 	core::Array<core::Vec3> baseline_world_positions;
 	core::Array<core::Vec3> idle_baseline_world_positions;
 	core::Array<core::Vec3> pattern_world_targets;
+	/** Mask targets from the last successful shape build; preserved across manual hold freezes. */
+	core::Array<core::Vec3> canonical_pattern_world_targets;
 	core::Array<core::Vec3> return_hold_positions;
 	core::Array<core::Vec3> return_rest_positions;
 	core::Array<core::Vec3> trajectory_world_positions;

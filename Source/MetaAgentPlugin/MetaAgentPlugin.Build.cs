@@ -10,9 +10,9 @@ public class MetaAgentPlugin : ModuleRules
 		PublicIncludePaths.AddRange(
 			new string[]
 			{
-				// Flat module layout: all sources live directly under ModuleDirectory.
 				Path.Combine(ModuleDirectory),
-				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "include"))
+				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "include")),
+				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent"))
 			}
 		);
 
