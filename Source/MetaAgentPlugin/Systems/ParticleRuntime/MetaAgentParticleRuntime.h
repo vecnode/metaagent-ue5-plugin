@@ -82,10 +82,17 @@ struct FMetaAgentParticleSnapshot
 	TArray<FVector> SuggestedSteeringDirections;
 };
 
+class UMetaAgentParticleRuntime;
+
+/** metaagent scheduler bridge — implemented in MetaAgentParticleCoreBridge.cpp */
+struct FMetaAgentCoreBridgeFriend;
+
 UCLASS(BlueprintType)
 class METAAGENTPLUGIN_API UMetaAgentParticleRuntime : public UObject
 {
 	GENERATED_BODY()
+
+	friend struct FMetaAgentCoreBridgeFriend;
 
 public:
 	UPROPERTY(BlueprintAssignable, Category = "MetaAgent|Particles|Pattern")
@@ -276,11 +283,8 @@ private:
 	bool BuildPatternTargets();
 	void ApplyPatternActuation();
 	void BuildRepresentationFrame(FMetaAgentParticleRepresentationFrame& OutFrame) const;
-	FMetaAgentPatternTransitionContext BuildTransitionContext(bool bSkipReturnOnCancel = false) const;
-	bool ApplyTransitionResult(const FMetaAgentPatternTransitionResult& Result);
 	bool DispatchPatternTransition(EMetaAgentPatternTransitionTrigger Trigger, bool bSkipReturnOnCancel = false);
 	float EvaluatePhaseForState(EMetaAgentParticlePatternState State, float NormalizedTimeInState) const;
-	float ComputeActuationBlendAlpha() const;
 	bool BeginPatternStart();
 	bool ApplyPatternAsset(UMetaAgentParticlePatternAsset* PatternAsset);
 	void TryStartQueuedPattern();
@@ -288,7 +292,6 @@ private:
 	void ResetPatternRuntime();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
 	void CommitAnticipationBaselineForForming();
-	const FMetaAgentParticlePatternConfig& GetTimingConfigForTick() const;
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UWorld> CachedWorld;

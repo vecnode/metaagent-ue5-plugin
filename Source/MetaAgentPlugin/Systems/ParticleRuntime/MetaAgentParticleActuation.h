@@ -97,4 +97,7 @@ public:
 
 	static EMetaAgentParticleActuationMode ResolveEffectiveMode(
 		EMetaAgentParticleActuationMode ConfiguredMode);
+
+	/** Delegates to metaagent::particle::FormingSolverRegistry. */
+	static FVector SolveFormingPosition(FMetaAgentParticleFormingContext& Context);
 };

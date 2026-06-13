@@ -2,74 +2,41 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleReturnTypes.h"
 
+#include "Bridge/MetaAgentTypeBridge.h"
+#include "Containers/StringConv.h"
 #include "Curves/CurveFloat.h"
 
-EMetaAgentParticleReturnMode FMetaAgentParticleReturnSettings::SanitizeMode(
-	const EMetaAgentParticleReturnMode Mode)
+#include "metaagent/particle/return_types.hpp"
+
+EMetaAgentParticleReturnMode FMetaAgentParticleReturnSettings::SanitizeMode(const EMetaAgentParticleReturnMode Mode)
 {
-	switch (Mode)
-	{
-	case EMetaAgentParticleReturnMode::DirectLerp:
-	case EMetaAgentParticleReturnMode::ArcLift:
-	case EMetaAgentParticleReturnMode::SpiralIn:
-	case EMetaAgentParticleReturnMode::DissipateToCenter:
-		return Mode;
-	default:
-		return EMetaAgentParticleReturnMode::DirectLerp;
-	}
+	return MetaAgentTypeBridge::from_core_return_mode(
+		metaagent::particle::ReturnSettings::sanitize_mode(MetaAgentTypeBridge::to_core_return_mode(Mode)));
 }
 
 bool FMetaAgentParticleReturnSettings::UsesMotionSolver() const
 {
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleReturnMode::ArcLift:
-	case EMetaAgentParticleReturnMode::SpiralIn:
-		return true;
-	default:
-		return false;
-	}
+	metaagent::particle::ReturnSettings CoreSettings;
+	MetaAgentTypeBridge::copy_return_settings_to_core(*this, CoreSettings);
+	return CoreSettings.uses_motion_solver();
 }
 
 FMetaAgentParticleFormingSettings FMetaAgentParticleReturnSettings::AsFormingSettings() const
 {
+	metaagent::particle::ReturnSettings CoreSettings;
+	MetaAgentTypeBridge::copy_return_settings_to_core(*this, CoreSettings);
+	const metaagent::particle::FormingSettings CoreForming = CoreSettings.as_forming_settings();
+
 	FMetaAgentParticleFormingSettings Out;
-	Out.ArcLiftHeightCm = ArcLiftHeightCm;
-	Out.SpiralTurns = SpiralTurns;
-
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleReturnMode::ArcLift:
-		Out.Mode = EMetaAgentParticleFormingMode::ArcLift;
-		break;
-	case EMetaAgentParticleReturnMode::SpiralIn:
-		Out.Mode = EMetaAgentParticleFormingMode::SpiralIn;
-		break;
-	case EMetaAgentParticleReturnMode::DirectLerp:
-	case EMetaAgentParticleReturnMode::DissipateToCenter:
-	default:
-		Out.Mode = EMetaAgentParticleFormingMode::DirectLerp;
-		break;
-	}
-
+	MetaAgentTypeBridge::copy_forming_settings_from_core(CoreForming, Out);
 	return Out;
 }
 
 FString FMetaAgentParticleReturnSettings::GetModeDisplayName() const
 {
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleReturnMode::DirectLerp:
-		return TEXT("Direct Lerp");
-	case EMetaAgentParticleReturnMode::ArcLift:
-		return TEXT("Arc Lift");
-	case EMetaAgentParticleReturnMode::SpiralIn:
-		return TEXT("Spiral In");
-	case EMetaAgentParticleReturnMode::DissipateToCenter:
-		return TEXT("Dissipate To Center");
-	default:
-		return TEXT("Direct Lerp");
-	}
+	metaagent::particle::ReturnSettings CoreSettings;
+	MetaAgentTypeBridge::copy_return_settings_to_core(*this, CoreSettings);
+	return FString(UTF8_TO_TCHAR(CoreSettings.get_mode_display_name().c_str()));
 }
 
 const UCurveFloat* FMetaAgentParticleReturnSettings::GetReturnCurveForMode() const
@@ -88,20 +55,8 @@ const UCurveFloat* FMetaAgentParticleReturnSettings::GetReturnCurveForMode() con
 
 void FMetaAgentParticleReturnSettings::CycleMode()
 {
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleReturnMode::DirectLerp:
-		Mode = EMetaAgentParticleReturnMode::ArcLift;
-		break;
-	case EMetaAgentParticleReturnMode::ArcLift:
-		Mode = EMetaAgentParticleReturnMode::SpiralIn;
-		break;
-	case EMetaAgentParticleReturnMode::SpiralIn:
-		Mode = EMetaAgentParticleReturnMode::DissipateToCenter;
-		break;
-	case EMetaAgentParticleReturnMode::DissipateToCenter:
-	default:
-		Mode = EMetaAgentParticleReturnMode::DirectLerp;
-		break;
-	}
+	metaagent::particle::ReturnSettings CoreSettings;
+	MetaAgentTypeBridge::copy_return_settings_to_core(*this, CoreSettings);
+	CoreSettings.cycle_mode();
+	MetaAgentTypeBridge::copy_return_settings_from_core(CoreSettings, *this);
 }

@@ -11,7 +11,8 @@ public class MetaAgentPlugin : ModuleRules
 			new string[]
 			{
 				// Centralized module layout: Core/, Gameplay/, Systems/, UI/ live directly under ModuleDirectory.
-				Path.Combine(ModuleDirectory)
+				Path.Combine(ModuleDirectory),
+				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "include"))
 			}
 		);
 

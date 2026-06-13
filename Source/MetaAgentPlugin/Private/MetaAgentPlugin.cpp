@@ -1,11 +1,11 @@
 #include "MetaAgentPlugin.h"
 
+#include "Bridge/MetaAgentParticleCoreBridge.h"
 #include "GameMapsSettings.h"
 #include "Misc/ConfigCacheIni.h"
-#include "Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h"
+#include "metaagent/initialize.hpp"
 #include "Systems/ParticleRuntime/MetaAgentParticleRepresentationDriver.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h"
-#include "Systems/ParticleRuntime/MetaAgentParticleTransitionGraph.h"
 
 DEFINE_LOG_CATEGORY(LogMetaAgentPlugin);
 
@@ -15,9 +15,8 @@ void FMetaAgentPluginModule::StartupModule()
 {
 	UE_LOG(LogMetaAgentPlugin, Log, TEXT("MetaAgentPlugin module startup."));
 
+	metaagent::initialize_defaults();
 	FMetaAgentParticleShapeRegistry::RegisterDefaults();
-	FMetaAgentParticleFormingSolverRegistry::RegisterDefaults();
-	FMetaAgentParticleTransitionGraph::RegisterDefaults();
 	FMetaAgentParticleRepresentationDriverRegistry::RegisterDefaults();
 
 	const FString DesiredGameMode = TEXT("/Script/MetaAgentPlugin.MetaAgentGameMode");

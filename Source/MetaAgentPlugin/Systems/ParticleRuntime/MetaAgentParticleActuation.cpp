@@ -2,9 +2,11 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleActuation.h"
 
+#include "Bridge/MetaAgentTypeBridge.h"
+#include "metaagent/particle/actuation_math.hpp"
+#include "metaagent/particle/forming_solver.hpp"
 #include "NiagaraComponent.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleActuatorTypes.h"
-#include "Systems/ParticleRuntime/MetaAgentParticleFormingSolver.h"
 #include "NiagaraDataSetAccessor.h"
 #include "NiagaraDataSet.h"
 #include "NiagaraComputeExecutionContext.h"
@@ -181,7 +183,7 @@ namespace MetaAgentParticleActuationInternal
 					FormingContext.DeltaTimeSeconds = Request.FormingDeltaTimeSeconds;
 					FormingContext.Settings = Request.FormingSettings;
 
-					DesiredWorld = FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+					DesiredWorld = FMetaAgentParticleActuation::SolveFormingPosition(FormingContext);
 				}
 				else
 				{
@@ -241,7 +243,7 @@ namespace MetaAgentParticleActuationInternal
 					}
 
 					const FVector FormingWorld =
-						FMetaAgentParticleFormingSolverRegistry::SolveFormingPosition(FormingContext);
+						FMetaAgentParticleActuation::SolveFormingPosition(FormingContext);
 
 					const bool bUseAnticipationCarryover = Request.AnticipationHandoffElapsedSeconds >= 0.0f
 						&& Request.IdleBaselineWorldPositions != nullptr
@@ -520,40 +522,15 @@ FVector FMetaAgentParticleActuation::ComputeAnticipationWorldPosition(
 	const float AnticipationFrequencyHz,
 	const float AnticipationIdleBlendDurationSeconds)
 {
-	FVector ToCenter = PatternCenter - IdleBaseline;
-	if (ToCenter.SizeSquared() < KINDA_SMALL_NUMBER)
-	{
-		ToCenter = FVector::UpVector;
-	}
-	const FVector RadialDir = ToCenter.GetSafeNormal();
-	FVector TangentDir = FVector::CrossProduct(RadialDir, FVector::UpVector);
-	if (!TangentDir.Normalize())
-	{
-		TangentDir = FVector::RightVector;
-	}
-
-	float IdleBlendWeight = 1.0f;
-	if (AnticipationIdleBlendDurationSeconds > KINDA_SMALL_NUMBER)
-	{
-		const float IdleBlendNormalized = FMath::Clamp(
-			AnticipationElapsedSeconds / AnticipationIdleBlendDurationSeconds,
-			0.0f,
-			1.0f);
-		IdleBlendWeight = IdleBlendNormalized * IdleBlendNormalized
-			* (3.0f - 2.0f * IdleBlendNormalized);
-	}
-
-	const float AnticipationRadians = AnticipationElapsedSeconds
-		* TWO_PI * FMath::Max(0.1f, AnticipationFrequencyHz);
-	const float IndexPhase = static_cast<float>(GlobalIndex) * 0.37f;
-	const float Amplitude = FMath::Max(0.0f, AnticipationAmplitudeCm) * IdleBlendWeight;
-	const float RadialPulse = FMath::Sin(AnticipationRadians + IndexPhase) * Amplitude * 0.55f;
-	const float OrbitPulse = FMath::Cos(AnticipationRadians * 0.85f + IndexPhase * 1.7f) * Amplitude * 0.45f;
-	const float VerticalPulse = FMath::Sin(AnticipationRadians * 1.35f + IndexPhase * 0.61f) * Amplitude * 0.18f;
-	return IdleBaseline
-		+ RadialDir * RadialPulse
-		+ TangentDir * OrbitPulse
-		+ FVector::UpVector * VerticalPulse;
+	const metaagent::core::Vec3 Result = metaagent::particle::ActuationMath::compute_anticipation_world_position(
+		metaagent::core::Vec3(IdleBaseline.X, IdleBaseline.Y, IdleBaseline.Z),
+		GlobalIndex,
+		metaagent::core::Vec3(PatternCenter.X, PatternCenter.Y, PatternCenter.Z),
+		AnticipationElapsedSeconds,
+		AnticipationAmplitudeCm,
+		AnticipationFrequencyHz,
+		AnticipationIdleBlendDurationSeconds);
+	return FVector(Result.x, Result.y, Result.z);
 }
 
 void FMetaAgentParticleActuation::BuildAnticipationWorldPositions(
@@ -565,18 +542,28 @@ void FMetaAgentParticleActuation::BuildAnticipationWorldPositions(
 	TArray<FVector>& OutWorldPositions,
 	const float AnticipationIdleBlendDurationSeconds)
 {
-	const int32 ParticleCount = IdleBaselineWorldPositions.Num();
-	OutWorldPositions.SetNum(ParticleCount);
-	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
+	metaagent::core::Array<metaagent::core::Vec3> CoreBaselines;
+	CoreBaselines.reserve(static_cast<size_t>(IdleBaselineWorldPositions.Num()));
+	for (const FVector& Baseline : IdleBaselineWorldPositions)
 	{
-		OutWorldPositions[ParticleIndex] = ComputeAnticipationWorldPosition(
-			IdleBaselineWorldPositions[ParticleIndex],
-			ParticleIndex,
-			PatternCenter,
-			AnticipationElapsedSeconds,
-			AnticipationAmplitudeCm,
-			AnticipationFrequencyHz,
-			AnticipationIdleBlendDurationSeconds);
+		CoreBaselines.push_back(metaagent::core::Vec3(Baseline.X, Baseline.Y, Baseline.Z));
+	}
+
+	metaagent::core::Array<metaagent::core::Vec3> CorePositions;
+	metaagent::particle::ActuationMath::build_anticipation_world_positions(
+		CoreBaselines,
+		metaagent::core::Vec3(PatternCenter.X, PatternCenter.Y, PatternCenter.Z),
+		AnticipationElapsedSeconds,
+		AnticipationAmplitudeCm,
+		AnticipationFrequencyHz,
+		CorePositions,
+		AnticipationIdleBlendDurationSeconds);
+
+	OutWorldPositions.SetNum(static_cast<int32>(CorePositions.size()));
+	for (int32 Index = 0; Index < OutWorldPositions.Num(); ++Index)
+	{
+		const metaagent::core::Vec3& Position = CorePositions[static_cast<size_t>(Index)];
+		OutWorldPositions[Index] = FVector(Position.x, Position.y, Position.z);
 	}
 }
 
@@ -714,4 +701,37 @@ void FMetaAgentParticleActuation::ApplyParameters(const FMetaAgentParticleActuat
 		NiagaraComponent->SetVariableFloat(FormingArcLiftParameterName, FormingSettings.ArcLiftHeightCm);
 		NiagaraComponent->SetVariableFloat(FormingSpiralTurnsParameterName, FormingSettings.SpiralTurns);
 	}
+}
+
+FVector FMetaAgentParticleActuation::SolveFormingPosition(FMetaAgentParticleFormingContext& Context)
+{
+	metaagent::particle::FormingSettings CoreSettings;
+	if (Context.Settings)
+	{
+		MetaAgentTypeBridge::copy_forming_settings_to_core(*Context.Settings, CoreSettings);
+	}
+
+	metaagent::particle::FormingContext CoreContext;
+	CoreContext.global_index = Context.GlobalIndex;
+	CoreContext.total_particle_count = Context.TotalParticleCount;
+	CoreContext.baseline = metaagent::core::Vec3(Context.Baseline.X, Context.Baseline.Y, Context.Baseline.Z);
+	CoreContext.target = metaagent::core::Vec3(Context.Target.X, Context.Target.Y, Context.Target.Z);
+	CoreContext.pattern_center = metaagent::core::Vec3(
+		Context.PatternCenter.X,
+		Context.PatternCenter.Y,
+		Context.PatternCenter.Z);
+	CoreContext.blend_alpha = Context.BlendAlpha;
+	CoreContext.state_elapsed_seconds = Context.StateElapsedSeconds;
+	CoreContext.form_duration_seconds = Context.FormDurationSeconds;
+	CoreContext.delta_time_seconds = Context.DeltaTimeSeconds;
+	CoreContext.forming_steering_weight = Context.FormingSteeringWeight;
+	CoreContext.forming_steering_offset = metaagent::core::Vec3(
+		Context.FormingSteeringOffset.X,
+		Context.FormingSteeringOffset.Y,
+		Context.FormingSteeringOffset.Z);
+	CoreContext.settings = Context.Settings ? &CoreSettings : nullptr;
+
+	const metaagent::core::Vec3 Result =
+		metaagent::particle::FormingSolverRegistry::solve_forming_position(CoreContext);
+	return FVector(Result.x, Result.y, Result.z);
 }

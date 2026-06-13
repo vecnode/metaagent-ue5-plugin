@@ -43,8 +43,23 @@ struct FMetaAgentParticleFormingSettings
 	float SpringOvershoot = 0.12f;
 
 	METAAGENTPLUGIN_API FString GetModeDisplayName() const;
-
 	METAAGENTPLUGIN_API void CycleMode();
-
 	METAAGENTPLUGIN_API static EMetaAgentParticleFormingMode SanitizeMode(EMetaAgentParticleFormingMode Mode);
+};
+
+/** Per-particle input for metaagent forming solvers (bridge-only, not Blueprint). */
+struct FMetaAgentParticleFormingContext
+{
+	int32 GlobalIndex = INDEX_NONE;
+	int32 TotalParticleCount = 0;
+	FVector Baseline = FVector::ZeroVector;
+	FVector Target = FVector::ZeroVector;
+	FVector PatternCenter = FVector::ZeroVector;
+	float BlendAlpha = 0.0f;
+	float StateElapsedSeconds = 0.0f;
+	float FormDurationSeconds = 1.0f;
+	float DeltaTimeSeconds = 0.0f;
+	const FMetaAgentParticleFormingSettings* Settings = nullptr;
+	float FormingSteeringWeight = 0.0f;
+	FVector FormingSteeringOffset = FVector::ZeroVector;
 };

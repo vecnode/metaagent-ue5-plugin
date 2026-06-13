@@ -2,60 +2,28 @@
 
 #include "Systems/ParticleRuntime/MetaAgentParticleFormingTypes.h"
 
-EMetaAgentParticleFormingMode FMetaAgentParticleFormingSettings::SanitizeMode(
-	const EMetaAgentParticleFormingMode Mode)
+#include "Bridge/MetaAgentTypeBridge.h"
+#include "Containers/StringConv.h"
+
+#include "metaagent/particle/forming_types.hpp"
+
+EMetaAgentParticleFormingMode FMetaAgentParticleFormingSettings::SanitizeMode(const EMetaAgentParticleFormingMode Mode)
 {
-	switch (Mode)
-	{
-	case EMetaAgentParticleFormingMode::DirectLerp:
-	case EMetaAgentParticleFormingMode::ArcLift:
-	case EMetaAgentParticleFormingMode::SpiralIn:
-	case EMetaAgentParticleFormingMode::StaggeredWave:
-	case EMetaAgentParticleFormingMode::SpringChase:
-		return Mode;
-	default:
-		return EMetaAgentParticleFormingMode::DirectLerp;
-	}
+	return MetaAgentTypeBridge::from_core_forming_mode(
+		metaagent::particle::FormingSettings::sanitize_mode(MetaAgentTypeBridge::to_core_forming_mode(Mode)));
 }
 
 FString FMetaAgentParticleFormingSettings::GetModeDisplayName() const
 {
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleFormingMode::DirectLerp:
-		return TEXT("Direct Lerp");
-	case EMetaAgentParticleFormingMode::ArcLift:
-		return TEXT("Arc Lift");
-	case EMetaAgentParticleFormingMode::SpiralIn:
-		return TEXT("Spiral In");
-	case EMetaAgentParticleFormingMode::StaggeredWave:
-		return TEXT("Staggered Wave");
-	case EMetaAgentParticleFormingMode::SpringChase:
-		return TEXT("Spring Chase");
-	default:
-		return TEXT("Direct Lerp");
-	}
+	metaagent::particle::FormingSettings CoreSettings;
+	MetaAgentTypeBridge::copy_forming_settings_to_core(*this, CoreSettings);
+	return FString(UTF8_TO_TCHAR(CoreSettings.get_mode_display_name().c_str()));
 }
 
 void FMetaAgentParticleFormingSettings::CycleMode()
 {
-	switch (SanitizeMode(Mode))
-	{
-	case EMetaAgentParticleFormingMode::DirectLerp:
-		Mode = EMetaAgentParticleFormingMode::ArcLift;
-		break;
-	case EMetaAgentParticleFormingMode::ArcLift:
-		Mode = EMetaAgentParticleFormingMode::SpiralIn;
-		break;
-	case EMetaAgentParticleFormingMode::SpiralIn:
-		Mode = EMetaAgentParticleFormingMode::StaggeredWave;
-		break;
-	case EMetaAgentParticleFormingMode::StaggeredWave:
-		Mode = EMetaAgentParticleFormingMode::SpringChase;
-		break;
-	case EMetaAgentParticleFormingMode::SpringChase:
-	default:
-		Mode = EMetaAgentParticleFormingMode::DirectLerp;
-		break;
-	}
+	metaagent::particle::FormingSettings CoreSettings;
+	MetaAgentTypeBridge::copy_forming_settings_to_core(*this, CoreSettings);
+	CoreSettings.cycle_mode();
+	MetaAgentTypeBridge::copy_forming_settings_from_core(CoreSettings, *this);
 }

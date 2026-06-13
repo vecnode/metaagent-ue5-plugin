@@ -13,6 +13,35 @@
 #include "Systems/ParticleRuntime/MetaAgentParticleImageMaskProcessor.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeCache.h"
 #include "Systems/ParticleRuntime/MetaAgentParticleShapeRegistry.h"
+
+#include "Bridge/MetaAgentTypeBridge.h"
+
+#include "metaagent/particle/shape_builder.hpp"
+
+namespace
+{
+metaagent::particle::ShapeAssignmentMode ToCoreAssignmentMode(const EMetaAgentParticleShapeAssignmentMode Mode)
+{
+	switch (Mode)
+	{
+	case EMetaAgentParticleShapeAssignmentMode::Ordered: return metaagent::particle::ShapeAssignmentMode::Ordered;
+	case EMetaAgentParticleShapeAssignmentMode::PolarMatched: return metaagent::particle::ShapeAssignmentMode::PolarMatched;
+	case EMetaAgentParticleShapeAssignmentMode::NearestNeighbor:
+	default:
+		return metaagent::particle::ShapeAssignmentMode::NearestNeighbor;
+	}
+}
+
+void CopyVec3ArrayToCore(const TArray<FVector>& Source, metaagent::core::Array<metaagent::core::Vec3>& Destination)
+{
+	Destination.clear();
+	Destination.reserve(static_cast<size_t>(Source.Num()));
+	for (const FVector& Value : Source)
+	{
+		Destination.push_back(metaagent::core::Vec3(Value.X, Value.Y, Value.Z));
+	}
+}
+}
 FString FMetaAgentParticleShapeDefinition::GetShapeDisplayName() const
 {
 	switch (ShapeType)
@@ -111,65 +140,18 @@ bool FMetaAgentParticleShapeBuilder::BuildSquareGridTargets(
 	const FMetaAgentParticleShapeContext& ShapeContext,
 	FMetaAgentParticleShapeBuildResult& OutResult)
 {
-	const TArray<FVector>& Baseline = ShapeContext.BaselineWorldPositions;
-	const int32 ParticleCount = Baseline.Num();
-	OutResult.PatternWorldTargets.Reset();
+	metaagent::particle::PatternConfig CoreConfig;
+	metaagent::particle::ShapeContext CoreContext;
+	MetaAgentTypeBridge::copy_pattern_config_to_core(PatternConfig, CoreConfig);
+	MetaAgentTypeBridge::copy_shape_context_to_core(ShapeContext, CoreContext);
 
-	if (ParticleCount <= 0)
-	{
-		OutResult.bSuccess = false;
-		OutResult.DebugInfo = TEXT("No baseline particles.");
-		return false;
-	}
-
-	const int32 PatternColumns = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(ParticleCount))));
-	const int32 RowCount = FMath::DivideAndRoundUp(ParticleCount, PatternColumns);
-
-	FVector Centroid = FVector::ZeroVector;
-	for (const FVector& Position : Baseline)
-	{
-		Centroid += Position;
-	}
-	Centroid /= static_cast<float>(ParticleCount);
-
-	const float GridSpacingCm = FMath::Max(1.0f, PatternConfig.GridSpacingCm);
-	const FVector GridOrigin = Centroid - FVector(
-		(PatternColumns - 1) * GridSpacingCm * 0.5f,
-		(RowCount - 1) * GridSpacingCm * 0.5f,
-		0.0f);
-
-	OutResult.PatternWorldTargets.SetNum(ParticleCount);
-	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
-	{
-		const int32 Column = ParticleIndex % PatternColumns;
-		const int32 Row = ParticleIndex / PatternColumns;
-		OutResult.PatternWorldTargets[ParticleIndex] = GridOrigin + FVector(
-			Column * GridSpacingCm,
-			Row * GridSpacingCm,
-			0.0f);
-	}
-
-	FMetaAgentImagePreviewRuntime::FShapeFrameBuildParams FrameParams;
-	FrameParams.ShapeWidthCm = PatternColumns * GridSpacingCm;
-	FrameParams.ShapeHeightCm = RowCount * GridSpacingCm;
-	FrameParams.ZOffsetCm = PatternConfig.Shape.ZOffsetCm;
-	FrameParams.bAutoFitToParticleSphere = false;
-	FrameParams.bOrientShapeToView = false;
-	OutResult.ShapeFrame = FMetaAgentImagePreviewRuntime::BuildShapeFrameFromCentroid(
-		Baseline,
-		FrameParams);
-	OutResult.ShapeFrame.Origin = Centroid;
-	OutResult.PatternCenter = Centroid;
-	OutResult.PatternColumns = PatternColumns;
-	OutResult.ShapePointCount = ParticleCount;
-	OutResult.ResolvedShape = EMetaAgentParticlePatternShape::SquareGrid;
-	OutResult.bSuccess = true;
-	OutResult.DebugInfo = FString::Printf(
-		TEXT("SquareGrid columns=%d spacing=%.1f"),
-		PatternColumns,
-		GridSpacingCm);
-
-	return true;
+	metaagent::particle::ShapeBuildResult CoreResult;
+	const bool bSuccess = metaagent::particle::ShapeBuilder::build_square_grid_targets(
+		CoreConfig,
+		CoreContext,
+		CoreResult);
+	MetaAgentTypeBridge::copy_shape_build_result_from_core(CoreResult, OutResult);
+	return bSuccess;
 }
 
 FMetaAgentParticleShapeFrame FMetaAgentParticleShapeBuilder::ResolveShapeFrame(
@@ -177,39 +159,24 @@ FMetaAgentParticleShapeFrame FMetaAgentParticleShapeBuilder::ResolveShapeFrame(
 	const FMetaAgentParticleShapeContext& ShapeContext,
 	const UTexture2D* SourceTexture)
 {
-	const FMetaAgentParticleShapeDefinition& ShapeDef = PatternConfig.Shape;
+	metaagent::particle::PatternConfig CoreConfig;
+	metaagent::particle::ShapeContext CoreContext;
+	MetaAgentTypeBridge::copy_pattern_config_to_core(PatternConfig, CoreConfig);
+	MetaAgentTypeBridge::copy_shape_context_to_core(ShapeContext, CoreContext);
 
-	if (ShapeDef.ShapeAnchor == EMetaAgentParticleShapeAnchor::PreviewPlane
-		&& ShapeContext.PreviewPlaneMesh)
-	{
-		return FMetaAgentImagePreviewRuntime::BuildShapeFrameFromPreviewPlane(
-			ShapeContext.PreviewPlaneMesh,
-			ShapeDef.ZOffsetCm);
-	}
+	const int32 TextureWidth = SourceTexture ? SourceTexture->GetSizeX() : CoreContext.source_texture_width;
+	const int32 TextureHeight = SourceTexture ? SourceTexture->GetSizeY() : CoreContext.source_texture_height;
+	const metaagent::particle::ShapeFrame CoreFrame = metaagent::particle::ShapeBuilder::resolve_shape_frame(
+		CoreConfig,
+		CoreContext,
+		TextureWidth,
+		TextureHeight);
 
-	float ShapeHeightCm = ShapeDef.ShapeHeightCm;
-	if (ShapeHeightCm <= 0.0f && SourceTexture)
-	{
-		const int32 TexWidth = SourceTexture->GetSizeX();
-		const int32 TexHeight = SourceTexture->GetSizeY();
-		if (TexWidth > 0 && TexHeight > 0)
-		{
-			ShapeHeightCm = ShapeDef.ShapeWidthCm * (static_cast<float>(TexHeight) / static_cast<float>(TexWidth));
-		}
-	}
-
-	FMetaAgentImagePreviewRuntime::FShapeFrameBuildParams FrameParams;
-	FrameParams.ShapeWidthCm = ShapeDef.ShapeWidthCm;
-	FrameParams.ShapeHeightCm = ShapeHeightCm;
-	FrameParams.ZOffsetCm = ShapeDef.ZOffsetCm;
-	FrameParams.bAutoFitToParticleSphere = ShapeDef.bAutoFitShapeToParticleSphere;
-	FrameParams.bOrientShapeToView = ShapeDef.bOrientShapeToView;
-	FrameParams.ViewOrigin = ShapeContext.ViewOrigin;
-	FrameParams.bHasViewOrigin = ShapeContext.bHasViewOrigin;
-
-	return FMetaAgentImagePreviewRuntime::BuildShapeFrameFromCentroid(
-		ShapeContext.BaselineWorldPositions,
-		FrameParams);
+	FMetaAgentParticleShapeBuildResult TempResult;
+	MetaAgentTypeBridge::copy_shape_build_result_from_core(
+		metaagent::particle::ShapeBuildResult {.shape_frame = CoreFrame},
+		TempResult);
+	return TempResult.ShapeFrame;
 }
 
 bool FMetaAgentParticleShapeBuilder::ExtractSilhouetteLocalPoints(
@@ -258,13 +225,18 @@ FVector FMetaAgentParticleShapeBuilder::LocalPointToWorld(
 	const FVector& LocalPointCm,
 	const FMetaAgentParticleShapeFrame& ShapeFrame)
 {
-	const FVector ScaledLocal(
-		LocalPointCm.X * ShapeFrame.ExtentsCm.X,
-		LocalPointCm.Y * ShapeFrame.ExtentsCm.Y,
-		ShapeFrame.ZOffsetCm);
+	metaagent::particle::ShapeFrame CoreFrame;
+	CoreFrame.origin = metaagent::core::Vec3(ShapeFrame.Origin.X, ShapeFrame.Origin.Y, ShapeFrame.Origin.Z);
+	CoreFrame.orientation.pitch_deg = ShapeFrame.Orientation.Pitch;
+	CoreFrame.orientation.yaw_deg = ShapeFrame.Orientation.Yaw;
+	CoreFrame.orientation.roll_deg = ShapeFrame.Orientation.Roll;
+	CoreFrame.extents_cm = metaagent::core::Vec2(ShapeFrame.ExtentsCm.X, ShapeFrame.ExtentsCm.Y);
+	CoreFrame.z_offset_cm = ShapeFrame.ZOffsetCm;
 
-	const FVector RotatedLocal = ShapeFrame.Orientation.RotateVector(ScaledLocal);
-	return ShapeFrame.Origin + RotatedLocal;
+	const metaagent::core::Vec3 Result = metaagent::particle::ShapeBuilder::local_point_to_world(
+		metaagent::core::Vec3(LocalPointCm.X, LocalPointCm.Y, LocalPointCm.Z),
+		CoreFrame);
+	return FVector(Result.x, Result.y, Result.z);
 }
 
 void FMetaAgentParticleShapeBuilder::AssignParticlesToShapePoints(
@@ -274,133 +246,32 @@ void FMetaAgentParticleShapeBuilder::AssignParticlesToShapePoints(
 	const EMetaAgentParticleShapeAssignmentMode AssignmentMode,
 	TArray<FVector>& OutWorldTargets)
 {
-	const int32 ParticleCount = BaselineWorldPositions.Num();
-	OutWorldTargets.Reset();
-	if (ParticleCount <= 0 || LocalShapePointsCm.Num() <= 0)
+	metaagent::core::Array<metaagent::core::Vec3> CoreBaselines;
+	metaagent::core::Array<metaagent::core::Vec3> CoreLocalPoints;
+	CopyVec3ArrayToCore(BaselineWorldPositions, CoreBaselines);
+	CopyVec3ArrayToCore(LocalShapePointsCm, CoreLocalPoints);
+
+	metaagent::particle::ShapeFrame CoreFrame;
+	CoreFrame.origin = metaagent::core::Vec3(ShapeFrame.Origin.X, ShapeFrame.Origin.Y, ShapeFrame.Origin.Z);
+	CoreFrame.orientation.pitch_deg = ShapeFrame.Orientation.Pitch;
+	CoreFrame.orientation.yaw_deg = ShapeFrame.Orientation.Yaw;
+	CoreFrame.orientation.roll_deg = ShapeFrame.Orientation.Roll;
+	CoreFrame.extents_cm = metaagent::core::Vec2(ShapeFrame.ExtentsCm.X, ShapeFrame.ExtentsCm.Y);
+	CoreFrame.z_offset_cm = ShapeFrame.ZOffsetCm;
+
+	metaagent::core::Array<metaagent::core::Vec3> CoreTargets;
+	metaagent::particle::ShapeBuilder::assign_particles_to_shape_points(
+		CoreBaselines,
+		CoreLocalPoints,
+		CoreFrame,
+		ToCoreAssignmentMode(AssignmentMode),
+		CoreTargets);
+
+	OutWorldTargets.Reset(static_cast<int32>(CoreTargets.size()));
+	OutWorldTargets.Reserve(static_cast<int32>(CoreTargets.size()));
+	for (const metaagent::core::Vec3& Point : CoreTargets)
 	{
-		return;
-	}
-
-	TArray<FVector> ShapeWorldPoints;
-	ShapeWorldPoints.Reserve(LocalShapePointsCm.Num());
-	for (const FVector& LocalPoint : LocalShapePointsCm)
-	{
-		ShapeWorldPoints.Add(LocalPointToWorld(LocalPoint, ShapeFrame));
-	}
-
-	OutWorldTargets.SetNum(ParticleCount);
-
-	if (AssignmentMode == EMetaAgentParticleShapeAssignmentMode::Ordered)
-	{
-		for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
-		{
-			const int32 ShapeIndex = ParticleIndex % ShapeWorldPoints.Num();
-			OutWorldTargets[ParticleIndex] = ShapeWorldPoints[ShapeIndex];
-		}
-		return;
-	}
-
-	if (AssignmentMode == EMetaAgentParticleShapeAssignmentMode::PolarMatched)
-	{
-		FVector BaselineCentroid = FVector::ZeroVector;
-		for (const FVector& Position : BaselineWorldPositions)
-		{
-			BaselineCentroid += Position;
-		}
-		BaselineCentroid /= static_cast<float>(ParticleCount);
-
-		FVector ShapeCentroid = FVector::ZeroVector;
-		for (const FVector& Position : ShapeWorldPoints)
-		{
-			ShapeCentroid += Position;
-		}
-		ShapeCentroid /= static_cast<float>(ShapeWorldPoints.Num());
-
-		TArray<int32> ParticleOrder;
-		ParticleOrder.Reserve(ParticleCount);
-		for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
-		{
-			ParticleOrder.Add(ParticleIndex);
-		}
-		ParticleOrder.Sort([&BaselineWorldPositions, BaselineCentroid](const int32 A, const int32 B)
-		{
-			const FVector DeltaA = BaselineWorldPositions[A] - BaselineCentroid;
-			const FVector DeltaB = BaselineWorldPositions[B] - BaselineCentroid;
-			return FMath::Atan2(DeltaA.Y, DeltaA.X) < FMath::Atan2(DeltaB.Y, DeltaB.X);
-		});
-
-		TArray<int32> ShapeOrder;
-		ShapeOrder.Reserve(ShapeWorldPoints.Num());
-		for (int32 ShapeIndex = 0; ShapeIndex < ShapeWorldPoints.Num(); ++ShapeIndex)
-		{
-			ShapeOrder.Add(ShapeIndex);
-		}
-		ShapeOrder.Sort([&ShapeWorldPoints, ShapeCentroid](const int32 A, const int32 B)
-		{
-			const FVector DeltaA = ShapeWorldPoints[A] - ShapeCentroid;
-			const FVector DeltaB = ShapeWorldPoints[B] - ShapeCentroid;
-			return FMath::Atan2(DeltaA.Y, DeltaA.X) < FMath::Atan2(DeltaB.Y, DeltaB.X);
-		});
-
-		for (int32 OrderIndex = 0; OrderIndex < ParticleCount; ++OrderIndex)
-		{
-			const int32 ParticleIndex = ParticleOrder[OrderIndex];
-			const int32 ShapeIndex = ShapeOrder[OrderIndex % ShapeOrder.Num()];
-			OutWorldTargets[ParticleIndex] = ShapeWorldPoints[ShapeIndex];
-		}
-		return;
-	}
-
-	TArray<bool> UsedShapePoints;
-	UsedShapePoints.Init(false, ShapeWorldPoints.Num());
-
-	TArray<int32> ParticleOrder;
-	ParticleOrder.Reserve(ParticleCount);
-	for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
-	{
-		ParticleOrder.Add(ParticleIndex);
-	}
-	ParticleOrder.Sort([&BaselineWorldPositions](const int32 A, const int32 B)
-	{
-		const FVector PosA = BaselineWorldPositions[A];
-		const FVector PosB = BaselineWorldPositions[B];
-		if (!FMath::IsNearlyEqual(PosA.Y, PosB.Y, 0.01f))
-		{
-			return PosA.Y < PosB.Y;
-		}
-		return PosA.X < PosB.X;
-	});
-
-	for (const int32 ParticleIndex : ParticleOrder)
-	{
-		const FVector& BaselinePosition = BaselineWorldPositions[ParticleIndex];
-
-		float BestDistanceSq = TNumericLimits<float>::Max();
-		int32 BestShapeIndex = 0;
-		for (int32 ShapeIndex = 0; ShapeIndex < ShapeWorldPoints.Num(); ++ShapeIndex)
-		{
-			if (UsedShapePoints.IsValidIndex(ShapeIndex) && UsedShapePoints[ShapeIndex])
-			{
-				continue;
-			}
-
-			const float DistanceSq = FVector::DistSquared(BaselinePosition, ShapeWorldPoints[ShapeIndex]);
-			if (DistanceSq < BestDistanceSq)
-			{
-				BestDistanceSq = DistanceSq;
-				BestShapeIndex = ShapeIndex;
-			}
-		}
-
-		if (ShapeWorldPoints.IsValidIndex(BestShapeIndex))
-		{
-			UsedShapePoints[BestShapeIndex] = true;
-			OutWorldTargets[ParticleIndex] = ShapeWorldPoints[BestShapeIndex];
-		}
-		else
-		{
-			OutWorldTargets[ParticleIndex] = ShapeWorldPoints[ParticleIndex % ShapeWorldPoints.Num()];
-		}
+		OutWorldTargets.Add(FVector(Point.x, Point.y, Point.z));
 	}
 }
 

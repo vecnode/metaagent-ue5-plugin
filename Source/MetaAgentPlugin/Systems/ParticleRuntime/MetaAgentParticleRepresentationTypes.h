@@ -156,40 +156,6 @@ struct FMetaAgentParticleRepresentationFrame
 	TArray<FVector> FormingSteeringOffsets;
 };
 
-struct FMetaAgentPatternTransitionContext
-{
-	EMetaAgentParticlePatternState State = EMetaAgentParticlePatternState::Idle;
-	bool bAwaitingAsyncMask = false;
-	int32 PatternTargetCount = 0;
-	bool bManualStateAdvance = true;
-	bool bSkipReturnOnCancel = false;
-	bool bDissipateReturnMode = false;
-	float StateElapsedSeconds = 0.0f;
-	float FormDurationSeconds = 1.5f;
-	float HoldDurationSeconds = 0.5f;
-	float ReturnDurationSeconds = 1.5f;
-	float DissipateDurationSeconds = 1.2f;
-};
-
-enum class EMetaAgentPatternTransitionAction : uint8
-{
-	None,
-	EnterState,
-	CompleteRun,
-	BeginConfiguredReturn,
-	BeginPatternStart,
-	RequestDissipate
-};
-
-struct FMetaAgentPatternTransitionResult
-{
-	bool bHandled = false;
-	EMetaAgentPatternTransitionAction Action = EMetaAgentPatternTransitionAction::None;
-	EMetaAgentParticlePatternState NewState = EMetaAgentParticlePatternState::Idle;
-	bool bRestoreIdleBaselineOnEnter = false;
-	bool bClearPatternStartLog = false;
-};
-
 class METAAGENTPLUGIN_API FMetaAgentParticleRepresentationMapping
 {
 public:
