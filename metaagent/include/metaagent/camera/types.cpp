@@ -42,4 +42,28 @@ Bounds3 compute_bounds(const core::Array<core::Vec3>& points)
 	return bounds;
 }
 
+CinematicStyle cycle_cinematic_style(const CinematicStyle current)
+{
+	switch (current)
+	{
+	case CinematicStyle::OscillatingHold:
+		return CinematicStyle::SlowOrbit;
+	case CinematicStyle::SlowOrbit:
+	default:
+		return CinematicStyle::OscillatingHold;
+	}
+}
+
+const char* cinematic_style_label(const CinematicStyle style)
+{
+	switch (style)
+	{
+	case CinematicStyle::SlowOrbit:
+		return "Slow Orbit";
+	case CinematicStyle::OscillatingHold:
+	default:
+		return "Oscillating Hold";
+	}
+}
+
 } // namespace metaagent::camera

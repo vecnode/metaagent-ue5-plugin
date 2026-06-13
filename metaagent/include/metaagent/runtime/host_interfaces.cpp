@@ -1,0 +1,37 @@
+#include "metaagent/runtime/host_interfaces.hpp"
+
+namespace metaagent::runtime {
+
+RecordingSnapshot default_recording_snapshot()
+{
+	RecordingSnapshot snapshot;
+	snapshot.status_text = "Recording host not bound.";
+	return snapshot;
+}
+
+AiSnapshot default_ai_snapshot()
+{
+	AiSnapshot snapshot;
+	snapshot.status_text = "AI host not bound.";
+	return snapshot;
+}
+
+bool invoke_toggle_recording(const HostServiceCallbacks& callbacks)
+{
+	if (callbacks.toggle_recording)
+	{
+		return callbacks.toggle_recording();
+	}
+	return false;
+}
+
+bool invoke_toggle_autopilot(const HostServiceCallbacks& callbacks)
+{
+	if (callbacks.toggle_autopilot)
+	{
+		return callbacks.toggle_autopilot();
+	}
+	return false;
+}
+
+} // namespace metaagent::runtime

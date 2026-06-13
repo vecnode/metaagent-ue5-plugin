@@ -1,24 +1,9 @@
 #include "metaagent/app/gui_actions.hpp"
 
+#include "metaagent/particle/effect_catalog.hpp"
+
 namespace metaagent::app {
 namespace {
-
-CommandId map_particle_gui_action(const core::String& action_id)
-{
-	if (action_id == "ParticleLoadPreview")
-	{
-		return CommandId::LoadPreviewImage;
-	}
-	if (action_id == "ParticleStepBackward")
-	{
-		return CommandId::PatternStepBackward;
-	}
-	if (action_id == "ParticleStepForward")
-	{
-		return CommandId::PatternStepForward;
-	}
-	return CommandId::Unknown;
-}
 
 CommandId map_camera_gui_action(const core::String& action_id)
 {
@@ -30,7 +15,45 @@ CommandId map_camera_gui_action(const core::String& action_id)
 	{
 		return CommandId::ToggleFocusParticles;
 	}
+	if (action_id == "CycleCinematicStyle")
+	{
+		return CommandId::CycleCinematicStyle;
+	}
 	return CommandId::Unknown;
+}
+
+CommandId map_networking_gui_action(const core::String& action_id)
+{
+	if (action_id == "StartAudio")
+	{
+		return CommandId::StartPlatformAudio;
+	}
+	if (action_id == "StartImage")
+	{
+		return CommandId::StartPlatformImage;
+	}
+	return CommandId::Unknown;
+}
+
+CommandId map_particle_gui_action(const core::String& action_id)
+{
+	const particle::ParticleGuiActionSpec* spec = particle::find_particle_gui_action(action_id);
+	if (!spec)
+	{
+		return CommandId::Unknown;
+	}
+
+	if (spec->dispatch_kind == particle::ParticleGuiDispatchKind::LoadPreviewPng)
+	{
+		return CommandId::LoadPreviewImage;
+	}
+
+	if (spec->effect_id == "PatternStepBackward")
+	{
+		return CommandId::PatternStepBackward;
+	}
+
+	return CommandId::PatternStepForward;
 }
 
 } // namespace
@@ -40,6 +63,16 @@ CommandId command_for_gui_action(const core::String& action_id)
 	if (action_id == "ToggleHelpPanel")
 	{
 		return CommandId::ToggleGuiHelp;
+	}
+	if (action_id == "QuitApplication")
+	{
+		return CommandId::QuitApplication;
+	}
+
+	const CommandId networking_command = map_networking_gui_action(action_id);
+	if (networking_command != CommandId::Unknown)
+	{
+		return networking_command;
 	}
 
 	const CommandId particle_command = map_particle_gui_action(action_id);

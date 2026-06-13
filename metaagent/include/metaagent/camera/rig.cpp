@@ -137,6 +137,13 @@ CameraPose compute_cinematic_pose(
 
 	switch (sanitized_settings.active_style)
 	{
+	case CinematicStyle::SlowOrbit:
+	{
+		const float orbit_speed_degrees_per_second = 14.0f * style_time_scale;
+		current_orbit_yaw = state.start_orbit_yaw_degrees
+			+ (state.pan_elapsed_seconds * orbit_speed_degrees_per_second);
+		break;
+	}
 	case CinematicStyle::OscillatingHold:
 	default:
 	{
@@ -151,10 +158,15 @@ CameraPose compute_cinematic_pose(
 	const float time_with_phase = state.pan_elapsed_seconds + state.sway_phase_offset;
 	const float base_frequency_radians = (std::max(0.1f, sanitized_settings.sway_frequency) * k_two_pi) * style_time_scale;
 	const float orbit_yaw_radians = current_orbit_yaw * k_pi / 180.0f;
-	const float horizontal_sway = std::sin(time_with_phase * base_frequency_radians)
-		* sanitized_settings.sway_horizontal_amplitude;
-	const float vertical_sway = std::sin((time_with_phase * base_frequency_radians * 0.57f) + 1.2f)
-		* sanitized_settings.sway_vertical_amplitude;
+	float horizontal_sway = 0.0f;
+	float vertical_sway = 0.0f;
+	if (sanitized_settings.active_style != CinematicStyle::SlowOrbit)
+	{
+		horizontal_sway = std::sin(time_with_phase * base_frequency_radians)
+			* sanitized_settings.sway_horizontal_amplitude;
+		vertical_sway = std::sin((time_with_phase * base_frequency_radians * 0.57f) + 1.2f)
+			* sanitized_settings.sway_vertical_amplitude;
+	}
 
 	const core::Vec3 orbit_direction(
 		std::cos(orbit_yaw_radians),

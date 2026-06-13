@@ -7,6 +7,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "MetaAgentTypeBridge.h"
+#include "metaagent/app/gui_catalog.hpp"
+#include "metaagent/particle/effect_catalog.hpp"
 #include "metaagent/particle/representation_actuation.hpp"
 #include "MetaAgentParticleShapes.h"
 #include "MetaAgentHUD.h"
@@ -931,11 +933,14 @@ TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()
 TArray<FMetaAgentGUIActionRow> FMetaAgentParticleInputRouter::GetParticleGUIActionRows()
 {
 	TArray<FMetaAgentGUIActionRow> Rows;
-	Rows.Add(MakeParticleRow(TEXT("F"), TEXT("Load sdxl_latest.png preview + image shape source"), MetaAgentRuntimeIds::ParticleLoadPreview));
-	Rows.Add(MakeParticleRow(TEXT(","), TEXT("Step pattern state backward"), MetaAgentRuntimeIds::ParticleStepBackward));
-	Rows.Add(MakeParticleRow(TEXT("."), TEXT("Step pattern state forward (Idle starts Forming)"), MetaAgentRuntimeIds::ParticleStepForward));
-	Rows.Add(MakeParticleRow(TEXT("B"), TEXT("Apply Slow preset"), MetaAgentRuntimeIds::ParticleSlowPreset));
-	Rows.Add(MakeParticleRow(TEXT("N"), TEXT("Apply Dramatic preset"), MetaAgentRuntimeIds::ParticleDramaticPreset));
+	for (const metaagent::app::GuiPanelRow& RowSpec : metaagent::particle::particle_gui_panel_rows())
+	{
+		FMetaAgentGUIActionRow Row;
+		Row.KeyLabel = FString(UTF8_TO_TCHAR(RowSpec.key_label.c_str()));
+		Row.Description = FString(UTF8_TO_TCHAR(RowSpec.description.c_str()));
+		Row.ActionId = FName(*FString(UTF8_TO_TCHAR(RowSpec.action_id.c_str())));
+		Rows.Add(Row);
+	}
 	return Rows;
 }
 

@@ -31,10 +31,14 @@
 
 #include "metaagent/app/commands.cpp"
 #include "metaagent/app/gui_actions.cpp"
+#include "metaagent/app/gui_catalog.cpp"
 #include "metaagent/input/policy.cpp"
+#include "metaagent/particle/effect_catalog.cpp"
+#include "metaagent/runtime/host_interfaces.cpp"
 #include "metaagent/net/json.cpp"
 #include "metaagent/net/handlers.cpp"
 #include "metaagent/net/router.cpp"
+#include "metaagent/net/platform_client.cpp"
 #include "metaagent/notify/parse.cpp"
 #include "metaagent/session/status.cpp"
 

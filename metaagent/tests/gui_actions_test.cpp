@@ -24,6 +24,8 @@ int main()
 	session.features.camera = true;
 
 	assert(command_for_gui_action("ParticleStepForward") == CommandId::PatternStepForward);
+	assert(command_for_gui_action("StartAudio") == CommandId::StartPlatformAudio);
+	assert(command_for_gui_action("CycleCinematicStyle") == CommandId::CycleCinematicStyle);
 	const CommandResult valid = validate_gui_action("ParticleStepForward", session);
 	assert(valid.handled && valid.success);
 

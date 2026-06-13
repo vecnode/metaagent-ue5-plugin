@@ -5,7 +5,8 @@
 namespace metaagent::camera {
 
 enum class CinematicStyle : uint8_t {
-	OscillatingHold = 0
+	OscillatingHold = 0,
+	SlowOrbit = 1
 };
 
 struct ZoomSettings {
@@ -58,5 +59,9 @@ struct Bounds3 {
 };
 
 METAAGENT_API Bounds3 compute_bounds(const core::Array<core::Vec3>& points);
+
+METAAGENT_API CinematicStyle cycle_cinematic_style(CinematicStyle current);
+
+METAAGENT_API const char* cinematic_style_label(CinematicStyle style);
 
 } // namespace metaagent::camera

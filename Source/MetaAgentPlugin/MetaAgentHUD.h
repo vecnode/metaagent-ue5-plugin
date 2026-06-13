@@ -33,6 +33,7 @@ namespace MetaAgentRuntimeIds
 	static const FName ToggleHelpPanel(TEXT("ToggleHelpPanel"));
 	static const FName QuitApplication(TEXT("QuitApplication"));
 	static const FName ToggleCinematicCamera(TEXT("ToggleCinematicCamera"));
+	static const FName CycleCinematicStyle(TEXT("CycleCinematicStyle"));
 	static const FName ToggleAutopilot(TEXT("ToggleAutopilot"));
 	static const FName ToggleRecording(TEXT("ToggleRecording"));
 	static const FName ReportRecording(TEXT("ReportRecording"));

@@ -15,8 +15,8 @@ Portable domain logic lives in [`metaagent/`](./metaagent/) and is embedded into
 | Particle FSM, actuation, solvers | Yes | Niagara I/O, orchestrator, assets |
 | Camera orbit / zoom / sway math | Yes | View target blend, focus queries, observation lock |
 | Inbound HTTP `/health` `/echo` `/notify` | Yes (handlers) | Epic HTTPServer bind (`Host/MetaAgentHttpBridge`) |
-| Outbound platform HTTP (H/G COMMS) | **No** (yet) | `UMetaAgentGameInstance::SendEventToPlatform` |
-| Command + GUI validation | Yes | Key binds, HUD panel, dispatch |
+| Outbound platform HTTP (H/G COMMS) | **`net/platform_client`** (URL, JSON, response parse) | **`FMetaAgentPlatformBridge`** (`FHttpModule` POST only) |
+| Command + GUI validation | Yes (`app/commands`, `app/gui_catalog`, `app/gui_actions`) | Key binds, HUD draw, dispatch |
 | Input policy (GUI open vs observation) | Yes | Enhanced Input, `PlayerTick` mouse hit-test |
 | AI autopilot, recording, character pawn | No | `MetaAgentGameplay`, `MetaAgentPlayerController` |
 
@@ -64,6 +64,7 @@ Runtime sources under `Source/MetaAgentPlugin/`:
 | `MetaAgentTypeBridge.h/.cpp` | UE ↔ core conversion, scheduler + camera sync |
 | `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` |
 | `Host/MetaAgentHttpBridge.*` | Inbound HTTP server bridge |
+| `Host/MetaAgentPlatformBridge.*` | Outbound platform POST bridge |
 | `Host/MetaAgentHostSession.*` | Session snapshot for core validation |
 | `Host/MetaAgentInputBridge.*` | Command / GUI validation wrapper |
 
@@ -94,6 +95,7 @@ Observation cinematic camera with particle focus.
 |-------|--------|
 | **O** | Toggle cinematic mode |
 | **P** | Re-focus on particles |
+| **V** | Cycle cinematic style (Oscillating hold ↔ Slow orbit) |
 | **Wheel** | Zoom orbit radius (panel closed, cinematic on) |
 
 ### Config (UE)
@@ -116,17 +118,18 @@ Focus resolution (where to look) stays in UE: `FMetaAgentCameraRuntime::ResolveF
 
 Press **Q** to toggle the controls panel. Click rows or use keyboard shortcuts.
 
-**Panel sections (current):**
+**Panel sections** come from core `build_gui_panel_catalog()`; UE only renders and dispatches.
 
 | Section | Actions |
 |---------|---------|
 | GUI | Q — toggle panel; Esc — quit |
-| Camera | O — cinematic; P — particle focus (wheel zoom noted as status line) |
+| Camera | O — cinematic; P — particle focus; **V — cycle style** |
+| Networking | **H — start audio**; **G — start image** (requires Networking START) |
 | Particle | F — load preview; `,` / `.` — step pattern; B / N — Slow / Dramatic presets |
 
-Section headers support **START/STOP** toggles for Camera and Particle runtimes. Expand/collapse via the `>` / `v` control.
+Section headers support **START/STOP** toggles for Camera, Networking, and Particle runtimes. Expand/collapse via the `>` / `v` control.
 
-Dispatch: `FMetaAgentGUIRuntime::DispatchPanelAction` → validates via core (`MetaAgentInputBridge`) → `ExecuteGuiParticleAction` for particle rows (no double keyboard gate).
+Dispatch: `FMetaAgentGUIRuntime::DispatchPanelAction` → validates via core (`MetaAgentInputBridge`) → host handlers (`ExecuteGuiParticleAction` uses `particle/effect_catalog` lookup).
 
 Keyboard shortcuts for morph, cycle modes, snappy/dreamy presets, recording, networking, and AI still exist where bound but are **not** shown as panel rows.
 
@@ -138,20 +141,20 @@ Keyboard shortcuts for morph, cycle modes, snappy/dreamy presets, recording, net
 
 Two separate paths:
 
-| Path | Implementation |
-|------|----------------|
-| **Inbound** local HTTP server | Core handlers in `metaagent/net/`; bind via `FMetaAgentHttpBridge` when networking runtime START |
-| **Outbound** platform events | UE `FHttpModule` POST from `UMetaAgentGameInstance` (**H** / **G** keys — not in current GUI panel) |
+| Path | Core | UE host |
+|------|------|---------|
+| **Inbound** local HTTP server | `net/handlers`, `net/router` | `FMetaAgentHttpBridge` |
+| **Outbound** platform events (H/G keys + panel) | `net/platform_client` | `FMetaAgentPlatformBridge` → `UMetaAgentGameInstance` status tracking |
 
-Settings: `UMetaAgentPluginSettings` (port, enable flags).
+Settings: `UMetaAgentPluginSettings` / game instance config (base URL, endpoint, session id).
 
-- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `Host/MetaAgentHttpBridge.*`, `MetaAgentPlugin.h`
+- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `Host/MetaAgentHttpBridge.*`, `Host/MetaAgentPlatformBridge.*`
 
 ---
 
 ## Module 5 — RecordingRuntime
 
-Viewport capture via Movie Scene Capture (**J** toggle, **U** finalize). Not exposed in the trimmed GUI panel.
+Viewport capture via Movie Scene Capture (**J** toggle, **U** finalize). Core defines `runtime/host_interfaces` snapshots and callbacks; UE implementation not yet wired to those callbacks.
 
 - **Implemented in:** `MetaAgentPlayerController.cpp`
 
@@ -159,7 +162,7 @@ Viewport capture via Movie Scene Capture (**J** toggle, **U** finalize). Not exp
 
 ## Module 6 — AIRuntime
 
-Autopilot toggle (**I**). Not exposed in the trimmed GUI panel.
+Autopilot toggle (**I**). Core `HostServiceCallbacks::toggle_autopilot` defined; UE not yet wired.
 
 - **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
 
@@ -185,7 +188,7 @@ FSM and actuation math run in core `ParticleScheduler` (no duplicate graph in th
 | **J** / **K** | Snappy / Dreamy preset (keyboard only; J also bound to recording toggle) |
 | **M**, **T**, **Y**, **U** | Morph, cycle sampling/forming/returning (keyboard only) |
 
-GUI panel mirrors **F**, **,**, **.**, **B**, **N** only.
+GUI panel rows mirror the core particle effect catalog (same as keyboard **F**, **,**, **.**, **B**, **N**).
 
 Console: `MetaAgent.Pattern.*` (Form, Hold, Return, Preset, Status, Shape, ScatterGrid, Cancel, …).
 
@@ -242,17 +245,50 @@ flowchart LR
 
 ---
 
+## Hardening direction (plugin vs core)
+
+See [`metaagent/ARCHITECTURE.md`](metaagent/ARCHITECTURE.md) for the full phase table. Recent core additions:
+
+| Module | Role |
+|--------|------|
+| `app/gui_catalog` | Panel sections + action IDs (UE renders catalog only) |
+| `particle/effect_catalog` | GUI particle actions → effect IDs / load-preview dispatch |
+| `runtime/host_interfaces` | Recording + AI snapshot types and host callbacks |
+| `tools/metaagent_server` | Standalone inbound HTTP CLI (no editor) |
+
+**Optional next:** wire `HostServiceCallbacks` from UE for recording/AI; add Recording/AI rows to `gui_catalog`.
+
+---
+
 ## Build
 
-```powershell
-# UE plugin (from repo root)
-.\dev.bat build
+Default dev loop (core + tests + UE plugin):
 
-# Portable core tests
-cd metaagent
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
+```powershell
+# From repo root — no args runs full dev compile
+.\dev.bat
+
+# Same as above
+.\dev.bat dev
+```
+
+Other targets:
+
+```powershell
+.\dev.bat core      # metaagent CMake build only
+.\dev.bat test      # metaagent unit tests
+.\dev.bat plugin    # UE plugin only
+.\dev.bat build     # full game + editor target
+.\dev.bat launch    # open Unreal Editor
+.\dev.bat all       # dev + launch editor
+```
+
+Close the Unreal Editor before building if Live Coding blocks compilation.
+
+Standalone `metaagent_server` (after `.\dev.bat core`):
+
+```powershell
+.\metaagent\build\metaagent_server.exe --port 8080
 ```
 
 ---

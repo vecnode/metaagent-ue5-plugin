@@ -67,6 +67,28 @@ add_executable(metaagent_gui_actions_test tests/gui_actions_test.cpp)
 target_link_libraries(metaagent_gui_actions_test PRIVATE metaagent)
 add_test(NAME gui_actions_test COMMAND metaagent_gui_actions_test)
 
+add_executable(metaagent_platform_client_test tests/platform_client_test.cpp)
+target_link_libraries(metaagent_platform_client_test PRIVATE metaagent)
+add_test(NAME platform_client_test COMMAND metaagent_platform_client_test)
+
+add_executable(metaagent_gui_catalog_test tests/gui_catalog_test.cpp)
+target_link_libraries(metaagent_gui_catalog_test PRIVATE metaagent)
+add_test(NAME gui_catalog_test COMMAND metaagent_gui_catalog_test)
+
+add_executable(metaagent_effect_catalog_test tests/effect_catalog_test.cpp)
+target_link_libraries(metaagent_effect_catalog_test PRIVATE metaagent)
+add_test(NAME effect_catalog_test COMMAND metaagent_effect_catalog_test)
+
+add_executable(metaagent_host_interfaces_test tests/host_interfaces_test.cpp)
+target_link_libraries(metaagent_host_interfaces_test PRIVATE metaagent)
+add_test(NAME host_interfaces_test COMMAND metaagent_host_interfaces_test)
+
+add_executable(metaagent_server tools/metaagent_server.cpp tools/mini_http_server.cpp)
+target_link_libraries(metaagent_server PRIVATE metaagent)
+if(WIN32)
+    target_link_libraries(metaagent_server PRIVATE ws2_32)
+endif()
+
 install(TARGETS metaagent
     EXPORT metaagentTargets
     ARCHIVE DESTINATION lib

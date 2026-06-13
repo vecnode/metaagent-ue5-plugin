@@ -866,7 +866,16 @@ void SyncCinematicSettingsToCore(
 	const FMetaAgentCinematicCameraState& Source,
 	metaagent::camera::CinematicSettings& Destination)
 {
-	Destination.active_style = metaagent::camera::CinematicStyle::OscillatingHold;
+	switch (Source.ActiveStyle)
+	{
+	case EMetaAgentCinematicCameraStyle::SlowOrbit:
+		Destination.active_style = metaagent::camera::CinematicStyle::SlowOrbit;
+		break;
+	case EMetaAgentCinematicCameraStyle::OscillatingHold:
+	default:
+		Destination.active_style = metaagent::camera::CinematicStyle::OscillatingHold;
+		break;
+	}
 	Destination.pan_duration_seconds = Source.PanDurationSeconds;
 	Destination.oscillation_yaw_amplitude_degrees = Source.OscillationYawAmplitudeDegrees;
 	Destination.close_orbit_radius = Source.CloseOrbitRadius;

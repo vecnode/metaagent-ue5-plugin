@@ -17,6 +17,7 @@
 #include "HttpModule.h"
 #include "Host/MetaAgentHostSession.h"
 #include "Host/MetaAgentHttpBridge.h"
+#include "Host/MetaAgentPlatformBridge.h"
 #include "metaagent/session/status.hpp"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -328,135 +329,36 @@ void UMetaAgentRuntimeSubsystem::HandleWorldBeginPlay(UWorld& InWorld)
 	// Startup orchestration point for runtime systems.
 }
 
-FString UMetaAgentRuntimeSubsystem::BuildPlatformUrl() const
+void UMetaAgentRuntimeSubsystem::SendEventToPlatform(
+	const FString& EventName,
+	const FString& Message,
+	const FString& SourceOverride)
 {
-	const UMetaAgentPluginSettings* Settings = GetDefault<UMetaAgentPluginSettings>();
-	if (!Settings)
+	if (UMetaAgentGameInstance* GameInstance = Cast<UMetaAgentGameInstance>(GetGameInstance()))
 	{
-		return FString();
+		GameInstance->SendEventToPlatform(EventName, Message, SourceOverride);
+		return;
 	}
 
-	const FString Base = Settings->PlatformBaseUrl.EndsWith(TEXT("/")) ? Settings->PlatformBaseUrl.LeftChop(1) : Settings->PlatformBaseUrl;
-	const FString Path = Settings->PlatformEventEndpoint.StartsWith(TEXT("/")) ? Settings->PlatformEventEndpoint : FString::Printf(TEXT("/%s"), *Settings->PlatformEventEndpoint);
-	return Base + Path;
-}
-
-void UMetaAgentRuntimeSubsystem::SendEventToPlatform(const FString& EventName, const FString& Message, const FString& SourceOverride)
-{
-	const UMetaAgentPluginSettings* Settings = GetDefault<UMetaAgentPluginSettings>();
-	if (!Settings || !Settings->bEnableNetworkingSystems)
+	const metaagent::net::PlatformEndpointConfig Config =
+		FMetaAgentPlatformBridge::MakeConfigFromPluginSettings();
+	if (!Config.enabled)
 	{
 		UE_LOG(LogMetaAgent, Verbose, TEXT("Platform forwarding disabled. Event '%s' was not sent."), *EventName);
 		return;
 	}
 
-	const FString RequestUrl = BuildPlatformUrl();
-	if (RequestUrl.IsEmpty())
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("Platform forwarding URL is empty. Configure PlatformBaseUrl/PlatformEventEndpoint."));
-		return;
-	}
-
-	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
-	Payload->SetStringField(TEXT("source"), SourceOverride.IsEmpty() ? TEXT("unreal") : SourceOverride);
-	Payload->SetStringField(TEXT("event"), EventName);
-	Payload->SetStringField(TEXT("message"), Message);
-	Payload->SetStringField(TEXT("session_id"), Settings->PlatformSessionId.IsEmpty() ? TEXT("default") : Settings->PlatformSessionId);
-	Payload->SetStringField(TEXT("timestamp_utc"), FDateTime::UtcNow().ToIso8601());
-
-	TSharedRef<FJsonObject> Metadata = MakeShared<FJsonObject>();
-	Metadata->SetStringField(TEXT("map"), GetWorld() ? GetWorld()->GetMapName() : TEXT("unknown"));
-	Metadata->SetStringField(TEXT("build"), GetBuildConfigurationLabel());
-	Payload->SetObjectField(TEXT("metadata"), Metadata);
-
-	FString RequestBody;
-	{
-		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&RequestBody);
-		if (!FJsonSerializer::Serialize(Payload, Writer))
-		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Failed to serialize platform event payload for '%s'."), *EventName);
-			return;
-		}
-	}
-
-	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
-	HttpRequest->SetURL(RequestUrl);
-	HttpRequest->SetVerb(TEXT("POST"));
-	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	HttpRequest->SetContentAsString(RequestBody);
-
-	HttpRequest->OnProcessRequestComplete().BindLambda(
-		[this, EventName](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
-		{
-			if (!bWasSuccessful)
-			{
-				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' failed to send (network failure)."), *EventName);
-				return;
-			}
-
-			if (!Response.IsValid())
-			{
-				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' received no HTTP response."), *EventName);
-				return;
-			}
-
-			const int32 StatusCode = Response->GetResponseCode();
-			if (StatusCode >= 200 && StatusCode < 300)
-			{
-				UE_LOG(LogMetaAgent, Log, TEXT("Platform event '%s' acknowledged [%d]."), *EventName, StatusCode);
-
-				bool bAgentRunning = false;
-				FString AgentAction;
-				TSharedPtr<FJsonObject> ResponseJson;
-				const FString ResponseBody = Response->GetContentAsString();
-				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseBody);
-				if (FJsonSerializer::Deserialize(Reader, ResponseJson) && ResponseJson.IsValid())
-				{
-					ResponseJson->TryGetBoolField(TEXT("agent_running"), bAgentRunning);
-					ResponseJson->TryGetStringField(TEXT("agent_action"), AgentAction);
-				}
-
-				FString HudMessage;
-				if (!AgentAction.IsEmpty())
-				{
-					HudMessage = FString::Printf(
-						TEXT("Agent %s (%s)"),
-						*AgentAction.ToUpper(),
-						bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
-				}
-				else if (ResponseJson.IsValid())
-				{
-					HudMessage = FString::Printf(TEXT("Agent %s"), bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
-				}
-
-				if (!HudMessage.IsEmpty())
-				{
-					if (UWorld* World = GetWorld())
-					{
-						if (APlayerController* PC = World->GetFirstPlayerController())
-						{
-							if (AMetaAgentHUD* HUD = Cast<AMetaAgentHUD>(PC->GetHUD()))
-							{
-								HUD->AddTransientMessage(HudMessage, bAgentRunning ? FColor::Green : FColor::Yellow, 2.0f);
-							}
-						}
-					}
-				}
-			}
-			else
-			{
-				UE_LOG(LogMetaAgent, Warning,
-					TEXT("Platform event '%s' returned HTTP %d. Body: %s"),
-					*EventName,
-					StatusCode,
-					*Response->GetContentAsString());
-			}
-		});
-
-	if (!HttpRequest->ProcessRequest())
-	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("Failed to dispatch platform event '%s' request."), *EventName);
-	}
+	const FString MapName = GetWorld() ? GetWorld()->GetMapName() : TEXT("unknown");
+	const FString BuildLabel = GetBuildConfigurationLabel();
+	FMetaAgentPlatformBridge::SendOutboundEvent(
+		GetWorld(),
+		Config,
+		EventName,
+		Message,
+		SourceOverride,
+		MapName,
+		BuildLabel,
+		nullptr);
 }
 
 FString UMetaAgentRuntimeSubsystem::GetLocalHttpServerStatusText() const

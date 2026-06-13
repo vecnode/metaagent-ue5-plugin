@@ -11,9 +11,13 @@ enum class CommandId {
 	PatternStepBackward,
 	ToggleCinematicCamera,
 	ToggleFocusParticles,
+	CycleCinematicStyle,
 	ToggleNetworkingRuntime,
 	ToggleGuiHelp,
 	LoadPreviewImage,
+	StartPlatformAudio,
+	StartPlatformImage,
+	QuitApplication,
 };
 
 struct CommandResult {

@@ -35,12 +35,14 @@
 #include "MetaAgentPlayerController.h"
 #include "MetaAgentHUD.h"
 #include "Host/MetaAgentInputBridge.h"
+#include "metaagent/app/gui_catalog.hpp"
 #include "NavigationSystem.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
 #include "Engine/Canvas.h"
 #include "HttpModule.h"
 #include "Host/MetaAgentHostSession.h"
 #include "Host/MetaAgentHttpBridge.h"
+#include "Host/MetaAgentPlatformBridge.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "MetaAgentParticleControl.h"
@@ -957,9 +959,11 @@ const TCHAR* FMetaAgentCameraRuntime::GetCinematicStyleLabel(const EMetaAgentCin
 {
 	switch (Style)
 	{
+	case EMetaAgentCinematicCameraStyle::SlowOrbit:
+		return UTF8_TO_TCHAR(metaagent::camera::cinematic_style_label(metaagent::camera::CinematicStyle::SlowOrbit));
 	case EMetaAgentCinematicCameraStyle::OscillatingHold:
 	default:
-		return TEXT("OscillatingHold");
+		return UTF8_TO_TCHAR(metaagent::camera::cinematic_style_label(metaagent::camera::CinematicStyle::OscillatingHold));
 	}
 }
 
@@ -1318,33 +1322,10 @@ void UMetaAgentGameInstance::Shutdown()
 	Super::Shutdown();
 }
 
-FString UMetaAgentGameInstance::BuildPlatformUrl() const
-{
-	const FString Base = PlatformBaseUrl.EndsWith(TEXT("/")) ? PlatformBaseUrl.LeftChop(1) : PlatformBaseUrl;
-	const FString Path = PlatformEventEndpoint.StartsWith(TEXT("/")) ? PlatformEventEndpoint : FString::Printf(TEXT("/%s"), *PlatformEventEndpoint);
-	return Base + Path;
-}
-
 void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const FString& Message, const FString& SourceOverride)
 {
 	if (!IsMetaAgentRuntimeActive())
 	{
-		return;
-	}
-
-	if (!bEnablePlatformForwarding)
-	{
-		UE_LOG(LogMetaAgent, Verbose, TEXT("Platform forwarding disabled. Event '%s' was not sent."), *EventName);
-		return;
-	}
-
-	const FString RequestUrl = BuildPlatformUrl();
-	if (RequestUrl.IsEmpty())
-	{
-		NetworkingRuntimeLastPlatformEvent = EventName;
-		NetworkingRuntimeLastPlatformResult = TEXT("invalid-url");
-		NetworkingRuntimeLastError = TEXT("Platform forwarding URL is empty.");
-		UE_LOG(LogMetaAgent, Warning, TEXT("Platform forwarding URL is empty. Configure PlatformBaseUrl/PlatformEventEndpoint."));
 		return;
 	}
 
@@ -1353,104 +1334,69 @@ void UMetaAgentGameInstance::SendEventToPlatform(const FString& EventName, const
 	NetworkingRuntimeLastError = TEXT("none");
 	NetworkingRuntimeLastSendUtc = FDateTime::UtcNow().ToIso8601();
 
-	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
-	Payload->SetStringField(TEXT("source"), SourceOverride.IsEmpty() ? TEXT("unreal") : SourceOverride);
-	Payload->SetStringField(TEXT("event"), EventName);
-	Payload->SetStringField(TEXT("message"), Message);
-	Payload->SetStringField(TEXT("session_id"), PlatformSessionId.IsEmpty() ? TEXT("default") : PlatformSessionId);
-	Payload->SetStringField(TEXT("timestamp_utc"), FDateTime::UtcNow().ToIso8601());
+	const metaagent::net::PlatformEndpointConfig Config =
+		FMetaAgentPlatformBridge::MakeConfigFromGameInstance(
+			bEnablePlatformForwarding,
+			PlatformBaseUrl,
+			PlatformEventEndpoint,
+			PlatformSessionId);
 
-	TSharedRef<FJsonObject> Metadata = MakeShared<FJsonObject>();
-	Metadata->SetStringField(TEXT("map"), GetWorld() ? GetWorld()->GetMapName() : TEXT("unknown"));
-	Metadata->SetStringField(TEXT("build"), GetBuildConfigurationLabel());
-	Payload->SetObjectField(TEXT("metadata"), Metadata);
-
-	FString RequestBody;
+	if (!Config.enabled)
 	{
-		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&RequestBody);
-		if (!FJsonSerializer::Serialize(Payload, Writer))
-		{
-			UE_LOG(LogMetaAgent, Warning, TEXT("Failed to serialize platform event payload for '%s'."), *EventName);
-			return;
-		}
+		UE_LOG(LogMetaAgent, Verbose, TEXT("Platform forwarding disabled. Event '%s' was not sent."), *EventName);
+		NetworkingRuntimeLastPlatformResult = TEXT("disabled");
+		return;
 	}
 
-	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
-	HttpRequest->SetURL(RequestUrl);
-	HttpRequest->SetVerb(TEXT("POST"));
-	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	HttpRequest->SetContentAsString(RequestBody);
+	const FString MapName = GetWorld() ? GetWorld()->GetMapName() : TEXT("unknown");
+	const FString BuildLabel = GetBuildConfigurationLabel();
 
-	HttpRequest->OnProcessRequestComplete().BindLambda(
-		[this, EventName](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+	FMetaAgentPlatformBridge::SendOutboundEvent(
+		GetWorld(),
+		Config,
+		EventName,
+		Message,
+		SourceOverride,
+		MapName,
+		BuildLabel,
+		[this, EventName](const FMetaAgentPlatformSendOutcome& Outcome)
 		{
 			NetworkingRuntimeLastPlatformEvent = EventName;
 			NetworkingRuntimeLastReceiveUtc = FDateTime::UtcNow().ToIso8601();
 
-			if (!bWasSuccessful)
+			if (!Outcome.bDispatched || !Outcome.DispatchError.IsEmpty())
+			{
+				NetworkingRuntimeLastPlatformResult = Outcome.DispatchError.Contains(TEXT("URL"))
+					? TEXT("invalid-url")
+					: TEXT("dispatch-failed");
+				NetworkingRuntimeLastError = Outcome.DispatchError.IsEmpty()
+					? TEXT("Failed to dispatch HTTP request.")
+					: Outcome.DispatchError;
+				return;
+			}
+
+			const metaagent::net::PlatformEventResponse& Response = Outcome.Response;
+			if (!Response.transport_ok)
 			{
 				NetworkingRuntimeLastPlatformResult = TEXT("network-failure");
-				NetworkingRuntimeLastError = TEXT("Network failure while sending event.");
-				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' failed to send (network failure)."), *EventName);
+				NetworkingRuntimeLastError = UTF8_TO_TCHAR(Response.error_message.c_str());
 				return;
 			}
 
-			if (!Response.IsValid())
+			if (!Response.http_success)
 			{
-				NetworkingRuntimeLastPlatformResult = TEXT("no-response");
-				NetworkingRuntimeLastError = TEXT("No HTTP response.");
-				UE_LOG(LogMetaAgent, Warning, TEXT("Platform event '%s' received no HTTP response."), *EventName);
+				NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("http-%d"), Response.status_code);
+				NetworkingRuntimeLastError = UTF8_TO_TCHAR(Response.error_message.c_str());
 				return;
 			}
 
-			const int32 StatusCode = Response->GetResponseCode();
-			if (StatusCode >= 200 && StatusCode < 300)
+			NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("ok-%d"), Response.status_code);
+			NetworkingRuntimeLastError = TEXT("none");
+			if (!Response.user_message.empty())
 			{
-				NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("ok-%d"), StatusCode);
-				NetworkingRuntimeLastError = TEXT("none");
-				UE_LOG(LogMetaAgent, Log, TEXT("Platform event '%s' acknowledged [%d]."), *EventName, StatusCode);
-
-				bool bAgentRunning = false;
-				FString AgentAction;
-				TSharedPtr<FJsonObject> ResponseJson;
-				const FString ResponseBody = Response->GetContentAsString();
-				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseBody);
-				if (FJsonSerializer::Deserialize(Reader, ResponseJson) && ResponseJson.IsValid())
-				{
-					ResponseJson->TryGetBoolField(TEXT("agent_running"), bAgentRunning);
-					ResponseJson->TryGetStringField(TEXT("agent_action"), AgentAction);
-				}
-
-				if (!AgentAction.IsEmpty())
-				{
-					NetworkingRuntimeLastNotifyMessage = FString::Printf(
-						TEXT("Agent %s (%s)"),
-						*AgentAction.ToUpper(),
-						bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
-				}
-				else if (ResponseJson.IsValid())
-				{
-					NetworkingRuntimeLastNotifyMessage = FString::Printf(TEXT("Agent %s"), bAgentRunning ? TEXT("RUNNING") : TEXT("STOPPED"));
-				}
-			}
-			else
-			{
-				NetworkingRuntimeLastPlatformResult = FString::Printf(TEXT("http-%d"), StatusCode);
-				NetworkingRuntimeLastError = Response->GetContentAsString();
-				UE_LOG(LogMetaAgent, Warning,
-					TEXT("Platform event '%s' returned HTTP %d. Body: %s"),
-					*EventName,
-					StatusCode,
-					*Response->GetContentAsString());
+				NetworkingRuntimeLastNotifyMessage = UTF8_TO_TCHAR(Response.user_message.c_str());
 			}
 		});
-
-	if (!HttpRequest->ProcessRequest())
-	{
-		NetworkingRuntimeLastPlatformResult = TEXT("dispatch-failed");
-		NetworkingRuntimeLastError = TEXT("Failed to dispatch HTTP request.");
-		UE_LOG(LogMetaAgent, Warning, TEXT("Failed to dispatch platform event '%s' request."), *EventName);
-	}
 }
 
 TArray<FString> UMetaAgentGameInstance::GetNetworkingRuntimePanelLines() const
@@ -2049,6 +1995,42 @@ namespace
 		ApplySectionExpandState(GUI, Section);
 		GUI.RuntimeSections.Add(Section);
 	}
+
+	FString CoreToFString(const metaagent::core::String& Value)
+	{
+		return FString(UTF8_TO_TCHAR(Value.c_str()));
+	}
+
+	bool IsCatalogRuntimeFeatureEnabled(
+		const FMetaAgentGUIState& GUI,
+		const metaagent::core::String& Feature)
+	{
+		if (Feature.empty() || Feature == "ui")
+		{
+			return true;
+		}
+		if (Feature == "camera")
+		{
+			return GUI.bCameraRuntimeEnabled;
+		}
+		if (Feature == "networking")
+		{
+			return GUI.bNetworkingRuntimeEnabled;
+		}
+		if (Feature == "particle")
+		{
+			return GUI.bParticleRuntimeEnabled;
+		}
+		if (Feature == "ai")
+		{
+			return GUI.bAIRuntimeEnabled;
+		}
+		if (Feature == "recording")
+		{
+			return GUI.bRecordingRuntimeEnabled;
+		}
+		return true;
+	}
 }
 
 void FMetaAgentGUIRuntime::BuildRuntimeSections(
@@ -2057,65 +2039,51 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 {
 	GUI.RuntimeSections.Reset();
 
+	const metaagent::app::GuiPanelCatalog Catalog = metaagent::app::build_gui_panel_catalog();
+	for (const metaagent::app::GuiPanelSection& SectionSpec : Catalog.sections)
 	{
 		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("Q"), TEXT("Toggle controls panel"), MetaAgentRuntimeIds::ToggleHelpPanel));
-		Rows.Add(MakeActionRow(TEXT("Esc"), TEXT("Quit application"), MetaAgentRuntimeIds::QuitApplication));
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::GUI,
-			TEXT("GUI Runtime"),
-			true,
-			true,
-			Rows));
-	}
-
-	{
-		TArray<FString> StatusLines;
-		StatusLines.Add(TEXT("Wheel: zoom camera distance when panel is hidden"));
-
-		TArray<FMetaAgentGUIActionRow> Rows;
-		Rows.Add(MakeActionRow(TEXT("O"), TEXT("Toggle cinematic camera"), MetaAgentRuntimeIds::ToggleCinematicCamera));
-		Rows.Add(MakeActionRow(TEXT("P"), TEXT("Focus cinematic on particles"), MetaAgentRuntimeIds::FocusParticleCamera));
-		FinalizeSection(GUI, MakeSection(
-			MetaAgentRuntimeIds::Camera,
-			TEXT("Camera Runtime"),
-			false,
-			GUI.bCameraRuntimeEnabled,
-			Rows,
-			StatusLines));
-	}
-
-	{
-		TArray<FMetaAgentGUIActionRow> Rows;
-		for (const FMetaAgentGUIActionRow& ParticleRow : FMetaAgentParticleInputRouter::GetParticleGUIActionRows())
+		for (const metaagent::app::GuiPanelRow& RowSpec : SectionSpec.rows)
 		{
-			Rows.Add(ParticleRow);
+			Rows.Add(MakeActionRow(
+				CoreToFString(RowSpec.key_label),
+				CoreToFString(RowSpec.description),
+				FName(*CoreToFString(RowSpec.action_id))));
 		}
 
-		TArray<FString> StatusLines = Controller.BuildParticleRuntimePanelStatusLines();
+		TArray<FString> StatusLines;
+		for (const metaagent::core::String& StatusLine : SectionSpec.status_lines)
+		{
+			StatusLines.Add(CoreToFString(StatusLine));
+		}
 
-		FMetaAgentGUIRuntimeSection ParticleSection = MakeSection(
-			MetaAgentRuntimeIds::Particle,
-			TEXT("Particle Runtime"),
-			false,
-			GUI.bParticleRuntimeEnabled,
+		if (SectionSpec.section_id == "Particle")
+		{
+			StatusLines = Controller.BuildParticleRuntimePanelStatusLines();
+		}
+
+		FMetaAgentGUIRuntimeSection Section = MakeSection(
+			FName(*CoreToFString(SectionSpec.section_id)),
+			CoreToFString(SectionSpec.title),
+			SectionSpec.always_on,
+			IsCatalogRuntimeFeatureEnabled(GUI, SectionSpec.runtime_feature),
 			Rows,
 			StatusLines);
-		if (const UMetaAgentParticleOrchestrator* Orchestrator = Controller.GetParticleOrchestrator())
+
+		if (SectionSpec.section_id == "Particle")
 		{
-			ParticleSection.PreviewThumbnails = Orchestrator->GetPanelPreviewThumbnails();
+			if (const UMetaAgentParticleOrchestrator* Orchestrator = Controller.GetParticleOrchestrator())
+			{
+				Section.PreviewThumbnails = Orchestrator->GetPanelPreviewThumbnails();
+			}
 		}
-		FinalizeSection(GUI, ParticleSection);
+
+		FinalizeSection(GUI, Section);
 	}
 }
 
 namespace
 {
-	bool IsParticlePanelAction(const FName ActionId)
-	{
-		return ActionId.ToString().StartsWith(TEXT("Particle"));
-	}
-
 	void ShowPanelActionMessage(AMetaAgentPlayerController& Controller, const FString& Message, const FColor Color)
 	{
 		if (Message.IsEmpty())
@@ -2131,23 +2099,6 @@ namespace
 
 	bool ValidatePanelAction(const AMetaAgentPlayerController& Controller, const FName ActionId, FString& OutMessage)
 	{
-		if (IsParticlePanelAction(ActionId))
-		{
-			if (!Controller.IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
-			{
-				OutMessage = TEXT("Enable Particle runtime (START) first.");
-				return false;
-			}
-
-			if (!IsMetaAgentRuntimeActive())
-			{
-				OutMessage = TEXT("MetaAgent runtime is inactive.");
-				return false;
-			}
-
-			return true;
-		}
-
 		const FMetaAgentInputBridgeResult Result =
 			FMetaAgentInputBridge::ValidateGuiAction(ActionId.ToString(), Controller.BuildHostSessionSnapshot());
 		if (!Result.bHandled)
@@ -2162,6 +2113,11 @@ namespace
 		}
 
 		return Result.bSuccess;
+	}
+
+	bool IsParticlePanelAction(const FName ActionId)
+	{
+		return ActionId.ToString().StartsWith(TEXT("Particle"));
 	}
 }
 
@@ -2225,6 +2181,27 @@ void FMetaAgentGUIRuntime::DispatchPanelAction(
 	if (ActionId == MetaAgentRuntimeIds::FocusParticleCamera)
 	{
 		Controller.HandleFocusParticlesCameraPressed();
+		RunApplyHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::CycleCinematicStyle)
+	{
+		Controller.HandleCycleCinematicStylePressed();
+		RunApplyHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::StartAudio)
+	{
+		Controller.HandleStartAudioPressed();
+		RunApplyHelpPanelSequence(Controller, GUI);
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::StartImage)
+	{
+		Controller.HandleStartImagePressed();
 		RunApplyHelpPanelSequence(Controller, GUI);
 		return;
 	}

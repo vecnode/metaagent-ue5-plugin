@@ -397,7 +397,6 @@ public:
 private:
 	FMetaAgentHostSessionSnapshot BuildHostSessionSnapshot(bool bRouterBound) const;
 	void ApplyNotifyMessage(const FString& NotifyMessage);
-	FString BuildPlatformUrl() const;
 	void StartLocalHttpServer();
 	void StopLocalHttpServer();
 };

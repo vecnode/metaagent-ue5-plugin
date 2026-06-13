@@ -112,7 +112,6 @@ public:
 
 private:
 	void HandleWorldBeginPlay(UWorld& InWorld);
-	FString BuildPlatformUrl() const;
 
 	bool bRuntimeActive = false;
 };

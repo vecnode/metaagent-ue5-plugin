@@ -1,0 +1,38 @@
+#pragma once
+
+#include "metaagent/core/types.hpp"
+#include "metaagent/export.hpp"
+
+#include <functional>
+
+namespace metaagent::runtime {
+
+struct RecordingSnapshot {
+	bool runtime_enabled = false;
+	bool capture_active = false;
+	core::String last_output_path;
+	core::String status_text;
+};
+
+struct AiSnapshot {
+	bool runtime_enabled = false;
+	bool autopilot_enabled = false;
+	core::String status_text;
+};
+
+struct HostServiceCallbacks {
+	std::function<bool()> toggle_recording;
+	std::function<bool()> toggle_autopilot;
+	std::function<RecordingSnapshot()> query_recording;
+	std::function<AiSnapshot()> query_ai;
+};
+
+METAAGENT_API RecordingSnapshot default_recording_snapshot();
+
+METAAGENT_API AiSnapshot default_ai_snapshot();
+
+METAAGENT_API bool invoke_toggle_recording(const HostServiceCallbacks& callbacks);
+
+METAAGENT_API bool invoke_toggle_autopilot(const HostServiceCallbacks& callbacks);
+
+} // namespace metaagent::runtime

@@ -43,7 +43,9 @@
 #include "MetaAgentGameplay.h"
 #include "MetaAgentTypeBridge.h"
 #include "metaagent/camera/controller.hpp"
+#include "metaagent/camera/types.hpp"
 #include "metaagent/input/policy.hpp"
+#include "metaagent/particle/effect_catalog.hpp"
 #include "Engine/GameViewportClient.h"
 #include "MetaAgentHUD.h"
 #include "MetaAgentParticleShapes.h"
@@ -615,6 +617,7 @@ void AMetaAgentPlayerController::SetupInputComponent()
 			InputComponent->BindKey(EKeys::U, IE_Pressed, this, &AMetaAgentPlayerController::HandleReportRecordingStatusPressed);
 			InputComponent->BindKey(EKeys::O, IE_Pressed, this, &AMetaAgentPlayerController::HandleToggleCinematicCameraPressed);
 			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMetaAgentPlayerController::HandleFocusParticlesCameraPressed);
+			InputComponent->BindKey(EKeys::V, IE_Pressed, this, &AMetaAgentPlayerController::HandleCycleCinematicStylePressed);
 			EnsureParticleOrchestrator();
 			FMetaAgentParticleInputRouter::BindKeyboardInput(this, InputComponent, ParticleOrchestrator);
 			InputFallback.bUtilityKeysBound = true;
@@ -639,7 +642,12 @@ void AMetaAgentPlayerController::HandleEscapePressed()
 
 void AMetaAgentPlayerController::HandleStartAudioPressed()
 {
-	if (!IsLocalPlayerController() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::StartPlatformAudio))
 	{
 		return;
 	}
@@ -662,7 +670,12 @@ void AMetaAgentPlayerController::HandleStartAudioPressed()
 
 void AMetaAgentPlayerController::HandleStartImagePressed()
 {
-	if (!IsLocalPlayerController() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Networking))
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::StartPlatformImage))
 	{
 		return;
 	}
@@ -926,6 +939,46 @@ void AMetaAgentPlayerController::HandleFocusParticlesCameraPressed()
 		TEXT("Camera: particle focus %s (%d focusable particles). Press O if cinematic mode is off."),
 		bCinematicFocusParticles ? TEXT("ENABLED") : TEXT("DISABLED"),
 		FocusCount);
+}
+
+void AMetaAgentPlayerController::HandleCycleCinematicStylePressed()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::CycleCinematicStyle))
+	{
+		return;
+	}
+
+	metaagent::camera::CameraController& CoreCamera = MetaAgentTypeBridge::get_camera_controller(*this);
+	MetaAgentTypeBridge::sync_cinematic_settings_to_core(CinematicCamera, CoreCamera.cinematic_settings());
+	CoreCamera.cinematic_settings().active_style = metaagent::camera::cycle_cinematic_style(
+		CoreCamera.cinematic_settings().active_style);
+
+	switch (CoreCamera.cinematic_settings().active_style)
+	{
+	case metaagent::camera::CinematicStyle::SlowOrbit:
+		CinematicCamera.ActiveStyle = EMetaAgentCinematicCameraStyle::SlowOrbit;
+		break;
+	case metaagent::camera::CinematicStyle::OscillatingHold:
+	default:
+		CinematicCamera.ActiveStyle = EMetaAgentCinematicCameraStyle::OscillatingHold;
+		break;
+	}
+
+	if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+	{
+		const TCHAR* StyleLabel = FMetaAgentCameraRuntime::GetCinematicStyleLabel(CinematicCamera.ActiveStyle);
+		HUD->AddTransientMessage(FString::Printf(TEXT("Cinematic style: %s"), StyleLabel), FColor::Cyan, 2.0f);
+	}
+
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
 }
 
 void AMetaAgentPlayerController::ToggleCinematicCameraMode()
@@ -3024,6 +3077,20 @@ bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 		return false;
 	}
 
+	const FTCHARToUTF8 ActionUtf8(*ActionId.ToString());
+	const metaagent::particle::ParticleGuiActionSpec* Spec =
+		metaagent::particle::find_particle_gui_action(
+			std::string(ActionUtf8.Get(), static_cast<size_t>(ActionUtf8.Length())));
+
+	if (!Spec)
+	{
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(TEXT("Unknown particle panel action."), FColor::Yellow, 2.0f);
+		}
+		return false;
+	}
+
 	EnsureParticleOrchestrator();
 	if (!ParticleOrchestrator)
 	{
@@ -3034,7 +3101,7 @@ bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 		return false;
 	}
 
-	if (ActionId == MetaAgentRuntimeIds::ParticleLoadPreview)
+	if (Spec->dispatch_kind == metaagent::particle::ParticleGuiDispatchKind::LoadPreviewPng)
 	{
 		FString Message;
 		const bool bLoaded = ParticleOrchestrator->LoadDefaultPreviewPng(Message);
@@ -3048,43 +3115,9 @@ bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 		return bLoaded;
 	}
 
-	if (ActionId == MetaAgentRuntimeIds::ParticleStepBackward)
-	{
-		MetaAgentParticleControllerInternal::TriggerEffectOnController(
-			this,
-			MetaAgentParticleEffectIds::PatternStepBackward);
-		return true;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ParticleStepForward)
-	{
-		MetaAgentParticleControllerInternal::TriggerEffectOnController(
-			this,
-			MetaAgentParticleEffectIds::PatternStepForward);
-		return true;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ParticleSlowPreset)
-	{
-		MetaAgentParticleControllerInternal::TriggerEffectOnController(
-			this,
-			MetaAgentParticleEffectIds::PresetSlow);
-		return true;
-	}
-
-	if (ActionId == MetaAgentRuntimeIds::ParticleDramaticPreset)
-	{
-		MetaAgentParticleControllerInternal::TriggerEffectOnController(
-			this,
-			MetaAgentParticleEffectIds::PresetDramatic);
-		return true;
-	}
-
-	if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
-	{
-		HUD->AddTransientMessage(TEXT("Unknown particle panel action."), FColor::Yellow, 2.0f);
-	}
-	return false;
+	const FName EffectId(UTF8_TO_TCHAR(Spec->effect_id.c_str()));
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, EffectId);
+	return true;
 }
 
 void AMetaAgentPlayerController::EnsureParticleOrchestrator()

@@ -281,7 +281,8 @@ struct FMetaAgentRecordingState
 UENUM()
 enum class EMetaAgentCinematicCameraStyle : uint8
 {
-	OscillatingHold
+	OscillatingHold,
+	SlowOrbit
 };
 
 USTRUCT()
@@ -500,6 +501,9 @@ protected:
 
 	/** Bound to P: focus cinematic camera on live particle positions. */
 	void HandleFocusParticlesCameraPressed();
+
+	/** Bound to V: cycle cinematic camera style (core rig profiles). */
+	void HandleCycleCinematicStylePressed();
 
 	/** Bound to Q: toggles runtime controls help panel on/off. */
 	void HandleToggleHelpPanelPressed();

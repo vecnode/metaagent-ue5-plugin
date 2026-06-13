@@ -37,6 +37,14 @@ bool feature_enabled(const session::RuntimeSession& session, const char* feature
 	{
 		return session.features.particle;
 	}
+	if (std::string(feature_name) == "ai")
+	{
+		return session.features.ai;
+	}
+	if (std::string(feature_name) == "recording")
+	{
+		return session.features.recording;
+	}
 	return session.active;
 }
 
@@ -61,6 +69,10 @@ CommandId parse_command_name(const core::String& name)
 	{
 		return CommandId::ToggleFocusParticles;
 	}
+	if (normalized == "cycle_cinematic_style" || normalized == "cinematic_style")
+	{
+		return CommandId::CycleCinematicStyle;
+	}
 	if (normalized == "toggle_networking_runtime" || normalized == "networking")
 	{
 		return CommandId::ToggleNetworkingRuntime;
@@ -72,6 +84,18 @@ CommandId parse_command_name(const core::String& name)
 	if (normalized == "load_preview_image" || normalized == "preview_image")
 	{
 		return CommandId::LoadPreviewImage;
+	}
+	if (normalized == "start_platform_audio" || normalized == "start audio")
+	{
+		return CommandId::StartPlatformAudio;
+	}
+	if (normalized == "start_platform_image" || normalized == "start image")
+	{
+		return CommandId::StartPlatformImage;
+	}
+	if (normalized == "quit_application" || normalized == "quit")
+	{
+		return CommandId::QuitApplication;
 	}
 	return CommandId::Unknown;
 }
@@ -88,12 +112,20 @@ core::String command_display_name(const CommandId command)
 		return "Toggle Cinematic Camera";
 	case CommandId::ToggleFocusParticles:
 		return "Toggle Focus Particles";
+	case CommandId::CycleCinematicStyle:
+		return "Cycle Cinematic Style";
 	case CommandId::ToggleNetworkingRuntime:
 		return "Toggle Networking Runtime";
 	case CommandId::ToggleGuiHelp:
 		return "Toggle GUI Help";
 	case CommandId::LoadPreviewImage:
 		return "Load Preview Image";
+	case CommandId::StartPlatformAudio:
+		return "Start Platform Audio";
+	case CommandId::StartPlatformImage:
+		return "Start Platform Image";
+	case CommandId::QuitApplication:
+		return "Quit Application";
 	default:
 		return "Unknown Command";
 	}
@@ -120,6 +152,7 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 	{
 	case CommandId::PatternStepForward:
 	case CommandId::PatternStepBackward:
+	case CommandId::LoadPreviewImage:
 		result.success = feature_enabled(session, "particle");
 		if (!result.success)
 		{
@@ -128,6 +161,7 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 		return result;
 	case CommandId::ToggleCinematicCamera:
 	case CommandId::ToggleFocusParticles:
+	case CommandId::CycleCinematicStyle:
 		result.success = feature_enabled(session, "camera");
 		if (!result.success)
 		{
@@ -135,6 +169,8 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 		}
 		return result;
 	case CommandId::ToggleNetworkingRuntime:
+	case CommandId::StartPlatformAudio:
+	case CommandId::StartPlatformImage:
 		result.success = feature_enabled(session, "networking");
 		if (!result.success)
 		{
@@ -142,17 +178,11 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 		}
 		return result;
 	case CommandId::ToggleGuiHelp:
+	case CommandId::QuitApplication:
 		result.success = feature_enabled(session, "ui");
 		if (!result.success)
 		{
 			result.user_message = "UI runtime is disabled.";
-		}
-		return result;
-	case CommandId::LoadPreviewImage:
-		result.success = feature_enabled(session, "particle");
-		if (!result.success)
-		{
-			result.user_message = "Particle runtime is disabled.";
 		}
 		return result;
 	default:

@@ -80,5 +80,23 @@ int main()
 		return 1;
 	}
 
+	settings.active_style = CinematicStyle::SlowOrbit;
+	state.pan_elapsed_seconds = 0.0f;
+	const CameraPose slow_pose_a = compute_cinematic_pose(settings, state, focus, 1.0f);
+	const CameraPose slow_pose_b = compute_cinematic_pose(settings, state, focus, 2.0f);
+	if (!expect_true(!slow_pose_a.location.nearly_zero(), "slow orbit pose a"))
+	{
+		return 1;
+	}
+	if (!expect_true(!slow_pose_b.location.nearly_zero(), "slow orbit pose b"))
+	{
+		return 1;
+	}
+
+	if (!expect_true(cycle_cinematic_style(CinematicStyle::OscillatingHold) == CinematicStyle::SlowOrbit, "cycle style"))
+	{
+		return 1;
+	}
+
 	return 0;
 }
