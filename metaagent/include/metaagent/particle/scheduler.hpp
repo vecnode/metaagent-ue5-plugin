@@ -5,6 +5,7 @@
 
 #include "metaagent/export.hpp"
 #include "metaagent/particle/pattern_types.hpp"
+#include "metaagent/particle/state_effects.hpp"
 #include "metaagent/particle/representation_types.hpp"
 
 namespace metaagent::particle {
@@ -38,6 +39,7 @@ public:
 	bool steering_target_enabled = false;
 	core::Array<core::Vec3> forming_steering_offsets;
 	float forming_steering_blend_duration_seconds = 0.2f;
+	StateEffectStack state_effects;
 
 	METAAGENT_API void reset_pattern_runtime();
 	METAAGENT_API TransitionContext build_transition_context(bool skip_return_on_cancel) const;
@@ -50,6 +52,8 @@ public:
 	METAAGENT_API const PatternConfig& get_timing_config_for_tick() const;
 	METAAGENT_API core::String build_pattern_status_text(int32_t exported_particle_count, int32_t queue_size) const;
 	METAAGENT_API core::String build_pattern_timings_text() const;
+	METAAGENT_API StateEffectTriggerResult toggle_state_effect(const core::String& effect_id);
+	METAAGENT_API void tick_state_effects();
 };
 
 } // namespace metaagent::particle

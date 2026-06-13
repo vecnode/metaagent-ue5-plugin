@@ -18,6 +18,7 @@ enum class PatternPreset : uint8_t;
 enum class FormingMode : uint8_t;
 enum class ReturnMode : uint8_t;
 enum class TransitionTrigger : uint8_t;
+struct StateEffectTriggerResult;
 }
 
 #include "metaagent/particle/actuation_math.hpp"
@@ -54,6 +55,9 @@ float get_active_state_duration_seconds(const UMetaAgentParticleRuntime& runtime
 float get_active_state_time_remaining_seconds(const UMetaAgentParticleRuntime& runtime);
 FString build_pattern_status_text(const UMetaAgentParticleRuntime& runtime);
 FString build_pattern_timings_text(const UMetaAgentParticleRuntime& runtime);
+metaagent::particle::StateEffectTriggerResult toggle_state_effect(
+	UMetaAgentParticleRuntime& runtime,
+	const metaagent::core::String& effect_id);
 
 } // namespace MetaAgentParticleCoreBridge
 

@@ -41,6 +41,7 @@
 #include "metaagent/particle/shape_types.hpp"
 #include "metaagent/particle/transition_graph.hpp"
 #include "metaagent/particle/effect_catalog.hpp"
+#include "metaagent/particle/state_effects.hpp"
 
 #include "metaagent/runtime/host_interfaces.hpp"
 #include "metaagent/app/gui_actions.hpp"

@@ -3,6 +3,7 @@
 #include "metaagent/core/math.hpp"
 #include "metaagent/particle/actuation_math.hpp"
 #include "metaagent/particle/representation_types.hpp"
+#include "metaagent/particle/state_effects.hpp"
 #include "metaagent/particle/transition_graph.hpp"
 
 #include <cmath>
@@ -146,6 +147,39 @@ SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleSchedul
 	return bundle;
 }
 
+void tick_state_effect_layer(ParticleScheduler& scheduler)
+{
+	if (scheduler.pattern_runtime.baseline_world_positions.empty())
+	{
+		return;
+	}
+
+	const float delta_time = scheduler.last_pattern_tick_delta_seconds > core::math::k_epsilon
+		? scheduler.last_pattern_tick_delta_seconds
+		: (1.0f / 60.0f);
+
+	const SchedulerComposeBundle bundle = build_compose_bundle_from_scheduler(scheduler);
+	ActuationComposeInput compose_input = bundle.input;
+	compose_input.blend_alpha = ActuationMath::compute_actuation_blend_alpha(
+		scheduler.pattern_runtime.state,
+		scheduler.pattern_runtime.phase);
+
+	core::Array<core::Vec3> composed;
+	ActuationMath::compose_world_positions(compose_input, composed);
+	if (composed.empty())
+	{
+		return;
+	}
+
+	StateEffectTickContext context;
+	context.pattern_state = scheduler.pattern_runtime.state;
+	context.pattern_center = scheduler.pattern_runtime.pattern_center;
+	context.state_elapsed_seconds = scheduler.pattern_runtime.state_elapsed_seconds;
+	context.delta_time_seconds = delta_time;
+	context.composed_positions = &composed;
+	scheduler.state_effects.tick(context);
+}
+
 void capture_visual_continuity_for_manual_transition(
 	ParticleScheduler& scheduler,
 	const TransitionResult& result)
@@ -250,6 +284,7 @@ void ParticleScheduler::reset_pattern_runtime()
 	forming_steering_blend_elapsed_seconds = 0.0f;
 	steering_target_enabled = false;
 	forming_steering_offsets.clear();
+	state_effects.reset();
 }
 
 TransitionContext ParticleScheduler::build_transition_context(const bool skip_return_on_cancel) const
@@ -334,17 +369,15 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 
 void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, SchedulerCallbacks& callbacks)
 {
-	if (pattern_runtime.state == PatternState::Idle)
-	{
-		return;
-	}
-
 	last_pattern_tick_delta_seconds = std::max(0.0f, delta_time_seconds);
-	pattern_runtime.state_elapsed_seconds += last_pattern_tick_delta_seconds;
 
-	const PatternConfig& timings = get_timing_config_for_tick();
+	if (pattern_runtime.state != PatternState::Idle)
+	{
+		pattern_runtime.state_elapsed_seconds += last_pattern_tick_delta_seconds;
 
-	switch (pattern_runtime.state)
+		const PatternConfig& timings = get_timing_config_for_tick();
+
+		switch (pattern_runtime.state)
 	{
 	case PatternState::Preparing:
 		dispatch_pattern_transition(TransitionTrigger::Timeout, callbacks);
@@ -493,6 +526,9 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 	default:
 		break;
 	}
+	}
+
+	tick_state_effect_layer(*this);
 }
 
 RepresentationFrame ParticleScheduler::build_representation_frame() const
@@ -596,12 +632,24 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 		? core::math::clamp(pattern_runtime.state_elapsed_seconds / state_duration, 0.0f, 1.0f)
 		: 0.0f;
 	out_frame.phase.blend_alpha = blend_alpha;
-	out_frame.phase.emphasis = dissipating ? out_frame.dissipate_visibility : hold_pulse_scale;
+	out_frame.phase.emphasis = (dissipating ? out_frame.dissipate_visibility : hold_pulse_scale)
+		* state_effects.emphasis_multiplier();
 	out_frame.phase.visibility = dissipating ? out_frame.dissipate_visibility : 1.0f;
 	out_frame.phase.authority_weight =
 		(returning && blend_alpha <= settings.return_release_authority_threshold) ? 0.0f : 1.0f;
+	out_frame.state_effect_offsets = state_effects.offsets();
 
 	return out_frame;
+}
+
+StateEffectTriggerResult ParticleScheduler::toggle_state_effect(const core::String& effect_id)
+{
+	return state_effects.toggle(effect_id, pattern_runtime.state);
+}
+
+void ParticleScheduler::tick_state_effects()
+{
+	tick_state_effect_layer(*this);
 }
 
 float ParticleScheduler::get_active_state_duration_seconds() const

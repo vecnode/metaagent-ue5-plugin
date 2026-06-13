@@ -126,6 +126,7 @@ Focus resolution (particle bounds, locked observation target) remains host-side 
 | `shape_builder` | `ShapeBuilder` | Targets, frames, silhouette assignment |
 | `image_mask_processor` | `image_mask::build_mask_from_rgba` | Mask + stratified scatter |
 | `effect_catalog` | `find_particle_gui_action`, `particle_gui_panel_rows` | GUI particle action specs (load preview vs trigger effect ID) |
+| `state_effects` | `StateEffectStack`, ambient breathing + cohesion/turbulence overlays | Always-on slow breathing; Z/X toggle optional overlays |
 
 ---
 

@@ -1403,6 +1403,19 @@ namespace MetaAgentParticleActuationInternal
 		return FNiagaraPosition(SimPosition);
 	}
 
+	FVector ApplyStateEffectOffset(
+		const FMetaAgentParticleActuationRequest& Request,
+		const int32 GlobalIndex,
+		const FVector& ComposedWorldPosition)
+	{
+		if (!Request.StateEffectOffsets || !Request.StateEffectOffsets->IsValidIndex(GlobalIndex))
+		{
+			return ComposedWorldPosition;
+		}
+
+		return ComposedWorldPosition + (*Request.StateEffectOffsets)[GlobalIndex];
+	}
+
 	bool FindPositionFloatComponents(
 		const FNiagaraDataSetCompiledData& CompiledData,
 		int32& OutFloatComponentStart,
@@ -1477,8 +1490,13 @@ namespace MetaAgentParticleActuationInternal
 				continue;
 			}
 
+			const FVector WorldPosition = ApplyStateEffectOffset(
+				Request,
+				GlobalIndex,
+				FVector(Composed.world_position.x, Composed.world_position.y, Composed.world_position.z));
+
 			const FNiagaraPosition SimPosition = WorldToNiagaraPosition(
-				FVector(Composed.world_position.x, Composed.world_position.y, Composed.world_position.z),
+				WorldPosition,
 				EmitterInstance,
 				NiagaraComponent,
 				SystemInstance);
@@ -1907,10 +1925,10 @@ int32 FMetaAgentParticleActuation::ComposeWorldPositionsFromRequest(
 				GlobalIndex);
 		if (Composed.valid)
 		{
-			OutAppliedWorldPositions.Add(FVector(
-				Composed.world_position.x,
-				Composed.world_position.y,
-				Composed.world_position.z));
+			OutAppliedWorldPositions.Add(MetaAgentParticleActuationInternal::ApplyStateEffectOffset(
+				Request,
+				GlobalIndex,
+				FVector(Composed.world_position.x, Composed.world_position.y, Composed.world_position.z)));
 		}
 		else
 		{

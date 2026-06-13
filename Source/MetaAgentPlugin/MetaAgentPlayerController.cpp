@@ -46,6 +46,7 @@
 #include "metaagent/camera/types.hpp"
 #include "metaagent/input/policy.hpp"
 #include "metaagent/particle/effect_catalog.hpp"
+#include "metaagent/particle/state_effects.hpp"
 #include "Engine/GameViewportClient.h"
 #include "MetaAgentHUD.h"
 #include "MetaAgentParticleShapes.h"
@@ -3068,6 +3069,53 @@ namespace MetaAgentParticleControllerInternal
 
 		NotifyEffectResult(Controller, Controller->TriggerParticleEffect(EffectId));
 	}
+
+	bool ToggleStateEffectOnController(
+		AMetaAgentPlayerController* Controller,
+		const metaagent::app::CommandId Command,
+		const metaagent::core::String& EffectId)
+	{
+		if (!Controller
+			|| !IsMetaAgentRuntimeActive()
+			|| !Controller->IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle)
+			|| !Controller->CanExecuteAppCommand(Command))
+		{
+			return false;
+		}
+
+		Controller->EnsureParticleOrchestrator();
+		UMetaAgentParticleOrchestrator* Orchestrator = Controller->GetParticleOrchestrator();
+		if (!Orchestrator)
+		{
+			return false;
+		}
+
+		UMetaAgentParticleRuntime* Runtime = Orchestrator->GetParticleRuntime();
+		if (!Runtime)
+		{
+			if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
+			{
+				HUD->AddTransientMessage(TEXT("Particle runtime unavailable."), FColor::Yellow, 2.0f);
+			}
+			return false;
+		}
+
+		const metaagent::particle::StateEffectTriggerResult Result =
+			MetaAgentParticleCoreBridge::toggle_state_effect(*Runtime, EffectId);
+
+		if (Result.success)
+		{
+			Runtime->ApplyPatternRepresentation();
+		}
+
+		if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
+		{
+			const FColor Color = Result.success ? FColor::Cyan : FColor::Yellow;
+			HUD->AddTransientMessage(FString(UTF8_TO_TCHAR(Result.user_message.c_str())), Color, 2.5f);
+		}
+
+		return Result.success;
+	}
 }
 
 bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
@@ -3113,6 +3161,16 @@ bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 				bLoaded ? 3.0f : 2.5f);
 		}
 		return bLoaded;
+	}
+
+	if (Spec->dispatch_kind == metaagent::particle::ParticleGuiDispatchKind::ToggleStateEffect)
+	{
+		const metaagent::app::CommandId Command = metaagent::app::command_for_gui_action(
+			std::string(ActionUtf8.Get(), static_cast<size_t>(ActionUtf8.Length())));
+		return MetaAgentParticleControllerInternal::ToggleStateEffectOnController(
+			this,
+			Command,
+			Spec->effect_id);
 	}
 
 	const FName EffectId(UTF8_TO_TCHAR(Spec->effect_id.c_str()));
@@ -3325,6 +3383,30 @@ void AMetaAgentPlayerController::HandleParticleCycleFormingPressed()
 void AMetaAgentPlayerController::HandleParticleCycleReturningPressed()
 {
 	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleReturning);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleToggleCohesionPressed()
+{
+	MetaAgentParticleControllerInternal::ToggleStateEffectOnController(
+		this,
+		metaagent::app::CommandId::ToggleStateEffectCohesion,
+		metaagent::particle::state_effect_ids::Cohesion);
+	if (GUI.bHelpPanelVisible)
+	{
+		ApplyGUIHelpPanelState();
+	}
+}
+
+void AMetaAgentPlayerController::HandleParticleToggleTurbulencePressed()
+{
+	MetaAgentParticleControllerInternal::ToggleStateEffectOnController(
+		this,
+		metaagent::app::CommandId::ToggleStateEffectTurbulence,
+		metaagent::particle::state_effect_ids::Turbulence);
 	if (GUI.bHelpPanelVisible)
 	{
 		ApplyGUIHelpPanelState();

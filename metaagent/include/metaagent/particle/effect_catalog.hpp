@@ -8,6 +8,7 @@ namespace metaagent::particle {
 enum class ParticleGuiDispatchKind {
 	LoadPreviewPng = 0,
 	TriggerEffect = 1,
+	ToggleStateEffect = 2,
 };
 
 struct ParticleGuiActionSpec {

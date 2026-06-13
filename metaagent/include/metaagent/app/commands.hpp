@@ -17,6 +17,8 @@ enum class CommandId {
 	LoadPreviewImage,
 	StartPlatformAudio,
 	StartPlatformImage,
+	ToggleStateEffectCohesion,
+	ToggleStateEffectTurbulence,
 	QuitApplication,
 };
 

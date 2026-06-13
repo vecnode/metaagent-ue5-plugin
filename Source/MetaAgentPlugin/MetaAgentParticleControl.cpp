@@ -910,6 +910,8 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	InputComponent->BindKey(EKeys::Period, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed);
 	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSlowPresetPressed);
 	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
+	InputComponent->BindKey(EKeys::Z, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleToggleCohesionPressed);
+	InputComponent->BindKey(EKeys::X, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleToggleTurbulencePressed);
 	InputComponent->BindKey(EKeys::J, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSnappyPresetPressed);
 	InputComponent->BindKey(EKeys::K, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDreamyPresetPressed);
 	InputComponent->BindKey(EKeys::M, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleMorphPressed);
@@ -1225,6 +1227,11 @@ void FMetaAgentParticleRepresentationDriverRegistry::BuildActuationRequestFromFr
 	if (Frame.FormingSteeringOffsets.Num() > 0)
 	{
 		OutRequest.FormingSteeringOffsets = &Frame.FormingSteeringOffsets;
+	}
+
+	if (Frame.StateEffectOffsets.Num() > 0)
+	{
+		OutRequest.StateEffectOffsets = &Frame.StateEffectOffsets;
 	}
 
 	const bool bNeedsFormingSettings = Frame.bReturnUsesMotionSolver

@@ -185,6 +185,7 @@ FSM and actuation math run in core `ParticleScheduler` (no duplicate graph in th
 | **F** | Load `sdxl_latest.png` preview + shape source |
 | **,** / **.** | Step pattern backward / forward |
 | **B** / **N** | Slow / Dramatic preset |
+| **Z** / **X** | Toggle radial cohesion / turbulent wake overlays (slow ambient breathing is always on) |
 | **J** / **K** | Snappy / Dreamy preset (keyboard only; J also bound to recording toggle) |
 | **M**, **T**, **Y**, **U** | Morph, cycle sampling/forming/returning (keyboard only) |
 

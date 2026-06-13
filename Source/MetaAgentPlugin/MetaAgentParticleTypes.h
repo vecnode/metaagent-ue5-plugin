@@ -662,6 +662,9 @@ struct FMetaAgentParticleRepresentationFrame
 
 	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Representation")
 	TArray<FVector> FormingSteeringOffsets;
+
+	UPROPERTY(BlueprintReadOnly, Category = "MetaAgent|Particles|Representation")
+	TArray<FVector> StateEffectOffsets;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleRepresentationMapping

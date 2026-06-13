@@ -34,6 +34,7 @@
 #include "metaagent/app/gui_catalog.cpp"
 #include "metaagent/input/policy.cpp"
 #include "metaagent/particle/effect_catalog.cpp"
+#include "metaagent/particle/state_effects.cpp"
 #include "metaagent/runtime/host_interfaces.cpp"
 #include "metaagent/net/json.cpp"
 #include "metaagent/net/handlers.cpp"

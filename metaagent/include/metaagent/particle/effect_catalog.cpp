@@ -1,5 +1,7 @@
 #include "metaagent/particle/effect_catalog.hpp"
 
+#include "metaagent/particle/state_effects.hpp"
+
 namespace metaagent::particle {
 namespace {
 
@@ -51,6 +53,18 @@ core::Array<ParticleGuiActionSpec> build_specs()
 		"Apply Dramatic preset",
 		ParticleGuiDispatchKind::TriggerEffect,
 		"PresetDramatic"));
+	specs.push_back(make_spec(
+		"ParticleToggleCohesion",
+		"Z",
+		"Toggle radial cohesion overlay (ambient breathing is always on)",
+		ParticleGuiDispatchKind::ToggleStateEffect,
+		state_effect_ids::Cohesion));
+	specs.push_back(make_spec(
+		"ParticleToggleTurbulence",
+		"X",
+		"Toggle turbulent wake overlay (all pattern states)",
+		ParticleGuiDispatchKind::ToggleStateEffect,
+		state_effect_ids::Turbulence));
 	return specs;
 }
 

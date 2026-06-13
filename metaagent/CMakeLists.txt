@@ -83,6 +83,10 @@ add_executable(metaagent_host_interfaces_test tests/host_interfaces_test.cpp)
 target_link_libraries(metaagent_host_interfaces_test PRIVATE metaagent)
 add_test(NAME host_interfaces_test COMMAND metaagent_host_interfaces_test)
 
+add_executable(metaagent_state_effects_test tests/state_effects_test.cpp)
+target_link_libraries(metaagent_state_effects_test PRIVATE metaagent)
+add_test(NAME state_effects_test COMMAND metaagent_state_effects_test)
+
 add_executable(metaagent_server tools/metaagent_server.cpp tools/mini_http_server.cpp)
 target_link_libraries(metaagent_server PRIVATE metaagent)
 if(WIN32)

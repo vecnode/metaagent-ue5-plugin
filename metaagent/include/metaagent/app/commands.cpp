@@ -93,6 +93,14 @@ CommandId parse_command_name(const core::String& name)
 	{
 		return CommandId::StartPlatformImage;
 	}
+	if (normalized == "toggle_state_effect_cohesion" || normalized == "state_effect_cohesion")
+	{
+		return CommandId::ToggleStateEffectCohesion;
+	}
+	if (normalized == "toggle_state_effect_turbulence" || normalized == "state_effect_turbulence")
+	{
+		return CommandId::ToggleStateEffectTurbulence;
+	}
 	if (normalized == "quit_application" || normalized == "quit")
 	{
 		return CommandId::QuitApplication;
@@ -124,6 +132,10 @@ core::String command_display_name(const CommandId command)
 		return "Start Platform Audio";
 	case CommandId::StartPlatformImage:
 		return "Start Platform Image";
+	case CommandId::ToggleStateEffectCohesion:
+		return "Toggle Cohesion Overlay";
+	case CommandId::ToggleStateEffectTurbulence:
+		return "Toggle Turbulence Overlay";
 	case CommandId::QuitApplication:
 		return "Quit Application";
 	default:
@@ -153,6 +165,8 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 	case CommandId::PatternStepForward:
 	case CommandId::PatternStepBackward:
 	case CommandId::LoadPreviewImage:
+	case CommandId::ToggleStateEffectCohesion:
+	case CommandId::ToggleStateEffectTurbulence:
 		result.success = feature_enabled(session, "particle");
 		if (!result.success)
 		{

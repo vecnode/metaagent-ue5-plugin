@@ -73,6 +73,7 @@ struct RepresentationFrame {
 	core::Array<core::Vec3> return_rest_positions;
 	core::Array<core::Vec3> dissipate_start_positions;
 	core::Array<core::Vec3> forming_steering_offsets;
+	core::Array<core::Vec3> state_effect_offsets;
 };
 
 struct TransitionContext {

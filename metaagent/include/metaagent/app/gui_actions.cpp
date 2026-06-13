@@ -48,6 +48,19 @@ CommandId map_particle_gui_action(const core::String& action_id)
 		return CommandId::LoadPreviewImage;
 	}
 
+	if (spec->dispatch_kind == particle::ParticleGuiDispatchKind::ToggleStateEffect)
+	{
+		if (spec->effect_id == particle::state_effect_ids::Cohesion)
+		{
+			return CommandId::ToggleStateEffectCohesion;
+		}
+		if (spec->effect_id == particle::state_effect_ids::Turbulence)
+		{
+			return CommandId::ToggleStateEffectTurbulence;
+		}
+		return CommandId::Unknown;
+	}
+
 	if (spec->effect_id == "PatternStepBackward")
 	{
 		return CommandId::PatternStepBackward;

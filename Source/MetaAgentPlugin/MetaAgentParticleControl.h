@@ -85,6 +85,7 @@ struct FMetaAgentParticleActuationRequest
 	float FormingAnticipationCarryoverDurationSeconds = 0.35f;
 	bool bDissipatingMotion = false;
 	float DissipateVisibility = 1.0f;
+	const TArray<FVector>* StateEffectOffsets = nullptr;
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleActuation

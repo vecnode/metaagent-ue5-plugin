@@ -626,6 +626,7 @@ void copy_representation_frame_from_core(
 	CopyVec3ArrayFromCore(Source.return_rest_positions, Destination.ReturnRestPositions);
 	CopyVec3ArrayFromCore(Source.dissipate_start_positions, Destination.DissipateStartPositions);
 	CopyVec3ArrayFromCore(Source.forming_steering_offsets, Destination.FormingSteeringOffsets);
+	CopyVec3ArrayFromCore(Source.state_effect_offsets, Destination.StateEffectOffsets);
 }
 
 metaagent::particle::PatternPreset to_core_pattern_preset(const EMetaAgentParticlePatternPreset Preset)
@@ -1505,5 +1506,26 @@ FString build_pattern_timings_text(const UMetaAgentParticleRuntime& Runtime)
 		return TEXT("Pattern Timings: unavailable");
 	}
 	return FromCoreString(State->Scheduler.build_pattern_timings_text());
+}
+metaagent::particle::StateEffectTriggerResult toggle_state_effect(
+	UMetaAgentParticleRuntime& Runtime,
+	const metaagent::core::String& EffectId)
+{
+	FCoreSchedulerState* State = get_or_create_state(Runtime);
+	metaagent::particle::StateEffectTriggerResult Result;
+	if (!State)
+	{
+		Result.user_message = "Particle scheduler unavailable.";
+		return Result;
+	}
+
+	sync_runtime_to_core(Runtime);
+	Result = State->Scheduler.toggle_state_effect(EffectId);
+	if (Result.success)
+	{
+		State->Scheduler.tick_state_effects();
+	}
+	sync_core_to_runtime(Runtime);
+	return Result;
 }
 } // namespace MetaAgentParticleCoreBridge

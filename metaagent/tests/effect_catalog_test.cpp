@@ -8,7 +8,7 @@ int main()
 	using namespace metaagent::core;
 
 	const Array<ParticleGuiActionSpec> specs = particle_gui_action_specs();
-	assert(specs.size() == 5);
+	assert(specs.size() == 7);
 
 	const ParticleGuiActionSpec* load = find_particle_gui_action("ParticleLoadPreview");
 	assert(load && load->dispatch_kind == ParticleGuiDispatchKind::LoadPreviewPng);
