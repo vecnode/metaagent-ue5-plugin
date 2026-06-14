@@ -38,7 +38,7 @@ core::Array<ParticleGuiActionSpec> build_specs()
 	specs.push_back(make_spec(
 		"ParticleStepForward",
 		".",
-		"Step pattern state forward (Idle starts reveal; press . for each next state)",
+		"Step pattern state forward (Idle→Forming→Holding→Returning→Idle; mask may load silently first)",
 		ParticleGuiDispatchKind::TriggerEffect,
 		"PatternStepForward"));
 	specs.push_back(make_spec(

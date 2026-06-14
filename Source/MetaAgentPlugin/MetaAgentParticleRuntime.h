@@ -311,6 +311,11 @@ private:
 	void EnsureIdleAmbientBaselineFromSnapshot();
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
 	void CommitAnticipationBaselineForForming();
+	TArray<FVector> ResolveVisualRestBaseline();
+	TArray<FVector> ResolveDisplayedParticlePositions();
+	void ApplyDisplayedPoseHold(const TArray<FVector>& DisplayedPositions);
+	bool MatchesAuthoritativeParticleCount(int32 Count) const;
+	void ResyncIdleBaselineIfAuthoritativeMismatch();
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UWorld> CachedWorld;

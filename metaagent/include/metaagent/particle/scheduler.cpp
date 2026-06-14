@@ -123,7 +123,7 @@ SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleSchedul
 			1.0f);
 	}
 
-	if (runtime.state == PatternState::Anticipating)
+	if (runtime.state == PatternState::Anticipating && !scheduler.settings.manual_pattern_state_advance)
 	{
 		input.anticipating_motion = true;
 		input.anticipation_elapsed_seconds = runtime.state_elapsed_seconds;
@@ -234,6 +234,12 @@ void capture_visual_continuity_for_transition(
 		scheduler.pattern_runtime.pattern_world_targets =
 			scheduler.pattern_runtime.canonical_pattern_world_targets;
 	}
+	else if (result.new_state == PatternState::Preparing)
+	{
+		// Manual mask-wait: hold the current displayed pose with no drift.
+		scheduler.pattern_runtime.baseline_world_positions = composed;
+		scheduler.pattern_runtime.pattern_world_targets = composed;
+	}
 	else if (result.new_state == PatternState::Anticipating)
 	{
 		// Retreat from Forming: travel from the current pose back toward idle rest.
@@ -317,6 +323,58 @@ void enter_state(ParticleScheduler& scheduler, const PatternState new_state, Sch
 	}
 }
 
+void tick_async_mask_prepare_state(ParticleScheduler& scheduler, SchedulerCallbacks& callbacks)
+{
+	scheduler.pattern_runtime.phase = 0.0f;
+
+	if (!callbacks.build_pattern_targets
+		|| (!scheduler.pattern_runtime.awaiting_async_mask
+			&& !scheduler.pattern_runtime.pattern_world_targets.empty()))
+	{
+		return;
+	}
+
+	const bool build_success = callbacks.build_pattern_targets();
+	if (!build_success
+		&& !scheduler.settings.manual_pattern_state_advance
+		&& !scheduler.pattern_runtime.awaiting_async_mask
+		&& scheduler.pattern_runtime.pattern_world_targets.empty()
+		&& scheduler.pattern_runtime.state_elapsed_seconds > 0.25f)
+	{
+		if (callbacks.log_warning)
+		{
+			callbacks.log_warning(
+				"ParticleScheduler: async mask build failed during prepare; completing run.");
+		}
+		if (callbacks.complete_pattern_run)
+		{
+			callbacks.complete_pattern_run();
+		}
+		return;
+	}
+
+	if (!scheduler.settings.manual_pattern_state_advance && scheduler.pattern_runtime.state_elapsed_seconds > 60.0f)
+	{
+		if (callbacks.log_warning)
+		{
+			callbacks.log_warning(
+				"ParticleScheduler: async mask build timed out after 60s; completing run.");
+		}
+		if (callbacks.complete_pattern_run)
+		{
+			callbacks.complete_pattern_run();
+		}
+		return;
+	}
+
+	if (!scheduler.settings.manual_pattern_state_advance
+		&& !scheduler.pattern_runtime.awaiting_async_mask
+		&& !scheduler.pattern_runtime.pattern_world_targets.empty())
+	{
+		scheduler.dispatch_pattern_transition(TransitionTrigger::Ready, callbacks);
+	}
+}
+
 } // namespace
 
 void ParticleScheduler::reset_pattern_runtime()
@@ -382,13 +440,32 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 	case TransitionAction::None:
 		return false;
 	case TransitionAction::BeginPatternStart:
+		if (settings.manual_pattern_state_advance && pattern_runtime.state == PatternState::Idle)
+		{
+			TransitionResult continuity_result;
+			continuity_result.new_state = PatternState::Preparing;
+			continuity_result.action = TransitionAction::EnterState;
+			capture_visual_continuity_for_transition(*this, continuity_result);
+		}
 		if (!callbacks.begin_pattern_start || !callbacks.begin_pattern_start())
 		{
 			return false;
 		}
-		pattern_runtime.state = PatternState::Anticipating;
-		pattern_runtime.state_elapsed_seconds = 0.0f;
-		pattern_runtime.phase = 0.0f;
+		if (settings.manual_pattern_state_advance)
+		{
+			if (pattern_runtime.awaiting_async_mask)
+			{
+				enter_state(*this, PatternState::Preparing, callbacks);
+			}
+			else
+			{
+				enter_state(*this, PatternState::Forming, callbacks);
+			}
+		}
+		else
+		{
+			enter_state(*this, PatternState::Anticipating, callbacks);
+		}
 		return true;
 	case TransitionAction::CompleteRun:
 		if (callbacks.complete_pattern_run)
@@ -421,58 +498,16 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 		switch (pattern_runtime.state)
 	{
 	case PatternState::Preparing:
-		dispatch_pattern_transition(TransitionTrigger::Timeout, callbacks);
+		tick_async_mask_prepare_state(*this, callbacks);
+		if (!settings.manual_pattern_state_advance)
+		{
+			dispatch_pattern_transition(TransitionTrigger::Timeout, callbacks);
+		}
 		break;
 
 	case PatternState::Anticipating:
-	{
-		pattern_runtime.phase = 0.0f;
-
-		if (callbacks.build_pattern_targets
-			&& (pattern_runtime.awaiting_async_mask || pattern_runtime.pattern_world_targets.empty()))
-		{
-			const bool build_success = callbacks.build_pattern_targets();
-			if (!build_success
-				&& !settings.manual_pattern_state_advance
-				&& !pattern_runtime.awaiting_async_mask
-				&& pattern_runtime.pattern_world_targets.empty()
-				&& pattern_runtime.state_elapsed_seconds > 0.25f)
-			{
-				if (callbacks.log_warning)
-				{
-					callbacks.log_warning(
-						"ParticleScheduler: async mask build failed during anticipating; completing run.");
-				}
-				if (callbacks.complete_pattern_run)
-				{
-					callbacks.complete_pattern_run();
-				}
-				break;
-			}
-
-			if (!settings.manual_pattern_state_advance && pattern_runtime.state_elapsed_seconds > 60.0f)
-			{
-				if (callbacks.log_warning)
-				{
-					callbacks.log_warning(
-						"ParticleScheduler: async mask build timed out after 60s; completing run.");
-				}
-				if (callbacks.complete_pattern_run)
-				{
-					callbacks.complete_pattern_run();
-				}
-				break;
-			}
-		}
-
-		if (!settings.manual_pattern_state_advance
-			&& !pattern_runtime.awaiting_async_mask
-			&& !pattern_runtime.pattern_world_targets.empty())
-		{
-			dispatch_pattern_transition(TransitionTrigger::Ready, callbacks);
-		}
+		tick_async_mask_prepare_state(*this, callbacks);
 		break;
-	}
 
 	case PatternState::Forming:
 	{
@@ -580,12 +615,14 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 	out_frame.pattern_state = pattern_runtime.state;
 	out_frame.macro_phase = RepresentationMapping::macro_phase_from_pattern_state(pattern_runtime.state);
 	out_frame.pattern_center = pattern_runtime.pattern_center;
-	out_frame.pattern_active = pattern_runtime.state != PatternState::Idle;
+	out_frame.pattern_active = pattern_runtime.state != PatternState::Idle
+		&& pattern_runtime.state != PatternState::Preparing;
 
 	out_frame.baseline_world_positions = pattern_runtime.baseline_world_positions;
 	out_frame.pattern_world_targets = pattern_runtime.pattern_world_targets;
 	if (out_frame.pattern_world_targets.empty()
-		&& pattern_runtime.state == PatternState::Idle
+		&& (pattern_runtime.state == PatternState::Idle
+			|| pattern_runtime.state == PatternState::Preparing)
 		&& !pattern_runtime.baseline_world_positions.empty())
 	{
 		out_frame.pattern_world_targets = pattern_runtime.baseline_world_positions;
@@ -644,7 +681,7 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 		}
 	}
 
-	if (pattern_runtime.state == PatternState::Anticipating)
+	if (pattern_runtime.state == PatternState::Anticipating && !settings.manual_pattern_state_advance)
 	{
 		out_frame.anticipating_motion = true;
 		out_frame.anticipation_elapsed_seconds = pattern_runtime.state_elapsed_seconds;

@@ -44,7 +44,9 @@ bool guard_dissipate_timeout(const TransitionContext& context)
 }
 bool guard_skip_return_cancel(const TransitionContext& context)
 {
-	return context.skip_return_on_cancel || context.state == PatternState::Anticipating;
+	return context.skip_return_on_cancel
+		|| context.state == PatternState::Anticipating
+		|| context.state == PatternState::Preparing;
 }
 bool guard_needs_return_cancel(const TransitionContext& context) { return !guard_skip_return_cancel(context); }
 bool guard_morph_targets_ready(const TransitionContext& context) { return context.pattern_target_count > 0; }
@@ -76,12 +78,16 @@ void TransitionGraph::register_defaults()
 
 	auto add = [](TransitionRow row) { rows().push_back(std::move(row)); };
 
-	add({PatternState::Idle, TransitionTrigger::Start, guard_always, TransitionAction::BeginPatternStart, PatternState::Anticipating});
-	add({PatternState::Idle, TransitionTrigger::Advance, guard_always, TransitionAction::BeginPatternStart, PatternState::Anticipating});
-	add({PatternState::Preparing, TransitionTrigger::Timeout, guard_always, TransitionAction::EnterState, PatternState::Anticipating});
-	add({PatternState::Preparing, TransitionTrigger::Advance, guard_always, TransitionAction::EnterState, PatternState::Anticipating});
+	add({PatternState::Idle, TransitionTrigger::Start, guard_not_manual, TransitionAction::BeginPatternStart, PatternState::Anticipating});
+	add({PatternState::Idle, TransitionTrigger::Start, guard_manual, TransitionAction::BeginPatternStart, PatternState::Forming});
+	add({PatternState::Idle, TransitionTrigger::Advance, guard_not_manual, TransitionAction::BeginPatternStart, PatternState::Anticipating});
+	add({PatternState::Idle, TransitionTrigger::Advance, guard_manual, TransitionAction::BeginPatternStart, PatternState::Forming});
+	add({PatternState::Preparing, TransitionTrigger::Timeout, guard_not_manual, TransitionAction::EnterState, PatternState::Anticipating});
+	add({PatternState::Preparing, TransitionTrigger::Advance, guard_manual_awaiting_mask, TransitionAction::None, PatternState::Preparing});
+	add({PatternState::Preparing, TransitionTrigger::Advance, guard_mask_ready, TransitionAction::EnterState, PatternState::Forming, false, true});
+	add({PatternState::Preparing, TransitionTrigger::Cancel, guard_skip_return_cancel, TransitionAction::CompleteRun, PatternState::Idle});
+	add({PatternState::Preparing, TransitionTrigger::Retreat, guard_always, TransitionAction::CompleteRun, PatternState::Idle});
 	add({PatternState::Anticipating, TransitionTrigger::Advance, guard_awaiting_mask_auto_only, TransitionAction::None, PatternState::Anticipating});
-	add({PatternState::Anticipating, TransitionTrigger::Advance, guard_manual_awaiting_mask, TransitionAction::None, PatternState::Anticipating});
 	add({PatternState::Anticipating, TransitionTrigger::Advance, guard_mask_ready, TransitionAction::EnterState, PatternState::Forming, false, true});
 	add({PatternState::Anticipating, TransitionTrigger::Ready,
 		[](const TransitionContext& context) { return guard_not_manual(context) && guard_mask_ready(context); },
@@ -90,7 +96,8 @@ void TransitionGraph::register_defaults()
 	add({PatternState::Anticipating, TransitionTrigger::Retreat, guard_always, TransitionAction::CompleteRun, PatternState::Idle});
 	add({PatternState::Forming, TransitionTrigger::Advance, guard_always, TransitionAction::EnterState, PatternState::Holding});
 	add({PatternState::Forming, TransitionTrigger::Timeout, guard_form_timeout, TransitionAction::EnterState, PatternState::Holding});
-	add({PatternState::Forming, TransitionTrigger::Retreat, guard_always, TransitionAction::EnterState, PatternState::Anticipating});
+	add({PatternState::Forming, TransitionTrigger::Retreat, guard_manual, TransitionAction::CompleteRun, PatternState::Idle});
+	add({PatternState::Forming, TransitionTrigger::Retreat, guard_not_manual, TransitionAction::EnterState, PatternState::Anticipating});
 	add({PatternState::Holding, TransitionTrigger::Advance, guard_always, TransitionAction::BeginConfiguredReturn, PatternState::Returning});
 	add({PatternState::Holding, TransitionTrigger::Timeout, guard_hold_timeout, TransitionAction::BeginConfiguredReturn, PatternState::Returning});
 	add({PatternState::Holding, TransitionTrigger::Morph, guard_morph_targets_ready, TransitionAction::EnterState, PatternState::Forming, false, true});

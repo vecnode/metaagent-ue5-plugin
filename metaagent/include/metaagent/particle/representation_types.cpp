@@ -7,6 +7,7 @@ RepresentationMacroPhase RepresentationMapping::macro_phase_from_pattern_state(c
 	switch (state)
 	{
 	case PatternState::Preparing:
+		return RepresentationMacroPhase::Idle;
 	case PatternState::Anticipating:
 		return RepresentationMacroPhase::Prepare;
 	case PatternState::Forming:

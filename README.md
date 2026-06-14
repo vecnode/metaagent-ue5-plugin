@@ -18,9 +18,10 @@ Portable domain logic lives in [`metaagent/`](./metaagent/) and is embedded into
 | Outbound platform HTTP (H/G COMMS) | **`net/platform_client`** (URL, JSON, response parse) | **`FMetaAgentPlatformBridge`** (`FHttpModule` POST only) |
 | Command + GUI validation | Yes (`app/commands`, `app/gui_catalog`, `app/gui_actions`) | Key binds, HUD draw, dispatch |
 | Input policy (GUI open vs observation) | Yes | Enhanced Input, `PlayerTick` mouse hit-test |
+| **Displayed particle pose / GPU apply** | Compose math + state effects | Direct capture, `LastApplied`, Niagara drivers |
 | AI autopilot, recording, character pawn | No | `MetaAgentGameplay`, `MetaAgentPlayerController` |
 
-**Not everything is in core yet.** Particles and camera **math** are; viewport/rendering, outbound HTTP, AI, and recording remain host responsibilities.
+Deep dive: [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) — includes the **visual continuity** design for eliminating the small teleport after Idle.
 
 ---
 
@@ -178,6 +179,25 @@ Autopilot toggle (**I**). Core `HostServiceCallbacks::toggle_autopilot` defined;
 
 FSM and actuation math run in core `ParticleScheduler` (no duplicate graph in the plugin).
 
+### Manual step flow (`.` key)
+
+When stepping with **`.`**, the pattern uses a **silent Preparing** state while the image mask loads (no anticipating motion). Preparing should look like Idle; any remaining jump is a **visual continuity** issue — see [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md#visual-continuity-and-the-idle-transition-teleport).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Preparing: . (mask loading)
+    Idle --> Forming: . (mask cached)
+    Preparing --> Forming: . (mask ready)
+    Forming --> Holding: .
+    Holding --> Returning: .
+    Returning --> Idle: .
+    Preparing --> Idle: , (retreat)
+    Forming --> Idle: , (retreat)
+```
+
+Auto full-cycle (play reveal) still uses **Anticipating** while the mask loads — see architecture doc.
+
 ### Controls
 
 | Input | Action |
@@ -193,12 +213,12 @@ GUI panel rows mirror the core particle effect catalog (same as keyboard **F**, 
 
 Console: `MetaAgent.Pattern.*` (Form, Hold, Return, Preset, Status, Shape, ScatterGrid, Cancel, …).
 
-### Pattern state machine
+### Pattern state machine (auto / legacy diagram)
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Anticipating: step forward from Idle
+    Idle --> Anticipating: auto start / full cycle
     Anticipating --> Forming: mask ready
     Forming --> Holding: form complete
     Holding --> Returning: hold timeout
@@ -248,7 +268,7 @@ flowchart LR
 
 ## Hardening direction (plugin vs core)
 
-See [`metaagent/ARCHITECTURE.md`](metaagent/ARCHITECTURE.md) for the full phase table. Recent core additions:
+See [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) for the full phase table.
 
 | Module | Role |
 |--------|------|
@@ -257,7 +277,18 @@ See [`metaagent/ARCHITECTURE.md`](metaagent/ARCHITECTURE.md) for the full phase 
 | `runtime/host_interfaces` | Recording + AI snapshot types and host callbacks |
 | `tools/metaagent_server` | Standalone inbound HTTP CLI (no editor) |
 
-**Optional next:** wire `HostServiceCallbacks` from UE for recording/AI; add Recording/AI rows to `gui_catalog`.
+### Recommended next steps
+
+| Priority | Work | Why |
+|----------|------|-----|
+| **P0** | Core **`DisplayedPose` + `freeze_displayed_pose()`** + continuity unit tests | Removes Idle→Preparing teleport permanently; single API instead of UE/core split |
+| **P0** | **`ParticleHostCallbacks`** in `runtime/host_interfaces` | Professional host seam: capture, apply, authoritative count |
+| **P1** | Delete duplicate hold logic from `BeginPatternStart` once core owns freeze | Thinner UE bridge |
+| **P1** | Wire **`HostServiceCallbacks`** (recording, AI) | Completes runtime module |
+| **P2** | GUI rows for Recording / AI via `gui_catalog` | Panel parity with keyboard shortcuts |
+| **P2** | Headless particle sim test harness (no Niagara) | CI regression for FSM + continuity |
+
+Interim UE mitigations already in place: authoritative particle count, displayed-pose hold, Preparing uses Idle macro phase in core representation frame.
 
 ---
 

@@ -651,7 +651,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 		LastEffectSpec.bStartPattern = false;
 		bHasLastEffectSpec = true;
 	}
-	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing
 		&& ParticleRuntime->IsAwaitingAsyncMask())
 	{
 		FMetaAgentParticleShapeContext Context = ParticleRuntime->GetPatternShapeContext();
@@ -672,7 +672,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 
 	Result.bSuccess = bAdvanced;
 	Result.bAwaitingAsyncPrepare =
-		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing
 		&& ParticleRuntime->IsAwaitingAsyncMask();
 	if (bAdvanced)
 	{
@@ -683,16 +683,16 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 	{
 		Result.UserMessage = FText::FromString(
 			FString::Printf(
-				TEXT("Pattern waiting for image mask — press . again when ready (%s)"),
+				TEXT("Loading image mask — press . again when ready (%s)"),
 				*ParticleRuntime->BuildPatternStatusText()));
 	}
-	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing
 		&& !ParticleRuntime->IsAwaitingAsyncMask())
 	{
 		Result.bSuccess = true;
 		Result.UserMessage = FText::FromString(
 			FString::Printf(
-				TEXT("Mask ready — press . again to enter Forming (%s)"),
+				TEXT("Mask ready — press . to enter Forming (%s)"),
 				*ParticleRuntime->BuildPatternStatusText()));
 	}
 	else
@@ -826,7 +826,7 @@ bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessa
 	if (ParticleRuntime && ParticleRuntime->IsPatternActive())
 	{
 		PrepareShapeContextForPlay(/*bRequestMaskBuild=*/true);
-		if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating)
+		if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Preparing)
 		{
 			ParticleRuntime->RebuildPatternTargets();
 		}

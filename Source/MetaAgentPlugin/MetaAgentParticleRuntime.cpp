@@ -606,6 +606,7 @@ void UMetaAgentParticleRuntime::CaptureParticlesDirectly()
 		DirectCaptureAuthoritativeCount = AggregatedPositions.Num();
 		bHasDirectCaptureAuthoritativeCount = true;
 		SubmitAggregatedParticleCapture(AggregatedPositions, AggregatedBlocks, LastActorName, LastComponentName);
+		ResyncIdleBaselineIfAuthoritativeMismatch();
 	}
 }
 
@@ -614,6 +615,24 @@ TArray<FVector> UMetaAgentParticleRuntime::GetKnownParticlePositions() const
 	if (IsPatternActive() && PatternRuntime.BaselineWorldPositions.Num() > 0)
 	{
 		return PatternRuntime.BaselineWorldPositions;
+	}
+
+	if (bHasDirectCaptureAuthoritativeCount && DirectCaptureAuthoritativeCount > 0)
+	{
+		if (LatestSnapshot.ExportedParticlePositions.Num() == DirectCaptureAuthoritativeCount)
+		{
+			return LatestSnapshot.ExportedParticlePositions;
+		}
+
+		if (LastAppliedWorldPositions.Num() == DirectCaptureAuthoritativeCount)
+		{
+			return LastAppliedWorldPositions;
+		}
+
+		if (PatternRuntime.IdleBaselineWorldPositions.Num() == DirectCaptureAuthoritativeCount)
+		{
+			return PatternRuntime.IdleBaselineWorldPositions;
+		}
 	}
 
 	return LatestSnapshot.ExportedParticlePositions;
@@ -874,6 +893,100 @@ bool UMetaAgentParticleRuntime::ApplyPatternAsset(UMetaAgentParticlePatternAsset
 	return true;
 }
 
+bool UMetaAgentParticleRuntime::MatchesAuthoritativeParticleCount(const int32 Count) const
+{
+	return !bHasDirectCaptureAuthoritativeCount
+		|| DirectCaptureAuthoritativeCount <= 0
+		|| Count == DirectCaptureAuthoritativeCount;
+}
+
+void UMetaAgentParticleRuntime::ResyncIdleBaselineIfAuthoritativeMismatch()
+{
+	if (!bHasDirectCaptureAuthoritativeCount || DirectCaptureAuthoritativeCount <= 0)
+	{
+		return;
+	}
+
+	if (PatternRuntime.State != EMetaAgentParticlePatternState::Idle
+		&& PatternRuntime.State != EMetaAgentParticlePatternState::Preparing)
+	{
+		return;
+	}
+
+	if (MatchesAuthoritativeParticleCount(PatternRuntime.BaselineWorldPositions.Num()))
+	{
+		return;
+	}
+
+	if (LatestSnapshot.ExportedParticlePositions.Num() == DirectCaptureAuthoritativeCount)
+	{
+		SeedIdleAmbientBaseline(LatestSnapshot.ExportedParticlePositions);
+		return;
+	}
+
+	if (LastAppliedWorldPositions.Num() == DirectCaptureAuthoritativeCount)
+	{
+		SeedIdleAmbientBaseline(LastAppliedWorldPositions);
+	}
+}
+
+TArray<FVector> UMetaAgentParticleRuntime::ResolveVisualRestBaseline()
+{
+	ResyncIdleBaselineIfAuthoritativeMismatch();
+
+	if (LastAppliedWorldPositions.Num() > 0
+		&& MatchesAuthoritativeParticleCount(LastAppliedWorldPositions.Num()))
+	{
+		return LastAppliedWorldPositions;
+	}
+
+	if (PatternRuntime.IdleBaselineWorldPositions.Num() > 0
+		&& MatchesAuthoritativeParticleCount(PatternRuntime.IdleBaselineWorldPositions.Num()))
+	{
+		return PatternRuntime.IdleBaselineWorldPositions;
+	}
+
+	ForceCaptureParticles();
+	ResyncIdleBaselineIfAuthoritativeMismatch();
+	return GetKnownParticlePositions();
+}
+
+TArray<FVector> UMetaAgentParticleRuntime::ResolveDisplayedParticlePositions()
+{
+	if (LastAppliedWorldPositions.Num() > 0
+		&& MatchesAuthoritativeParticleCount(LastAppliedWorldPositions.Num()))
+	{
+		return LastAppliedWorldPositions;
+	}
+
+	TArray<FVector> ComposedPositions;
+	if (GetFocusableWorldPositions(ComposedPositions) > 0
+		&& MatchesAuthoritativeParticleCount(ComposedPositions.Num()))
+	{
+		return ComposedPositions;
+	}
+
+	return ResolveVisualRestBaseline();
+}
+
+void UMetaAgentParticleRuntime::ApplyDisplayedPoseHold(const TArray<FVector>& DisplayedPositions)
+{
+	if (DisplayedPositions.Num() <= 0)
+	{
+		return;
+	}
+
+	PatternRuntime.BaselineWorldPositions = DisplayedPositions;
+	PatternRuntime.PatternWorldTargets = DisplayedPositions;
+	PatternShapeContext.BaselineWorldPositions = DisplayedPositions;
+	PatternRuntime.PatternCenter = FVector::ZeroVector;
+	for (const FVector& Position : DisplayedPositions)
+	{
+		PatternRuntime.PatternCenter += Position;
+	}
+	PatternRuntime.PatternCenter /= static_cast<float>(DisplayedPositions.Num());
+}
+
 bool UMetaAgentParticleRuntime::BeginPatternStart()
 {
 	PatternRuntime.bAwaitingAsyncMask = false;
@@ -886,25 +999,31 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 	{
 		PatternRuntime.ActivePatternTags.AddTag(MetaAgentParticleTags::Pattern_ImageReveal);
 	}
-	TArray<FVector> RestBaseline = PatternRuntime.IdleBaselineWorldPositions;
-	if (RestBaseline.Num() <= 0 && LastAppliedWorldPositions.Num() > 0)
-	{
-		RestBaseline = LastAppliedWorldPositions;
-	}
-	ForceCaptureParticles();
-	if (GetKnownParticleCount() > 0)
-	{
-		RestBaseline = GetKnownParticlePositions();
-	}
-	if (RestBaseline.Num() <= 0)
+	const TArray<FVector> DisplayedPose = ResolveDisplayedParticlePositions();
+	if (DisplayedPose.Num() <= 0)
 	{
 		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: no captured particles available to start pattern."));
 		PatternRuntime.ActivePatternTags.Reset();
 		return false;
 	}
-	PatternRuntime.BaselineWorldPositions = RestBaseline;
-	PatternRuntime.IdleBaselineWorldPositions = RestBaseline;
-	PatternShapeContext.BaselineWorldPositions = RestBaseline;
+
+	if (PatternRuntime.IdleBaselineWorldPositions.Num() <= 0
+		|| !MatchesAuthoritativeParticleCount(PatternRuntime.IdleBaselineWorldPositions.Num()))
+	{
+		ResyncIdleBaselineIfAuthoritativeMismatch();
+	}
+
+	if (PatternRuntime.IdleBaselineWorldPositions.Num() <= 0
+		|| !MatchesAuthoritativeParticleCount(PatternRuntime.IdleBaselineWorldPositions.Num()))
+	{
+		const TArray<FVector> CapturedRest = GetKnownParticlePositions();
+		if (CapturedRest.Num() > 0 && MatchesAuthoritativeParticleCount(CapturedRest.Num()))
+		{
+			PatternRuntime.IdleBaselineWorldPositions = CapturedRest;
+		}
+	}
+
+	ApplyDisplayedPoseHold(DisplayedPose);
 
 	if (CachedWorld.IsValid())
 	{
@@ -912,17 +1031,7 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 	}
 
 	FormingSteeringBlendElapsedSeconds = 0.0f;
-	PatternRuntime.PatternWorldTargets = PatternRuntime.BaselineWorldPositions;
 	PatternRuntime.PatternColumns = 0;
-	PatternRuntime.PatternCenter = FVector::ZeroVector;
-	for (const FVector& Position : PatternRuntime.BaselineWorldPositions)
-	{
-		PatternRuntime.PatternCenter += Position;
-	}
-	if (PatternRuntime.BaselineWorldPositions.Num() > 0)
-	{
-		PatternRuntime.PatternCenter /= static_cast<float>(PatternRuntime.BaselineWorldPositions.Num());
-	}
 
 	const bool bTargetsReady = BuildPatternTargets();
 	if (!bTargetsReady && !PatternRuntime.bAwaitingAsyncMask)
@@ -935,20 +1044,19 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 	if (bTargetsReady)
 	{
 		PatternRuntime.ShapeDebugInfo = FString::Printf(
-			TEXT("Anticipating toward %s"),
+			TEXT("Forming toward %s"),
 			*PatternRuntime.ActiveConfig.Shape.GetShapeDisplayName());
 	}
 	else
 	{
 		PatternRuntime.PatternWorldTargets = PatternRuntime.BaselineWorldPositions;
 		PatternRuntime.ShapeDebugInfo = FString::Printf(
-			TEXT("Anticipating while loading mask @ %dpx"),
+			TEXT("Loading image mask @ %dpx"),
 			PatternRuntime.ActiveConfig.Shape.SampleResolution);
-		UE_LOG(LogMetaAgent, Log, TEXT("ParticleRuntime: anticipating while image mask builds asynchronously."));
+		UE_LOG(LogMetaAgent, Log, TEXT("ParticleRuntime: loading image mask asynchronously."));
 	}
 
 	bLoggedPatternStart = false;
-	EnterPatternState(EMetaAgentParticlePatternState::Anticipating);
 	return true;
 }
 
@@ -974,17 +1082,14 @@ void UMetaAgentParticleRuntime::CompletePatternRun()
 		TEXT("ParticleRuntime: completing pattern run from state %s (manual=%s)."),
 		*GetPatternStateDisplayName(),
 		bManualPatternStateAdvance ? TEXT("true") : TEXT("false"));
-	TArray<FVector> IdleRestPositions = LastAppliedWorldPositions;
-	if (IdleRestPositions.Num() <= 0)
-	{
-		IdleRestPositions = LatestSnapshot.ExportedParticlePositions;
-	}
+	const TArray<FVector> IdleRestPositions = ResolveVisualRestBaseline();
 
 	ResetPatternRuntime();
 
 	if (IdleRestPositions.Num() > 0)
 	{
 		SeedIdleAmbientBaseline(IdleRestPositions);
+		LastAppliedWorldPositions = IdleRestPositions;
 	}
 
 	bManualPatternStateAdvance = true;
@@ -1139,12 +1244,15 @@ void UMetaAgentParticleRuntime::TryBootstrapIdleAmbientBaseline()
 		return;
 	}
 
+	ResyncIdleBaselineIfAuthoritativeMismatch();
+
 	if (PatternRuntime.BaselineWorldPositions.Num() > 0)
 	{
 		return;
 	}
 
-	if (LatestSnapshot.ExportedParticlePositions.Num() > 0)
+	if (LatestSnapshot.ExportedParticlePositions.Num() > 0
+		&& MatchesAuthoritativeParticleCount(LatestSnapshot.ExportedParticlePositions.Num()))
 	{
 		SeedIdleAmbientBaseline(LatestSnapshot.ExportedParticlePositions);
 		return;
@@ -1159,7 +1267,8 @@ void UMetaAgentParticleRuntime::TryBootstrapIdleAmbientBaseline()
 
 void UMetaAgentParticleRuntime::SeedIdleAmbientBaseline(const TArray<FVector>& Positions)
 {
-	if (Positions.Num() <= 0)
+	if (Positions.Num() <= 0
+		|| !MatchesAuthoritativeParticleCount(Positions.Num()))
 	{
 		return;
 	}
@@ -1213,6 +1322,16 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 {
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
 
+	if (PreviousState == EMetaAgentParticlePatternState::Idle
+		&& NewState == EMetaAgentParticlePatternState::Preparing)
+	{
+		const TArray<FVector> DisplayedPose = ResolveDisplayedParticlePositions();
+		if (DisplayedPose.Num() > 0)
+		{
+			ApplyDisplayedPoseHold(DisplayedPose);
+		}
+	}
+
 	PatternRuntime.State = NewState;
 	PatternRuntime.StateElapsedSeconds = 0.0f;
 
@@ -1225,7 +1344,8 @@ void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatter
 		PatternRuntime.Phase = 0.0f;
 		FormingSteeringBlendElapsedSeconds = 0.0f;
 	}
-	else if (NewState == EMetaAgentParticlePatternState::Anticipating)
+	else if (NewState == EMetaAgentParticlePatternState::Anticipating
+		|| NewState == EMetaAgentParticlePatternState::Preparing)
 	{
 		PatternRuntime.Phase = 0.0f;
 	}
@@ -1251,8 +1371,14 @@ bool UMetaAgentParticleRuntime::AdvancePatternStateForward()
 {
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
 
+	if (PreviousState == EMetaAgentParticlePatternState::Idle
+		&& PatternRuntime.BaselineWorldPositions.Num() > 0)
+	{
+		ApplyPatternActuation();
+	}
+
 	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating
-		&& PatternRuntime.bAwaitingAsyncMask)
+		|| PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
 	{
 		BuildPatternTargets();
 		if (PatternRuntime.bAwaitingAsyncMask
@@ -1353,7 +1479,8 @@ bool UMetaAgentParticleRuntime::BuildPatternTargets()
 	PatternRuntime.ActiveShape = BuildResult.ResolvedShape;
 	PatternRuntime.ActiveShapeFrame = BuildResult.ShapeFrame;
 	PatternRuntime.ShapeDebugInfo = BuildResult.DebugInfo;
-	if (PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating
+	if ((PatternRuntime.State == EMetaAgentParticlePatternState::Anticipating
+			|| PatternRuntime.State == EMetaAgentParticlePatternState::Preparing)
 		&& bManualPatternStateAdvance
 		&& !PatternRuntime.bAwaitingAsyncMask)
 	{

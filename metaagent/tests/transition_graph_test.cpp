@@ -17,9 +17,9 @@ int main()
 	const bool handled = TransitionGraph::evaluate_transition(context, TransitionTrigger::Advance, result);
 	assert(handled);
 	assert(result.action == TransitionAction::BeginPatternStart);
-	assert(result.new_state == PatternState::Anticipating);
+	assert(result.new_state == PatternState::Forming);
 
-	context.state = PatternState::Anticipating;
+	context.state = PatternState::Preparing;
 	context.awaiting_async_mask = true;
 	const bool manual_forming_while_awaiting = TransitionGraph::evaluate_transition(
 		context,
@@ -27,13 +27,13 @@ int main()
 		result);
 	assert(manual_forming_while_awaiting);
 	assert(result.action == TransitionAction::None);
-	assert(result.new_state == PatternState::Anticipating);
+	assert(result.new_state == PatternState::Preparing);
 
 	context.manual_state_advance = false;
 	const bool blocked = TransitionGraph::evaluate_transition(context, TransitionTrigger::Advance, result);
 	assert(blocked);
 	assert(result.action == TransitionAction::None);
-	assert(result.new_state == PatternState::Anticipating);
+	assert(result.new_state == PatternState::Preparing);
 
 	context.manual_state_advance = true;
 	context.awaiting_async_mask = false;
