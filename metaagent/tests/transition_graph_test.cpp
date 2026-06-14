@@ -26,13 +26,14 @@ int main()
 		TransitionTrigger::Advance,
 		result);
 	assert(manual_forming_while_awaiting);
-	assert(result.action == TransitionAction::EnterState);
-	assert(result.new_state == PatternState::Forming);
+	assert(result.action == TransitionAction::None);
+	assert(result.new_state == PatternState::Anticipating);
 
 	context.manual_state_advance = false;
 	const bool blocked = TransitionGraph::evaluate_transition(context, TransitionTrigger::Advance, result);
 	assert(blocked);
 	assert(result.action == TransitionAction::None);
+	assert(result.new_state == PatternState::Anticipating);
 
 	context.manual_state_advance = true;
 	context.awaiting_async_mask = false;

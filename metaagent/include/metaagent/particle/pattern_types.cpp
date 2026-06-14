@@ -60,6 +60,30 @@ void PatternConfig::apply_preset(const PatternPreset preset)
 	}
 }
 
+void PatternConfig::cycle_preset()
+{
+	switch (active_preset)
+	{
+	case PatternPreset::Normal:
+		apply_preset(PatternPreset::Slow);
+		break;
+	case PatternPreset::Slow:
+		apply_preset(PatternPreset::Dramatic);
+		break;
+	case PatternPreset::Dramatic:
+		apply_preset(PatternPreset::Snappy);
+		break;
+	case PatternPreset::Snappy:
+		apply_preset(PatternPreset::Dreamy);
+		break;
+	case PatternPreset::Dreamy:
+	case PatternPreset::Custom:
+	default:
+		apply_preset(PatternPreset::Normal);
+		break;
+	}
+}
+
 core::String PatternConfig::get_preset_display_name() const
 {
 	switch (active_preset)

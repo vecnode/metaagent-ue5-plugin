@@ -171,6 +171,9 @@ public:
 
 	/** Returns true when a successful mask exists for the given build params (does not start builds). */
 	static bool IsMaskReady(const FMetaAgentImageMaskBuildParams& Params);
+
+	/** Returns true when a background worker is still building this mask key. */
+	static bool IsMaskBuildInFlight(const FMetaAgentImageMaskBuildParams& Params);
 };
 
 class METAAGENTPLUGIN_API FMetaAgentParticleShapeRegistry

@@ -137,8 +137,19 @@ FMetaAgentParticleShapeBuildResult FMetaAgentParticleShapeBuilder::BuildPatternT
 
 	if (Result.bAwaitingAsyncMask)
 	{
-		Result.bSuccess = false;
-		return Result;
+		const int32 BaselineCount = FMath::Max(1, ShapeContext.BaselineWorldPositions.Num());
+		const FMetaAgentImageMaskBuildParams MaskParams = MetaAgentImageMask::MakeBuildParams(
+			ShapeContext.SourceImagePath,
+			PatternConfig.Shape,
+			BaselineCount);
+		if (FMetaAgentParticleShapeCache::IsMaskBuildInFlight(MaskParams))
+		{
+			Result.bSuccess = false;
+			return Result;
+		}
+
+		// Stale awaiting flag (e.g. failed/empty cache entry) — fall through to SquareGrid fallback.
+		Result.bAwaitingAsyncMask = false;
 	}
 
 	const FString FailedReason = Result.DebugInfo;
@@ -696,14 +707,14 @@ void FMetaAgentParticleShapeCache::Tick()
 			Entry.DebugInfo = TEXT("Image mask build produced no silhouette points.");
 		}
 
-		FScopeLock Lock(&GMaskCacheMutex);
-		GMaskCache.Add(CompletedJob.Key, MoveTemp(Entry));
-
 		UE_LOG(LogMetaAgent, Log,
 			TEXT("ParticleShapeCache: async mask build finished success=%s points=%d | %s"),
 			Entry.bSuccess ? TEXT("true") : TEXT("false"),
 			Entry.LocalPointsCm.Num(),
 			*Entry.DebugInfo);
+
+		FScopeLock Lock(&GMaskCacheMutex);
+		GMaskCache.Add(CompletedJob.Key, MoveTemp(Entry));
 	}
 }
 
@@ -863,6 +874,29 @@ bool FMetaAgentParticleShapeCache::IsMaskReady(const FMetaAgentImageMaskBuildPar
 	return false;
 }
 
+bool FMetaAgentParticleShapeCache::IsMaskBuildInFlight(const FMetaAgentImageMaskBuildParams& Params)
+{
+	if (Params.SourceImagePath.IsEmpty() || Params.DesiredPointCount <= 0)
+	{
+		return false;
+	}
+
+	FDateTime CurrentTimestamp = Params.SourceFileTimestamp;
+	int64 CurrentFileSize = Params.SourceFileSize;
+	if (!MetaAgentImageMask::GetImageFileIdentity(Params.SourceImagePath, CurrentTimestamp, CurrentFileSize))
+	{
+		return false;
+	}
+
+	FMetaAgentImageMaskBuildParams FreshParams = Params;
+	FreshParams.SourceFileTimestamp = CurrentTimestamp;
+	FreshParams.SourceFileSize = CurrentFileSize;
+	const FMetaAgentImageMaskCacheKey Key = MakeCacheKey(FreshParams);
+
+	FScopeLock Lock(&GMaskCacheMutex);
+	return GInFlightJobs.Contains(Key);
+}
+
 // ===== MetaAgentParticleShapeRegistry.cpp =====
 namespace
 {
@@ -947,7 +981,12 @@ namespace
 				return true;
 			}
 
-			return !FMetaAgentParticleShapeCache::IsMaskReady(Params);
+			if (Lookup.Availability == EMetaAgentImageMaskAvailability::Ready)
+			{
+				return false;
+			}
+
+			return FMetaAgentParticleShapeCache::IsMaskBuildInFlight(Params);
 		}
 
 		virtual bool BuildTargets(
@@ -1218,8 +1257,10 @@ FMetaAgentImageMaskBuildParams MakeBuildParams(
 	const int32 DesiredPointCount)
 {
 	FMetaAgentImageMaskBuildParams Params;
-	Params.SourceImagePath = SourceImagePath;
-	GetImageFileIdentity(SourceImagePath, Params.SourceFileTimestamp, Params.SourceFileSize);
+	Params.SourceImagePath = SourceImagePath.IsEmpty()
+		? SourceImagePath
+		: FPaths::ConvertRelativePathToFull(SourceImagePath);
+	GetImageFileIdentity(Params.SourceImagePath, Params.SourceFileTimestamp, Params.SourceFileSize);
 	Params.ImageSamplingMode = ShapeDefinition.ImageSamplingMode;
 	Params.AlphaThreshold = ShapeDefinition.AlphaThreshold;
 	Params.EdgeThreshold = ShapeDefinition.EdgeThreshold;

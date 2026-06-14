@@ -66,7 +66,12 @@ CommandId map_particle_gui_action(const core::String& action_id)
 		return CommandId::PatternStepBackward;
 	}
 
-	return CommandId::PatternStepForward;
+	if (spec->effect_id == "PatternStepForward")
+	{
+		return CommandId::PatternStepForward;
+	}
+
+	return CommandId::ParticleGuiEffect;
 }
 
 } // namespace

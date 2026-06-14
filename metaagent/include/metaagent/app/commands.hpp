@@ -19,6 +19,7 @@ enum class CommandId {
 	StartPlatformImage,
 	ToggleStateEffectCohesion,
 	ToggleStateEffectTurbulence,
+	ParticleGuiEffect,
 	QuitApplication,
 };
 

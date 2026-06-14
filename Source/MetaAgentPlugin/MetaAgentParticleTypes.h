@@ -440,6 +440,8 @@ struct FMetaAgentParticlePatternConfig
 
 	METAAGENTPLUGIN_API void ApplyPreset(EMetaAgentParticlePatternPreset Preset);
 
+	METAAGENTPLUGIN_API void CyclePreset();
+
 	METAAGENTPLUGIN_API FString GetPresetDisplayName() const;
 };
 
@@ -695,6 +697,8 @@ namespace MetaAgentParticleEffectIds
 	METAAGENTPLUGIN_API extern const FName CycleSampling;
 	METAAGENTPLUGIN_API extern const FName CycleForming;
 	METAAGENTPLUGIN_API extern const FName CycleReturning;
+	METAAGENTPLUGIN_API extern const FName CyclePreset;
+	METAAGENTPLUGIN_API extern const FName CycleOverlay;
 	METAAGENTPLUGIN_API extern const FName PatternStepForward;
 	METAAGENTPLUGIN_API extern const FName PatternStepBackward;
 	METAAGENTPLUGIN_API extern const FName DissipateToCenter;

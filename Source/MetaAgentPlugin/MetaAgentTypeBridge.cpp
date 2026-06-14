@@ -1176,6 +1176,14 @@ void FMetaAgentParticlePatternConfig::ApplyPreset(const EMetaAgentParticlePatter
 	MetaAgentTypeBridge::copy_pattern_config_from_core(CoreConfig, *this);
 }
 
+void FMetaAgentParticlePatternConfig::CyclePreset()
+{
+	metaagent::particle::PatternConfig CoreConfig;
+	MetaAgentTypeBridge::copy_pattern_config_to_core(*this, CoreConfig);
+	CoreConfig.cycle_preset();
+	MetaAgentTypeBridge::copy_pattern_config_from_core(CoreConfig, *this);
+}
+
 FString FMetaAgentParticlePatternConfig::GetPresetDisplayName() const
 {
 	metaagent::particle::PatternConfig CoreConfig;
@@ -1203,6 +1211,8 @@ namespace MetaAgentParticleEffectIds
 	METAAGENTPLUGIN_API const FName CycleSampling(TEXT("CycleSampling"));
 	METAAGENTPLUGIN_API const FName CycleForming(TEXT("CycleForming"));
 	METAAGENTPLUGIN_API const FName CycleReturning(TEXT("CycleReturning"));
+	METAAGENTPLUGIN_API const FName CyclePreset(TEXT("CyclePreset"));
+	METAAGENTPLUGIN_API const FName CycleOverlay(TEXT("CycleOverlay"));
 	METAAGENTPLUGIN_API const FName PatternStepForward(TEXT("PatternStepForward"));
 	METAAGENTPLUGIN_API const FName PatternStepBackward(TEXT("PatternStepBackward"));
 	METAAGENTPLUGIN_API const FName DissipateToCenter(TEXT("DissipateToCenter"));
@@ -1528,5 +1538,18 @@ metaagent::particle::StateEffectTriggerResult toggle_state_effect(
 	}
 	sync_core_to_runtime(Runtime);
 	return Result;
+}
+bool is_state_effect_active(
+	const UMetaAgentParticleRuntime& Runtime,
+	const metaagent::core::String& EffectId)
+{
+	FCoreSchedulerState* State = get_or_create_state(const_cast<UMetaAgentParticleRuntime&>(Runtime));
+	if (!State)
+	{
+		return false;
+	}
+
+	sync_runtime_to_core(const_cast<UMetaAgentParticleRuntime&>(Runtime));
+	return State->Scheduler.state_effects.is_active(EffectId);
 }
 } // namespace MetaAgentParticleCoreBridge

@@ -101,6 +101,11 @@ CommandId parse_command_name(const core::String& name)
 	{
 		return CommandId::ToggleStateEffectTurbulence;
 	}
+	if (normalized == "particle_gui_effect" || normalized == "cycle_preset" || normalized == "cycle_sampling"
+		|| normalized == "cycle_forming" || normalized == "cycle_returning" || normalized == "cycle_overlay")
+	{
+		return CommandId::ParticleGuiEffect;
+	}
 	if (normalized == "quit_application" || normalized == "quit")
 	{
 		return CommandId::QuitApplication;
@@ -136,6 +141,8 @@ core::String command_display_name(const CommandId command)
 		return "Toggle Cohesion Overlay";
 	case CommandId::ToggleStateEffectTurbulence:
 		return "Toggle Turbulence Overlay";
+	case CommandId::ParticleGuiEffect:
+		return "Particle Effect";
 	case CommandId::QuitApplication:
 		return "Quit Application";
 	default:
@@ -167,6 +174,7 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 	case CommandId::LoadPreviewImage:
 	case CommandId::ToggleStateEffectCohesion:
 	case CommandId::ToggleStateEffectTurbulence:
+	case CommandId::ParticleGuiEffect:
 		result.success = feature_enabled(session, "particle");
 		if (!result.success)
 		{

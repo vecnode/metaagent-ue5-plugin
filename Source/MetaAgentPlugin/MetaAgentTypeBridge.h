@@ -58,6 +58,9 @@ FString build_pattern_timings_text(const UMetaAgentParticleRuntime& runtime);
 metaagent::particle::StateEffectTriggerResult toggle_state_effect(
 	UMetaAgentParticleRuntime& runtime,
 	const metaagent::core::String& effect_id);
+bool is_state_effect_active(
+	const UMetaAgentParticleRuntime& runtime,
+	const metaagent::core::String& effect_id);
 
 } // namespace MetaAgentParticleCoreBridge
 

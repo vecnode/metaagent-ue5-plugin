@@ -53,6 +53,7 @@ struct PatternConfig {
 
 	METAAGENT_API static PatternConfig make_from_preset(PatternPreset preset);
 	METAAGENT_API void apply_preset(PatternPreset preset);
+	METAAGENT_API void cycle_preset();
 	METAAGENT_API core::String get_preset_display_name() const;
 };
 

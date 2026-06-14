@@ -10,6 +10,7 @@
 #include "metaagent/app/gui_catalog.hpp"
 #include "metaagent/particle/effect_catalog.hpp"
 #include "metaagent/particle/representation_actuation.hpp"
+#include "metaagent/particle/state_effects.hpp"
 #include "MetaAgentParticleShapes.h"
 #include "MetaAgentHUD.h"
 #include "MetaAgentParticleRuntime.h"
@@ -109,7 +110,15 @@ FMetaAgentParticleShapeContext UMetaAgentParticleOrchestrator::BuildShapeContext
 
 	if (ParticleRuntime)
 	{
-		Context.BaselineWorldPositions = ParticleRuntime->GetKnownParticlePositions();
+		if (ParticleRuntime->IsPatternActive()
+			&& ParticleRuntime->GetPatternBaselineWorldPositions().Num() > 0)
+		{
+			Context.BaselineWorldPositions = ParticleRuntime->GetPatternBaselineWorldPositions();
+		}
+		else
+		{
+			Context.BaselineWorldPositions = ParticleRuntime->GetKnownParticlePositions();
+		}
 	}
 
 	if (UWorld* World = CachedWorld.Get())
@@ -138,7 +147,7 @@ FMetaAgentParticleShapeContext UMetaAgentParticleOrchestrator::BuildShapeContext
 	return Context;
 }
 
-bool UMetaAgentParticleOrchestrator::PrepareShapeContextForPlay()
+bool UMetaAgentParticleOrchestrator::PrepareShapeContextForPlay(const bool bRequestMaskBuild)
 {
 	if (!ParticleRuntime)
 	{
@@ -162,8 +171,12 @@ bool UMetaAgentParticleOrchestrator::PrepareShapeContextForPlay()
 		}
 	}
 
+	ParticleRuntime->ForceCaptureParticles();
 	ParticleRuntime->SetPatternShapeContext(BuildShapeContext());
-	RequestImageMaskBuild();
+	if (bRequestMaskBuild)
+	{
+		RequestImageMaskBuild();
+	}
 	return true;
 }
 
@@ -180,7 +193,13 @@ void UMetaAgentParticleOrchestrator::RequestImageMaskBuild()
 		return;
 	}
 
+	ParticleRuntime->ForceCaptureParticles();
 	const int32 ParticleCount = FMath::Max(1, ParticleRuntime->GetKnownParticleCount());
+	if (ParticleCount <= 0)
+	{
+		return;
+	}
+
 	FMetaAgentParticleShapeBuilder::RequestImageMaskBuild(
 		LastLoadedPreviewImagePath,
 		PatternConfig.Shape,
@@ -351,6 +370,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::ApplyEffectSpec(
 
 	ParticleRuntime->ForceCaptureParticles();
 	PrepareShapeContextForPlay();
+	ParticleRuntime->SetManualPatternStateAdvance(true);
 
 	bool bStarted = false;
 	if (Spec.PatternAsset)
@@ -418,6 +438,16 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::TriggerEffect(con
 	if (EffectId == MetaAgentParticleEffectIds::CycleReturning)
 	{
 		return CycleReturningMode();
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::CyclePreset)
+	{
+		return CyclePatternPreset();
+	}
+
+	if (EffectId == MetaAgentParticleEffectIds::CycleOverlay)
+	{
+		return CycleOverlayEffects();
 	}
 
 	if (EffectId == MetaAgentParticleEffectIds::PatternStepForward)
@@ -524,6 +554,77 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleReturningMod
 	return Result;
 }
 
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CyclePatternPreset()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::CyclePreset;
+
+	PatternConfig.CyclePreset();
+	SyncConfigToRuntime();
+	Result.bSuccess = true;
+	Result.UserMessage = FText::FromString(
+		FString::Printf(TEXT("Timing preset: %s"), *PatternConfig.GetPresetDisplayName()));
+	return Result;
+}
+
+namespace MetaAgentParticleOrchestratorInternal
+{
+	void EnsureOverlayEffectState(
+		UMetaAgentParticleRuntime& Runtime,
+		const bool bWantCohesion,
+		const bool bWantTurbulence)
+	{
+		auto EnsureEffect = [&Runtime](const metaagent::core::String& EffectId, const bool bWantActive)
+		{
+			const bool bIsActive = MetaAgentParticleCoreBridge::is_state_effect_active(Runtime, EffectId);
+			if (bIsActive != bWantActive)
+			{
+				MetaAgentParticleCoreBridge::toggle_state_effect(Runtime, EffectId);
+			}
+		};
+
+		EnsureEffect(metaagent::particle::state_effect_ids::Cohesion, bWantCohesion);
+		EnsureEffect(metaagent::particle::state_effect_ids::Turbulence, bWantTurbulence);
+	}
+}
+
+FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::CycleOverlayEffects()
+{
+	FMetaAgentParticleEffectResult Result;
+	Result.EffectId = MetaAgentParticleEffectIds::CycleOverlay;
+
+	if (!ParticleRuntime)
+	{
+		Result.UserMessage = FText::FromString(TEXT("Particle runtime not initialized."));
+		return Result;
+	}
+
+	OverlayCycleIndex = (OverlayCycleIndex + 1) % 4;
+	switch (OverlayCycleIndex)
+	{
+	case 0:
+		MetaAgentParticleOrchestratorInternal::EnsureOverlayEffectState(*ParticleRuntime, true, false);
+		Result.UserMessage = FText::FromString(TEXT("Overlay: Cohesion"));
+		break;
+	case 1:
+		MetaAgentParticleOrchestratorInternal::EnsureOverlayEffectState(*ParticleRuntime, false, true);
+		Result.UserMessage = FText::FromString(TEXT("Overlay: Turbulence"));
+		break;
+	case 2:
+		MetaAgentParticleOrchestratorInternal::EnsureOverlayEffectState(*ParticleRuntime, true, true);
+		Result.UserMessage = FText::FromString(TEXT("Overlay: Cohesion + Turbulence"));
+		break;
+	default:
+		MetaAgentParticleOrchestratorInternal::EnsureOverlayEffectState(*ParticleRuntime, false, false);
+		Result.UserMessage = FText::FromString(TEXT("Overlay: Off"));
+		break;
+	}
+
+	ParticleRuntime->ApplyPatternRepresentation();
+	Result.bSuccess = true;
+	return Result;
+}
+
 FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateForward()
 {
 	FMetaAgentParticleEffectResult Result;
@@ -539,10 +640,9 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 
 	if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Idle)
 	{
-		ParticleRuntime->ForceCaptureParticles();
-		PrepareShapeContextForPlay();
 		PatternConfig.Shape.ShapeType = EMetaAgentParticlePatternShape::ImageSilhouette;
 		SyncConfigToRuntime();
+		PrepareShapeContextForPlay(/*bRequestMaskBuild=*/true);
 
 		LastTriggeredEffectId = MetaAgentParticleEffectIds::ImageReveal;
 		LastEffectSpec = FMetaAgentParticleEffectSpec();
@@ -551,20 +651,55 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateF
 		LastEffectSpec.bStartPattern = false;
 		bHasLastEffectSpec = true;
 	}
+	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+		&& ParticleRuntime->IsAwaitingAsyncMask())
+	{
+		FMetaAgentParticleShapeContext Context = ParticleRuntime->GetPatternShapeContext();
+		Context.SourceTexture = LatestPngPreviewTexture;
+		Context.SourceImagePath = LastLoadedPreviewImagePath;
+		Context.bHasResolvedImage = LatestPngPreviewTexture != nullptr;
+		if (Context.BaselineWorldPositions.Num() <= 0
+			&& ParticleRuntime->GetPatternBaselineWorldPositions().Num() > 0)
+		{
+			Context.BaselineWorldPositions = ParticleRuntime->GetPatternBaselineWorldPositions();
+		}
+		ParticleRuntime->SetPatternShapeContext(Context);
+		ParticleRuntime->RebuildPatternTargets();
+	}
 
 	const bool bAdvanced = ParticleRuntime->AdvancePatternStateForward();
-	if (bAdvanced && ParticleRuntime->IsPatternActive())
-	{
-		ParticleRuntime->ApplyPatternRepresentation();
-	}
+	ParticleRuntime->ApplyPatternRepresentation();
+
 	Result.bSuccess = bAdvanced;
 	Result.bAwaitingAsyncPrepare =
 		ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
 		&& ParticleRuntime->IsAwaitingAsyncMask();
-	Result.UserMessage = FText::FromString(
-		bAdvanced
-			? FString::Printf(TEXT("Pattern >> %s"), *ParticleRuntime->BuildPatternStatusText())
-			: TEXT("Pattern step forward unavailable (busy or no captured particles)."));
+	if (bAdvanced)
+	{
+		Result.UserMessage = FText::FromString(
+			FString::Printf(TEXT("Pattern >> %s"), *ParticleRuntime->BuildPatternStatusText()));
+	}
+	else if (Result.bAwaitingAsyncPrepare)
+	{
+		Result.UserMessage = FText::FromString(
+			FString::Printf(
+				TEXT("Pattern waiting for image mask — press . again when ready (%s)"),
+				*ParticleRuntime->BuildPatternStatusText()));
+	}
+	else if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating
+		&& !ParticleRuntime->IsAwaitingAsyncMask())
+	{
+		Result.bSuccess = true;
+		Result.UserMessage = FText::FromString(
+			FString::Printf(
+				TEXT("Mask ready — press . again to enter Forming (%s)"),
+				*ParticleRuntime->BuildPatternStatusText()));
+	}
+	else
+	{
+		Result.UserMessage = FText::FromString(
+			TEXT("Pattern step forward unavailable (busy, mask loading, or no captured particles)."));
+	}
 	return Result;
 }
 
@@ -580,7 +715,7 @@ FMetaAgentParticleEffectResult UMetaAgentParticleOrchestrator::StepPatternStateB
 	}
 
 	const bool bRetreated = ParticleRuntime->RetreatPatternStateBackward();
-	if (bRetreated && ParticleRuntime->IsPatternActive())
+	if (bRetreated)
 	{
 		ParticleRuntime->ApplyPatternRepresentation();
 	}
@@ -688,8 +823,19 @@ bool UMetaAgentParticleOrchestrator::LoadDefaultPreviewPng(FString& OutUserMessa
 	LatestPngPreviewTexture = ImportedTexture;
 	LastLoadedPreviewImagePath = PngPath;
 	RefreshPanelPreviewThumbnails();
-	FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
-	PrepareShapeContextForPlay();
+	if (ParticleRuntime && ParticleRuntime->IsPatternActive())
+	{
+		PrepareShapeContextForPlay(/*bRequestMaskBuild=*/true);
+		if (ParticleRuntime->GetPatternState() == EMetaAgentParticlePatternState::Anticipating)
+		{
+			ParticleRuntime->RebuildPatternTargets();
+		}
+	}
+	else
+	{
+		FMetaAgentParticleShapeBuilder::InvalidateImageMaskCache();
+		PrepareShapeContextForPlay();
+	}
 
 	if (UWorld* World = CachedWorld.Get())
 	{
@@ -909,16 +1055,11 @@ void FMetaAgentParticleInputRouter::BindKeyboardInput(
 	InputComponent->BindKey(EKeys::F, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleLoadPreviewPressed);
 	InputComponent->BindKey(EKeys::Comma, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed);
 	InputComponent->BindKey(EKeys::Period, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed);
-	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSlowPresetPressed);
-	InputComponent->BindKey(EKeys::N, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDramaticPresetPressed);
-	InputComponent->BindKey(EKeys::Z, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleToggleCohesionPressed);
-	InputComponent->BindKey(EKeys::X, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleToggleTurbulencePressed);
-	InputComponent->BindKey(EKeys::J, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleSnappyPresetPressed);
-	InputComponent->BindKey(EKeys::K, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleDreamyPresetPressed);
-	InputComponent->BindKey(EKeys::M, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleMorphPressed);
+	InputComponent->BindKey(EKeys::B, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCyclePresetPressed);
 	InputComponent->BindKey(EKeys::T, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleSamplingPressed);
 	InputComponent->BindKey(EKeys::Y, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleFormingPressed);
-	InputComponent->BindKey(EKeys::U, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleReturningPressed);
+	InputComponent->BindKey(EKeys::K, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleReturningPressed);
+	InputComponent->BindKey(EKeys::Z, IE_Pressed, Controller, &AMetaAgentPlayerController::HandleParticleCycleOverlayPressed);
 }
 
 TArray<FString> FMetaAgentParticleInputRouter::GetParticleKeyHelpLines()

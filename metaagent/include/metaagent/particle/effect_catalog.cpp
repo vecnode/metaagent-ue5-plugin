@@ -38,33 +38,39 @@ core::Array<ParticleGuiActionSpec> build_specs()
 	specs.push_back(make_spec(
 		"ParticleStepForward",
 		".",
-		"Step pattern state forward (Idle starts Forming)",
+		"Step pattern state forward (Idle starts reveal; press . for each next state)",
 		ParticleGuiDispatchKind::TriggerEffect,
 		"PatternStepForward"));
 	specs.push_back(make_spec(
-		"ParticleSlowPreset",
+		"ParticleCyclePreset",
 		"B",
-		"Apply Slow preset",
+		"Cycle timing preset (Normal/Slow/Dramatic/Snappy/Dreamy)",
 		ParticleGuiDispatchKind::TriggerEffect,
-		"PresetSlow"));
+		"CyclePreset"));
 	specs.push_back(make_spec(
-		"ParticleDramaticPreset",
-		"N",
-		"Apply Dramatic preset",
+		"ParticleCycleSampling",
+		"T",
+		"Cycle image sampling mode",
 		ParticleGuiDispatchKind::TriggerEffect,
-		"PresetDramatic"));
+		"CycleSampling"));
 	specs.push_back(make_spec(
-		"ParticleToggleCohesion",
+		"ParticleCycleForming",
+		"Y",
+		"Cycle forming motion mode",
+		ParticleGuiDispatchKind::TriggerEffect,
+		"CycleForming"));
+	specs.push_back(make_spec(
+		"ParticleCycleReturning",
+		"K",
+		"Cycle returning motion mode",
+		ParticleGuiDispatchKind::TriggerEffect,
+		"CycleReturning"));
+	specs.push_back(make_spec(
+		"ParticleCycleOverlay",
 		"Z",
-		"Toggle radial cohesion overlay (ambient breathing is always on)",
-		ParticleGuiDispatchKind::ToggleStateEffect,
-		state_effect_ids::Cohesion));
-	specs.push_back(make_spec(
-		"ParticleToggleTurbulence",
-		"X",
-		"Toggle turbulent wake overlay (all pattern states)",
-		ParticleGuiDispatchKind::ToggleStateEffect,
-		state_effect_ids::Turbulence));
+		"Cycle overlay effects (Cohesion/Turbulence/Both/Off)",
+		ParticleGuiDispatchKind::TriggerEffect,
+		"CycleOverlay"));
 	return specs;
 }
 

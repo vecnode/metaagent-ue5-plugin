@@ -125,6 +125,13 @@ SchedulerComposeBundle build_compose_bundle_from_scheduler(const ParticleSchedul
 
 	if (runtime.state == PatternState::Anticipating)
 	{
+		input.anticipating_motion = true;
+		input.anticipation_elapsed_seconds = runtime.state_elapsed_seconds;
+		input.anticipation_amplitude_cm = config.anticipation_amplitude_cm;
+		input.anticipation_frequency_hz = config.anticipation_frequency_hz;
+		input.anticipation_idle_blend_duration_seconds = std::max(
+			0.05f,
+			config.anticipation_idle_blend_duration_seconds);
 		// Soft bridge: keep idle rest pose + ambient breathing until Forming begins.
 		input.blend_alpha = 0.0f;
 	}
@@ -183,7 +190,20 @@ void tick_state_effect_layer(ParticleScheduler& scheduler)
 	scheduler.state_effects.tick(context);
 }
 
-void capture_visual_continuity_for_manual_transition(
+bool should_capture_visual_continuity(const TransitionResult& result)
+{
+	switch (result.action)
+	{
+	case TransitionAction::None:
+	case TransitionAction::CompleteRun:
+	case TransitionAction::BeginPatternStart:
+		return false;
+	default:
+		return true;
+	}
+}
+
+void capture_visual_continuity_for_transition(
 	ParticleScheduler& scheduler,
 	const TransitionResult& result)
 {
@@ -214,11 +234,31 @@ void capture_visual_continuity_for_manual_transition(
 		scheduler.pattern_runtime.pattern_world_targets =
 			scheduler.pattern_runtime.canonical_pattern_world_targets;
 	}
+	else if (result.new_state == PatternState::Anticipating)
+	{
+		// Retreat from Forming: travel from the current pose back toward idle rest.
+		scheduler.pattern_runtime.baseline_world_positions = composed;
+		if (!scheduler.pattern_runtime.idle_baseline_world_positions.empty())
+		{
+			scheduler.pattern_runtime.pattern_world_targets =
+				scheduler.pattern_runtime.idle_baseline_world_positions;
+		}
+		else
+		{
+			scheduler.pattern_runtime.pattern_world_targets = composed;
+		}
+	}
 	else if (result.new_state == PatternState::Returning
 		|| result.action == TransitionAction::BeginConfiguredReturn)
 	{
 		// Snapshot hold pose for return only; do not inflate baseline or pattern targets.
 		scheduler.pattern_runtime.return_hold_positions = composed;
+	}
+	else if (result.new_state == PatternState::Dissipating
+		|| result.action == TransitionAction::RequestDissipate)
+	{
+		scheduler.pattern_runtime.dissipate_start_positions = composed;
+		scheduler.pattern_runtime.baseline_world_positions = composed;
 	}
 	else
 	{
@@ -230,7 +270,14 @@ void enter_state(ParticleScheduler& scheduler, const PatternState new_state, Sch
 {
 	const PatternState previous_state = scheduler.pattern_runtime.state;
 
-	if (new_state == PatternState::Forming)
+	const bool forming_from_anticipating =
+		new_state == PatternState::Forming && previous_state == PatternState::Anticipating;
+
+	if (forming_from_anticipating && callbacks.commit_anticipation_baseline_for_forming)
+	{
+		callbacks.commit_anticipation_baseline_for_forming();
+	}
+	else if (new_state == PatternState::Forming)
 	{
 		scheduler.pattern_runtime.anticipation_handoff_elapsed_seconds = -1.0f;
 	}
@@ -315,13 +362,9 @@ bool ParticleScheduler::dispatch_pattern_transition(
 		return false;
 	}
 
-	if (settings.manual_pattern_state_advance
-		&& (trigger == TransitionTrigger::Advance || trigger == TransitionTrigger::Retreat)
-		&& result.action != TransitionAction::None
-		&& result.action != TransitionAction::CompleteRun
-		&& result.action != TransitionAction::BeginPatternStart)
+	if (should_capture_visual_continuity(result))
 	{
-		capture_visual_continuity_for_manual_transition(*this, result);
+		capture_visual_continuity_for_transition(*this, result);
 	}
 
 	return apply_transition_result(result, callbacks);
@@ -337,7 +380,7 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 	switch (result.action)
 	{
 	case TransitionAction::None:
-		return true;
+		return false;
 	case TransitionAction::BeginPatternStart:
 		if (!callbacks.begin_pattern_start || !callbacks.begin_pattern_start())
 		{
@@ -354,21 +397,10 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 		}
 		return true;
 	case TransitionAction::BeginConfiguredReturn:
-		if (!callbacks.begin_configured_return || !callbacks.begin_configured_return())
-		{
-			return false;
-		}
-		pattern_runtime.state = PatternState::Returning;
-		pattern_runtime.state_elapsed_seconds = 0.0f;
-		pattern_runtime.phase = 1.0f;
-		return true;
+		return callbacks.begin_configured_return && callbacks.begin_configured_return();
 	case TransitionAction::RequestDissipate:
 		return callbacks.request_dissipate_to_center ? callbacks.request_dissipate_to_center() : false;
 	case TransitionAction::EnterState:
-		if (result.restore_idle_baseline_on_enter && !pattern_runtime.idle_baseline_world_positions.empty())
-		{
-			pattern_runtime.baseline_world_positions = pattern_runtime.idle_baseline_world_positions;
-		}
 		enter_state(*this, result.new_state, callbacks);
 		return true;
 	default:
@@ -396,12 +428,14 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 	{
 		pattern_runtime.phase = 0.0f;
 
-		if (pattern_runtime.awaiting_async_mask && callbacks.build_pattern_targets)
+		if (callbacks.build_pattern_targets
+			&& (pattern_runtime.awaiting_async_mask || pattern_runtime.pattern_world_targets.empty()))
 		{
 			const bool build_success = callbacks.build_pattern_targets();
 			if (!build_success
 				&& !settings.manual_pattern_state_advance
 				&& !pattern_runtime.awaiting_async_mask
+				&& pattern_runtime.pattern_world_targets.empty()
 				&& pattern_runtime.state_elapsed_seconds > 0.25f)
 			{
 				if (callbacks.log_warning)
@@ -495,7 +529,12 @@ void ParticleScheduler::tick_pattern_runtime(const float delta_time_seconds, Sch
 			: evaluate_phase_for_state_default(*this, PatternState::Returning, normalized_time);
 		pattern_runtime.phase = core::math::clamp(evaluated_phase, 0.0f, 1.0f);
 
-		if (pattern_runtime.state_elapsed_seconds >= return_duration)
+		if (settings.manual_pattern_state_advance && pattern_runtime.state_elapsed_seconds >= return_duration)
+		{
+			pattern_runtime.state_elapsed_seconds = return_duration;
+			pattern_runtime.phase = 0.0f;
+		}
+		else if (!settings.manual_pattern_state_advance && pattern_runtime.state_elapsed_seconds >= return_duration)
 		{
 			pattern_runtime.state_elapsed_seconds = return_duration;
 			pattern_runtime.phase = 0.0f;
@@ -607,6 +646,13 @@ RepresentationFrame ParticleScheduler::build_representation_frame() const
 
 	if (pattern_runtime.state == PatternState::Anticipating)
 	{
+		out_frame.anticipating_motion = true;
+		out_frame.anticipation_elapsed_seconds = pattern_runtime.state_elapsed_seconds;
+		out_frame.anticipation_amplitude_cm = pattern_runtime.active_config.anticipation_amplitude_cm;
+		out_frame.anticipation_frequency_hz = pattern_runtime.active_config.anticipation_frequency_hz;
+		out_frame.anticipation_idle_blend_duration_seconds = std::max(
+			0.05f,
+			pattern_runtime.active_config.anticipation_idle_blend_duration_seconds);
 		blend_alpha = 0.0f;
 	}
 	else if (dissipating)

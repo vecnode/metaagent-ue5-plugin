@@ -575,16 +575,11 @@ public:
 	void HandleParticlePlayFullCyclePressed();
 	void HandleParticleStepPatternBackwardPressed();
 	void HandleParticleStepPatternForwardPressed();
-	void HandleParticleSlowPresetPressed();
-	void HandleParticleDramaticPresetPressed();
-	void HandleParticleSnappyPresetPressed();
-	void HandleParticleDreamyPresetPressed();
-	void HandleParticleMorphPressed();
+	void HandleParticleCyclePresetPressed();
 	void HandleParticleCycleSamplingPressed();
 	void HandleParticleCycleFormingPressed();
 	void HandleParticleCycleReturningPressed();
-	void HandleParticleToggleCohesionPressed();
-	void HandleParticleToggleTurbulencePressed();
+	void HandleParticleCycleOverlayPressed();
 
 	/** Blueprint entry point so a UI button can toggle the same cinematic camera mode as V. */
 	UFUNCTION(BlueprintCallable, Category = "Camera|Cinematic")

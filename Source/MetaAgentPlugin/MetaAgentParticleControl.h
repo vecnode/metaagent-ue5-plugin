@@ -314,6 +314,8 @@ public:
 	FMetaAgentParticleEffectResult CycleFormingMode();
 
 	FMetaAgentParticleEffectResult CycleReturningMode();
+	FMetaAgentParticleEffectResult CyclePatternPreset();
+	FMetaAgentParticleEffectResult CycleOverlayEffects();
 	FMetaAgentParticleEffectResult StepPatternStateForward();
 	FMetaAgentParticleEffectResult StepPatternStateBackward();
 	FMetaAgentParticleEffectResult PlayFullImageRevealCycle();
@@ -386,7 +388,7 @@ public:
 	FMetaAgentParticleEffectResult StartPatternWithAsset(UMetaAgentParticlePatternAsset* PatternAsset);
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator")
-	bool PrepareShapeContextForPlay();
+	bool PrepareShapeContextForPlay(bool bRequestMaskBuild = true);
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Orchestrator|Preview")
 	void SetPreviewSource(UTexture2D* Texture, const FString& ImagePath);
@@ -470,6 +472,8 @@ protected:
 	FMetaAgentParticleEffectSpec LastEffectSpec;
 
 	bool bHasLastEffectSpec = false;
+
+	int32 OverlayCycleIndex = -1;
 };
 
 UCLASS(Blueprintable, BlueprintType)

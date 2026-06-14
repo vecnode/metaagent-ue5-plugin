@@ -137,10 +137,13 @@ public:
 	const FMetaAgentParticleSnapshot& GetLatestSnapshot() const { return LatestSnapshot; }
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
-	TArray<FVector> GetKnownParticlePositions() const { return LatestSnapshot.ExportedParticlePositions; }
+	TArray<FVector> GetKnownParticlePositions() const;
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
-	int32 GetKnownParticleCount() const { return LatestSnapshot.ExportedParticleCount; }
+	int32 GetKnownParticleCount() const;
+
+	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles|Pattern")
+	TArray<FVector> GetPatternBaselineWorldPositions() const { return PatternRuntime.BaselineWorldPositions; }
 
 	UFUNCTION(BlueprintPure, Category = "MetaAgent|Particles")
 	FString BuildStatusText() const;
@@ -216,6 +219,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void SetPatternShapeContext(const FMetaAgentParticleShapeContext& ShapeContext);
+	const FMetaAgentParticleShapeContext& GetPatternShapeContext() const { return PatternShapeContext; }
 
 	UFUNCTION(BlueprintCallable, Category = "MetaAgent|Particles|Pattern")
 	void ApplyPatternConfig(const FMetaAgentParticlePatternConfig& Config);
@@ -276,6 +280,9 @@ public:
 
 	/** Rebuilds pattern targets after live config changes (e.g. Gray/Sobel toggle). */
 	void RefreshPatternTargetsAfterConfigChange();
+
+	/** Rebuilds pattern targets from the current shape context without applying actuation. */
+	bool RebuildPatternTargets();
 
 private:
 	bool PassesNameFilter(const AActor* OwnerActor, const UNiagaraComponent* NiagaraComponent) const;
@@ -363,6 +370,8 @@ private:
 	float FormingSteeringBlendElapsedSeconds = 0.0f;
 	float LastPatternTickDeltaSeconds = 0.0f;
 	bool bLoggedPatternStart = false;
+	int32 DirectCaptureAuthoritativeCount = 0;
+	bool bHasDirectCaptureAuthoritativeCount = false;
 
 	int32 DirectCaptureFrameCounter = 0;
 	bool bLoggedDirectCaptureSuccess = false;

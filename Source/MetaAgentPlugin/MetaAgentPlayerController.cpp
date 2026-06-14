@@ -3054,20 +3054,57 @@ namespace MetaAgentParticleControllerInternal
 		if (AMetaAgentHUD* HUD = Controller->GetHUD<AMetaAgentHUD>())
 		{
 			const FColor Color = Result.bSuccess ? FColor::Cyan : FColor::Orange;
-			HUD->AddTransientMessage(Result.UserMessage.ToString(), Color, 3.0f);
+			const FString Message = Result.UserMessage.IsEmpty()
+				? (Result.bSuccess ? TEXT("Particle effect applied.") : TEXT("Particle effect unavailable."))
+				: Result.UserMessage.ToString();
+			HUD->AddTransientMessage(Message, Color, 3.0f);
 		}
+	}
+
+	void EnsureParticleRuntimeEnabled(AMetaAgentPlayerController* Controller)
+	{
+		if (Controller && !Controller->IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+		{
+			Controller->SetModularRuntimeEnabled(EMetaAgentModularRuntime::Particle, true);
+		}
+	}
+
+	bool TryExecuteParticleEffect(AMetaAgentPlayerController* Controller, const FName EffectId)
+	{
+		if (!Controller)
+		{
+			return false;
+		}
+
+		if (!IsMetaAgentRuntimeActive())
+		{
+			FMetaAgentParticleEffectResult FailureResult;
+			FailureResult.bSuccess = false;
+			FailureResult.EffectId = EffectId;
+			FailureResult.UserMessage = FText::FromString(TEXT("MetaAgent runtime is inactive."));
+			NotifyEffectResult(Controller, FailureResult);
+			return false;
+		}
+
+		EnsureParticleRuntimeEnabled(Controller);
+
+		if (!Controller->IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+		{
+			FMetaAgentParticleEffectResult FailureResult;
+			FailureResult.bSuccess = false;
+			FailureResult.EffectId = EffectId;
+			FailureResult.UserMessage = FText::FromString(TEXT("Particle runtime is disabled."));
+			NotifyEffectResult(Controller, FailureResult);
+			return false;
+		}
+
+		NotifyEffectResult(Controller, Controller->TriggerParticleEffect(EffectId));
+		return true;
 	}
 
 	void TriggerEffectOnController(AMetaAgentPlayerController* Controller, const FName EffectId)
 	{
-		if (!Controller
-			|| !IsMetaAgentRuntimeActive()
-			|| !Controller->IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
-		{
-			return;
-		}
-
-		NotifyEffectResult(Controller, Controller->TriggerParticleEffect(EffectId));
+		(void)TryExecuteParticleEffect(Controller, EffectId);
 	}
 
 	bool ToggleStateEffectOnController(
@@ -3120,6 +3157,16 @@ namespace MetaAgentParticleControllerInternal
 
 bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 {
+	if (!IsMetaAgentRuntimeActive())
+	{
+		return false;
+	}
+
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		SetModularRuntimeEnabled(EMetaAgentModularRuntime::Particle, true);
+	}
+
 	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
 	{
 		return false;
@@ -3174,8 +3221,16 @@ bool AMetaAgentPlayerController::ExecuteGuiParticleAction(const FName ActionId)
 	}
 
 	const FName EffectId(UTF8_TO_TCHAR(Spec->effect_id.c_str()));
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, EffectId);
-	return true;
+	const FMetaAgentParticleEffectResult Result = TriggerParticleEffect(EffectId);
+	if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+	{
+		const FColor Color = Result.bSuccess ? FColor::Cyan : FColor::Orange;
+		const FString Message = Result.UserMessage.IsEmpty()
+			? (Result.bSuccess ? TEXT("Particle action applied.") : TEXT("Particle action unavailable."))
+			: Result.UserMessage.ToString();
+		HUD->AddTransientMessage(Message, Color, 3.0f);
+	}
+	return Result.bSuccess;
 }
 
 void AMetaAgentPlayerController::EnsureParticleOrchestrator()
@@ -3287,8 +3342,26 @@ void AMetaAgentPlayerController::HandleParticlePlayFullCyclePressed()
 
 void AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed()
 {
-	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepBackward))
+	if (!IsMetaAgentRuntimeActive())
 	{
+		return;
+	}
+
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		SetModularRuntimeEnabled(EMetaAgentModularRuntime::Particle, true);
+	}
+
+	FString BlockMessage;
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepBackward, &BlockMessage))
+	{
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(
+				BlockMessage.IsEmpty() ? TEXT("Pattern step backward unavailable.") : BlockMessage,
+				FColor::Yellow,
+				2.5f);
+		}
 		return;
 	}
 
@@ -3303,8 +3376,26 @@ void AMetaAgentPlayerController::HandleParticleStepPatternBackwardPressed()
 
 void AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed()
 {
-	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepForward))
+	if (!IsMetaAgentRuntimeActive())
 	{
+		return;
+	}
+
+	if (!IsModularRuntimeEnabled(EMetaAgentModularRuntime::Particle))
+	{
+		SetModularRuntimeEnabled(EMetaAgentModularRuntime::Particle, true);
+	}
+
+	FString BlockMessage;
+	if (!CanExecuteAppCommand(metaagent::app::CommandId::PatternStepForward, &BlockMessage))
+	{
+		if (AMetaAgentHUD* HUD = GetHUD<AMetaAgentHUD>())
+		{
+			HUD->AddTransientMessage(
+				BlockMessage.IsEmpty() ? TEXT("Pattern step forward unavailable.") : BlockMessage,
+				FColor::Yellow,
+				2.5f);
+		}
 		return;
 	}
 
@@ -3317,45 +3408,9 @@ void AMetaAgentPlayerController::HandleParticleStepPatternForwardPressed()
 	}
 }
 
-void AMetaAgentPlayerController::HandleParticleSlowPresetPressed()
+void AMetaAgentPlayerController::HandleParticleCyclePresetPressed()
 {
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetSlow);
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticleDramaticPresetPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetDramatic);
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticleSnappyPresetPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetSnappy);
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticleDreamyPresetPressed()
-{
-	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::PresetDreamy);
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticleMorphPressed()
-{
-	(void)TriggerParticleEffect(MetaAgentParticleEffectIds::PatternMorph);
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CyclePreset);
 	if (GUI.bHelpPanelVisible)
 	{
 		ApplyGUIHelpPanelState();
@@ -3389,24 +3444,9 @@ void AMetaAgentPlayerController::HandleParticleCycleReturningPressed()
 	}
 }
 
-void AMetaAgentPlayerController::HandleParticleToggleCohesionPressed()
+void AMetaAgentPlayerController::HandleParticleCycleOverlayPressed()
 {
-	MetaAgentParticleControllerInternal::ToggleStateEffectOnController(
-		this,
-		metaagent::app::CommandId::ToggleStateEffectCohesion,
-		metaagent::particle::state_effect_ids::Cohesion);
-	if (GUI.bHelpPanelVisible)
-	{
-		ApplyGUIHelpPanelState();
-	}
-}
-
-void AMetaAgentPlayerController::HandleParticleToggleTurbulencePressed()
-{
-	MetaAgentParticleControllerInternal::ToggleStateEffectOnController(
-		this,
-		metaagent::app::CommandId::ToggleStateEffectTurbulence,
-		metaagent::particle::state_effect_ids::Turbulence);
+	MetaAgentParticleControllerInternal::TriggerEffectOnController(this, MetaAgentParticleEffectIds::CycleOverlay);
 	if (GUI.bHelpPanelVisible)
 	{
 		ApplyGUIHelpPanelState();
