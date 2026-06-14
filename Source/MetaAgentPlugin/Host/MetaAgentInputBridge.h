@@ -2,8 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Host/MetaAgentHostSession.h"
-#include "metaagent/app/commands.hpp"
-#include "metaagent/app/gui_actions.hpp"
+#include "app/commands.hpp"
+#include "app/gui_actions.hpp"
 
 struct FMetaAgentInputBridgeResult
 {

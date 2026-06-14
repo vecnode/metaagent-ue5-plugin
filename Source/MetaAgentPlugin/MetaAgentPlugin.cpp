@@ -2,7 +2,7 @@
 
 #include "GameMapsSettings.h"
 #include "Misc/ConfigCacheIni.h"
-#include "metaagent/initialize.hpp"
+#include "initialize.hpp"
 #include "MetaAgentParticleControl.h"
 #include "MetaAgentGameplay.h"
 #include "MetaAgentHUD.h"
@@ -18,7 +18,7 @@
 #include "Host/MetaAgentHostSession.h"
 #include "Host/MetaAgentHttpBridge.h"
 #include "Host/MetaAgentPlatformBridge.h"
-#include "metaagent/session/status.hpp"
+#include "session/status.hpp"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Misc/ConfigCacheIni.h"

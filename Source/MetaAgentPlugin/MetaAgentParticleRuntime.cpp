@@ -21,11 +21,11 @@
 #include "NiagaraTypes.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
-#include "metaagent/particle/actuation_math.hpp"
-#include "metaagent/particle/forming_solver.hpp"
-#include "metaagent/particle/representation_actuation.hpp"
-#include "metaagent/particle/visual_continuity.hpp"
-#include "metaagent/runtime/host_interfaces.hpp"
+#include "particle/actuation_math.hpp"
+#include "particle/forming_solver.hpp"
+#include "particle/representation_actuation.hpp"
+#include "particle/visual_continuity.hpp"
+#include "runtime/host_interfaces.hpp"
 
 namespace
 {

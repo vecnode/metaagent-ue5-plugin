@@ -108,7 +108,7 @@ Observation tuning: `ParticleObservationPaddingScale`, `ParticleObservationMinOr
 
 ### Adding camera styles / states
 
-1. Add `CinematicStyle` + motion in `metaagent/include/metaagent/camera/rig.cpp`.
+1. Add `CinematicStyle` + motion in `metaagent/src/camera/rig.cpp`.
 2. Add matching `EMetaAgentCinematicCameraStyle` and TypeBridge enum mapping.
 3. Optionally wire a command in `metaagent/app/commands` and a GUI panel row.
 

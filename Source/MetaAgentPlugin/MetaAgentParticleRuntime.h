@@ -5,8 +5,8 @@
 #include "CoreMinimal.h"
 #include "MetaAgentParticleControl.h"
 #include "MetaAgentParticleTypes.h"
-#include "metaagent/particle/visual_continuity.hpp"
-#include "metaagent/core/types.hpp"
+#include "particle/visual_continuity.hpp"
+#include "core/types.hpp"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 

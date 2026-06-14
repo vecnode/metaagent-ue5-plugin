@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "metaagent/runtime/host_interfaces.hpp"
+#include "runtime/host_interfaces.hpp"
 
 class AMetaAgentPlayerController;
 

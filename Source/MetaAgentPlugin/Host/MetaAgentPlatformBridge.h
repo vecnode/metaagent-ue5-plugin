@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "metaagent/net/platform_client.hpp"
+#include "net/platform_client.hpp"
 
 class UWorld;
 

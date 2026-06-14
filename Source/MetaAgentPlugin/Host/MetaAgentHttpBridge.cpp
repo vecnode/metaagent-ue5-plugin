@@ -8,9 +8,9 @@
 #include "HttpServerResponse.h"
 #include "IHttpRouter.h"
 
-#include "metaagent/net/router.hpp"
-#include "metaagent/net/types.hpp"
-#include "metaagent/session/status.hpp"
+#include "net/router.hpp"
+#include "net/types.hpp"
+#include "session/status.hpp"
 
 namespace
 {

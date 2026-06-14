@@ -4,7 +4,7 @@
 #include "MetaAgentParticleControl.h"
 #include "MetaAgentParticleRuntime.h"
 #include "UObject/WeakObjectPtrTemplates.h"
-#include "metaagent/particle/scheduler.hpp"
+#include "particle/scheduler.hpp"
 
 #include "Components/StaticMeshComponent.h"
 #include "Curves/CurveFloat.h"
@@ -13,17 +13,17 @@
 #include "Containers/StringConv.h"
 
 #include "MetaAgentPlayerController.h"
-#include "metaagent/camera/controller.hpp"
-#include "metaagent/camera/rig.hpp"
-#include "metaagent/media/decode.hpp"
-#include "metaagent/media/pipeline.hpp"
-#include "metaagent/media/store.hpp"
-#include "metaagent/particle/image_mask_processor.hpp"
-#include "metaagent/particle/pattern_types.hpp"
-#include "metaagent/particle/representation_types.hpp"
-#include "metaagent/particle/shape_builder.hpp"
-#include "metaagent/particle/shape_types.hpp"
-#include "metaagent/runtime/host_interfaces.hpp"
+#include "camera/controller.hpp"
+#include "camera/rig.hpp"
+#include "media/decode.hpp"
+#include "media/pipeline.hpp"
+#include "media/store.hpp"
+#include "particle/image_mask_processor.hpp"
+#include "particle/pattern_types.hpp"
+#include "particle/representation_types.hpp"
+#include "particle/shape_builder.hpp"
+#include "particle/shape_types.hpp"
+#include "runtime/host_interfaces.hpp"
 
 namespace
 {

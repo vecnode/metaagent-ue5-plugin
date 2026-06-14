@@ -11,7 +11,7 @@ public class MetaAgentPlugin : ModuleRules
 			new string[]
 			{
 				Path.Combine(ModuleDirectory),
-				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "include")),
+				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent", "src")),
 				Path.GetFullPath(Path.Combine(PluginDirectory, "metaagent"))
 			}
 		);

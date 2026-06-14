@@ -21,12 +21,12 @@ enum class TransitionTrigger : uint8_t;
 struct StateEffectTriggerResult;
 }
 
-#include "metaagent/particle/actuation_math.hpp"
-#include "metaagent/camera/types.hpp"
+#include "particle/actuation_math.hpp"
+#include "camera/types.hpp"
 
-#include "metaagent/particle/actuation_math.hpp"
-#include "metaagent/camera/types.hpp"
-#include "metaagent/media/image.hpp"
+#include "particle/actuation_math.hpp"
+#include "camera/types.hpp"
+#include "media/image.hpp"
 
 namespace metaagent::camera {
 class CameraController;

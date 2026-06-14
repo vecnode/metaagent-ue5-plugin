@@ -12,9 +12,9 @@
 #include "MetaAgentPlugin.h"
 #include "MetaAgentParticleControl.h"
 #include "Host/MetaAgentHostSession.h"
-#include "metaagent/app/commands.hpp"
-#include "metaagent/runtime/host_interfaces.hpp"
-#include "metaagent/camera/types.hpp"
+#include "app/commands.hpp"
+#include "runtime/host_interfaces.hpp"
+#include "camera/types.hpp"
 #include "MetaAgentPlayerController.generated.h"
 
 class AAIController;
