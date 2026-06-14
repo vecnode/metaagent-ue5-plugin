@@ -74,6 +74,23 @@ CommandId map_particle_gui_action(const core::String& action_id)
 	return CommandId::ParticleGuiEffect;
 }
 
+CommandId map_service_gui_action(const core::String& action_id)
+{
+	if (action_id == "ToggleAutopilot")
+	{
+		return CommandId::ToggleAutopilot;
+	}
+	if (action_id == "ToggleRecording")
+	{
+		return CommandId::ToggleRecording;
+	}
+	if (action_id == "ReportRecording")
+	{
+		return CommandId::ReportRecordingStatus;
+	}
+	return CommandId::Unknown;
+}
+
 } // namespace
 
 CommandId command_for_gui_action(const core::String& action_id)
@@ -97,6 +114,12 @@ CommandId command_for_gui_action(const core::String& action_id)
 	if (particle_command != CommandId::Unknown)
 	{
 		return particle_command;
+	}
+
+	const CommandId service_command = map_service_gui_action(action_id);
+	if (service_command != CommandId::Unknown)
+	{
+		return service_command;
 	}
 
 	return map_camera_gui_action(action_id);

@@ -23,6 +23,7 @@
 #include "metaagent/particle/representation_types.hpp"
 #include "metaagent/particle/shape_builder.hpp"
 #include "metaagent/particle/shape_types.hpp"
+#include "metaagent/runtime/host_interfaces.hpp"
 
 namespace
 {
@@ -1323,8 +1324,9 @@ struct FMetaAgentCoreBridgeFriend
 			SyncFromRuntime();
 			return bResult;
 		};
-		Callbacks.begin_pattern_start = [&Runtime, SyncFromRuntime]() -> bool
+		Callbacks.begin_pattern_start = [&Runtime, &State, SyncFromRuntime]() -> bool
 		{
+			FMetaAgentCoreBridgeFriend::SyncCoreToRuntime(Runtime, State.Scheduler);
 			const bool bResult = Runtime.BeginPatternStart();
 			SyncFromRuntime();
 			return bResult;
@@ -1373,6 +1375,21 @@ struct FMetaAgentCoreBridgeFriend
 		Callbacks.log_warning = [](const metaagent::core::String& Message)
 		{
 			UE_LOG(LogMetaAgent, Warning, TEXT("%s"), *FString(UTF8_TO_TCHAR(Message.c_str())));
+		};
+		Callbacks.particle_host.read_displayed_positions =
+			[&Runtime](metaagent::particle::DisplayedPose& OutPose) -> bool
+		{
+			return Runtime.ReadDisplayedPose(OutPose);
+		};
+		Callbacks.particle_host.apply_world_positions =
+			[&Runtime](const metaagent::core::Array<metaagent::core::Vec3>& Positions)
+		{
+			Runtime.ApplyHostWorldPositions(Positions);
+		};
+		Callbacks.particle_host.authoritative_particle_count =
+			[&Runtime]() -> int32
+		{
+			return Runtime.GetAuthoritativeParticleCountForHost();
 		};
 		return Callbacks;
 	}

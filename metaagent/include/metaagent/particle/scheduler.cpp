@@ -205,8 +205,21 @@ bool should_capture_visual_continuity(const TransitionResult& result)
 
 void capture_visual_continuity_for_transition(
 	ParticleScheduler& scheduler,
-	const TransitionResult& result)
+	const TransitionResult& result,
+	const SchedulerCallbacks& callbacks)
 {
+	DisplayedPose displayed;
+	if (callbacks.particle_host.read_displayed_positions
+		&& callbacks.particle_host.read_displayed_positions(displayed))
+	{
+		apply_visual_continuity_for_transition(scheduler, result, displayed);
+		if (callbacks.particle_host.apply_world_positions)
+		{
+			callbacks.particle_host.apply_world_positions(displayed.world_positions);
+		}
+		return;
+	}
+
 	if (scheduler.pattern_runtime.baseline_world_positions.empty())
 	{
 		return;
@@ -220,56 +233,9 @@ void capture_visual_continuity_for_transition(
 		return;
 	}
 
-	if (result.new_state == PatternState::Holding)
-	{
-		// Freeze display: baseline and targets match so Holding actuation does not drift.
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-		scheduler.pattern_runtime.pattern_world_targets = composed;
-	}
-	else if (result.new_state == PatternState::Forming
-		&& !scheduler.pattern_runtime.canonical_pattern_world_targets.empty())
-	{
-		// Continue from the current visual pose toward the original mask layout.
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-		scheduler.pattern_runtime.pattern_world_targets =
-			scheduler.pattern_runtime.canonical_pattern_world_targets;
-	}
-	else if (result.new_state == PatternState::Preparing)
-	{
-		// Manual mask-wait: hold the current displayed pose with no drift.
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-		scheduler.pattern_runtime.pattern_world_targets = composed;
-	}
-	else if (result.new_state == PatternState::Anticipating)
-	{
-		// Retreat from Forming: travel from the current pose back toward idle rest.
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-		if (!scheduler.pattern_runtime.idle_baseline_world_positions.empty())
-		{
-			scheduler.pattern_runtime.pattern_world_targets =
-				scheduler.pattern_runtime.idle_baseline_world_positions;
-		}
-		else
-		{
-			scheduler.pattern_runtime.pattern_world_targets = composed;
-		}
-	}
-	else if (result.new_state == PatternState::Returning
-		|| result.action == TransitionAction::BeginConfiguredReturn)
-	{
-		// Snapshot hold pose for return only; do not inflate baseline or pattern targets.
-		scheduler.pattern_runtime.return_hold_positions = composed;
-	}
-	else if (result.new_state == PatternState::Dissipating
-		|| result.action == TransitionAction::RequestDissipate)
-	{
-		scheduler.pattern_runtime.dissipate_start_positions = composed;
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-	}
-	else
-	{
-		scheduler.pattern_runtime.baseline_world_positions = composed;
-	}
+	displayed.world_positions = composed;
+	compute_pattern_center(composed, displayed.pattern_center);
+	apply_visual_continuity_for_transition(scheduler, result, displayed);
 }
 
 void enter_state(ParticleScheduler& scheduler, const PatternState new_state, SchedulerCallbacks& callbacks)
@@ -422,7 +388,7 @@ bool ParticleScheduler::dispatch_pattern_transition(
 
 	if (should_capture_visual_continuity(result))
 	{
-		capture_visual_continuity_for_transition(*this, result);
+		capture_visual_continuity_for_transition(*this, result, callbacks);
 	}
 
 	return apply_transition_result(result, callbacks);
@@ -445,7 +411,7 @@ bool ParticleScheduler::apply_transition_result(const TransitionResult& result, 
 			TransitionResult continuity_result;
 			continuity_result.new_state = PatternState::Preparing;
 			continuity_result.action = TransitionAction::EnterState;
-			capture_visual_continuity_for_transition(*this, continuity_result);
+			capture_visual_continuity_for_transition(*this, continuity_result, callbacks);
 		}
 		if (!callbacks.begin_pattern_start || !callbacks.begin_pattern_start())
 		{

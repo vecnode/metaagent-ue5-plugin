@@ -28,6 +28,7 @@
 #include "metaagent/particle/shape_builder.cpp"
 #include "metaagent/particle/image_mask_processor.cpp"
 #include "metaagent/particle/scheduler.cpp"
+#include "metaagent/particle/visual_continuity.cpp"
 
 #include "metaagent/app/commands.cpp"
 #include "metaagent/app/gui_actions.cpp"

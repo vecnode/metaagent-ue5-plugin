@@ -71,6 +71,22 @@ GuiPanelCatalog build_gui_panel_catalog()
 		catalog.sections.push_back(make_section("Particle", "Particle Runtime", false, "particle", rows));
 	}
 
+	{
+		core::Array<GuiPanelRow> rows;
+		rows.push_back(make_row("ToggleAutopilot", "I", "Toggle AI autopilot for current pawn"));
+		catalog.sections.push_back(make_section("AI", "AI Runtime", false, "ai", rows));
+	}
+
+	{
+		core::Array<GuiPanelRow> rows;
+		rows.push_back(make_row("ToggleRecording", "J", "Start/stop video capture"));
+		rows.push_back(make_row("ReportRecording", "U", "Print recording status to log"));
+
+		core::Array<core::String> status;
+		status.push_back("MovieSceneCapture AVI output under Saved/Renders");
+		catalog.sections.push_back(make_section("Recording", "Recording Runtime", false, "recording", rows, status));
+	}
+
 	return catalog;
 }
 

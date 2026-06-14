@@ -24,6 +24,8 @@
 #include "metaagent/particle/actuation_math.hpp"
 #include "metaagent/particle/forming_solver.hpp"
 #include "metaagent/particle/representation_actuation.hpp"
+#include "metaagent/particle/visual_continuity.hpp"
+#include "metaagent/runtime/host_interfaces.hpp"
 
 namespace
 {
@@ -951,25 +953,71 @@ TArray<FVector> UMetaAgentParticleRuntime::ResolveVisualRestBaseline()
 	return GetKnownParticlePositions();
 }
 
-TArray<FVector> UMetaAgentParticleRuntime::ResolveDisplayedParticlePositions()
+bool UMetaAgentParticleRuntime::ReadDisplayedPose(metaagent::particle::DisplayedPose& OutPose)
 {
+	return ReadDisplayedParticlePositions(OutPose);
+}
+
+void UMetaAgentParticleRuntime::ApplyHostWorldPositions(
+	const metaagent::core::Array<metaagent::core::Vec3>& Positions)
+{
+	TArray<FVector> DisplayedPositions;
+	DisplayedPositions.Reserve(static_cast<int32>(Positions.size()));
+	for (const metaagent::core::Vec3& Position : Positions)
+	{
+		DisplayedPositions.Add(FVector(Position.x, Position.y, Position.z));
+	}
+	ApplyHostWorldPositionsInternal(DisplayedPositions);
+}
+
+int32 UMetaAgentParticleRuntime::GetAuthoritativeParticleCountForHost() const
+{
+	if (bHasDirectCaptureAuthoritativeCount && DirectCaptureAuthoritativeCount > 0)
+	{
+		return DirectCaptureAuthoritativeCount;
+	}
+	return LatestSnapshot.ExportedParticlePositions.Num();
+}
+
+bool UMetaAgentParticleRuntime::ReadDisplayedParticlePositions(metaagent::particle::DisplayedPose& OutPose)
+{
+	TArray<FVector> Positions;
 	if (LastAppliedWorldPositions.Num() > 0
 		&& MatchesAuthoritativeParticleCount(LastAppliedWorldPositions.Num()))
 	{
-		return LastAppliedWorldPositions;
+		Positions = LastAppliedWorldPositions;
 	}
-
-	TArray<FVector> ComposedPositions;
-	if (GetFocusableWorldPositions(ComposedPositions) > 0
-		&& MatchesAuthoritativeParticleCount(ComposedPositions.Num()))
+	else
 	{
-		return ComposedPositions;
+		TArray<FVector> ComposedPositions;
+		if (GetFocusableWorldPositions(ComposedPositions) > 0
+			&& MatchesAuthoritativeParticleCount(ComposedPositions.Num()))
+		{
+			Positions = MoveTemp(ComposedPositions);
+		}
+		else
+		{
+			Positions = ResolveVisualRestBaseline();
+		}
 	}
 
-	return ResolveVisualRestBaseline();
+	if (Positions.Num() <= 0)
+	{
+		return false;
+	}
+
+	OutPose.world_positions.clear();
+	OutPose.world_positions.reserve(static_cast<size_t>(Positions.Num()));
+	for (const FVector& Position : Positions)
+	{
+		OutPose.world_positions.push_back(
+			metaagent::core::Vec3(Position.X, Position.Y, Position.Z));
+	}
+	metaagent::particle::compute_pattern_center(OutPose.world_positions, OutPose.pattern_center);
+	return true;
 }
 
-void UMetaAgentParticleRuntime::ApplyDisplayedPoseHold(const TArray<FVector>& DisplayedPositions)
+void UMetaAgentParticleRuntime::ApplyHostWorldPositionsInternal(const TArray<FVector>& DisplayedPositions)
 {
 	if (DisplayedPositions.Num() <= 0)
 	{
@@ -985,6 +1033,7 @@ void UMetaAgentParticleRuntime::ApplyDisplayedPoseHold(const TArray<FVector>& Di
 		PatternRuntime.PatternCenter += Position;
 	}
 	PatternRuntime.PatternCenter /= static_cast<float>(DisplayedPositions.Num());
+	LastAppliedWorldPositions = DisplayedPositions;
 }
 
 bool UMetaAgentParticleRuntime::BeginPatternStart()
@@ -999,12 +1048,17 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 	{
 		PatternRuntime.ActivePatternTags.AddTag(MetaAgentParticleTags::Pattern_ImageReveal);
 	}
-	const TArray<FVector> DisplayedPose = ResolveDisplayedParticlePositions();
-	if (DisplayedPose.Num() <= 0)
+	if (PatternRuntime.BaselineWorldPositions.Num() <= 0
+		|| !MatchesAuthoritativeParticleCount(PatternRuntime.BaselineWorldPositions.Num()))
 	{
-		UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: no captured particles available to start pattern."));
-		PatternRuntime.ActivePatternTags.Reset();
-		return false;
+		metaagent::particle::DisplayedPose DisplayedPose;
+		if (!ReadDisplayedParticlePositions(DisplayedPose))
+		{
+			UE_LOG(LogMetaAgent, Warning, TEXT("ParticleRuntime: no captured particles available to start pattern."));
+			PatternRuntime.ActivePatternTags.Reset();
+			return false;
+		}
+		ApplyHostWorldPositions(DisplayedPose.world_positions);
 	}
 
 	if (PatternRuntime.IdleBaselineWorldPositions.Num() <= 0
@@ -1022,8 +1076,6 @@ bool UMetaAgentParticleRuntime::BeginPatternStart()
 			PatternRuntime.IdleBaselineWorldPositions = CapturedRest;
 		}
 	}
-
-	ApplyDisplayedPoseHold(DisplayedPose);
 
 	if (CachedWorld.IsValid())
 	{
@@ -1321,16 +1373,6 @@ void UMetaAgentParticleRuntime::CommitAnticipationBaselineForForming()
 void UMetaAgentParticleRuntime::EnterPatternState(const EMetaAgentParticlePatternState NewState)
 {
 	const EMetaAgentParticlePatternState PreviousState = PatternRuntime.State;
-
-	if (PreviousState == EMetaAgentParticlePatternState::Idle
-		&& NewState == EMetaAgentParticlePatternState::Preparing)
-	{
-		const TArray<FVector> DisplayedPose = ResolveDisplayedParticlePositions();
-		if (DisplayedPose.Num() > 0)
-		{
-			ApplyDisplayedPoseHold(DisplayedPose);
-		}
-	}
 
 	PatternRuntime.State = NewState;
 	PatternRuntime.StateElapsedSeconds = 0.0f;

@@ -34,4 +34,22 @@ bool invoke_toggle_autopilot(const HostServiceCallbacks& callbacks)
 	return false;
 }
 
+RecordingSnapshot invoke_query_recording(const HostServiceCallbacks& callbacks)
+{
+	if (callbacks.query_recording)
+	{
+		return callbacks.query_recording();
+	}
+	return default_recording_snapshot();
+}
+
+AiSnapshot invoke_query_ai(const HostServiceCallbacks& callbacks)
+{
+	if (callbacks.query_ai)
+	{
+		return callbacks.query_ai();
+	}
+	return default_ai_snapshot();
+}
+
 } // namespace metaagent::runtime

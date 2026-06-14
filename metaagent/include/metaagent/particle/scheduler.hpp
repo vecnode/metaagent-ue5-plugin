@@ -7,6 +7,8 @@
 #include "metaagent/particle/pattern_types.hpp"
 #include "metaagent/particle/state_effects.hpp"
 #include "metaagent/particle/representation_types.hpp"
+#include "metaagent/particle/visual_continuity.hpp"
+#include "metaagent/runtime/host_interfaces.hpp"
 
 namespace metaagent::particle {
 
@@ -22,6 +24,7 @@ struct SchedulerCallbacks {
 	std::function<void(PatternState new_state)> on_transition_side_effects;
 	std::function<void(const core::String& message)> log_info;
 	std::function<void(const core::String& message)> log_warning;
+	runtime::ParticleHostCallbacks particle_host;
 };
 
 struct SchedulerSettings {
@@ -54,6 +57,7 @@ public:
 	METAAGENT_API core::String build_pattern_timings_text() const;
 	METAAGENT_API StateEffectTriggerResult toggle_state_effect(const core::String& effect_id);
 	METAAGENT_API void tick_state_effects();
+	METAAGENT_API void freeze_displayed_pose(const DisplayedPose& displayed);
 };
 
 } // namespace metaagent::particle

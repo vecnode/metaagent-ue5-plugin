@@ -45,16 +45,16 @@ flowchart TB
     UE --> H
 ```
 
-### What to abstract next (professional library seams)
+### Host integration seams
 
-| Seam | Today | Target |
-|------|-------|--------|
-| **Visual pose** | Split: core `compose` vs host `LastApplied` + state effects | Core `DisplayedPose` + `freeze_pose_for_transition()`; host only reads/writes GPU buffers |
-| **Particle I/O** | UE direct capture + callback export + orchestrator | `runtime/ParticleHostCallbacks`: `capture()`, `apply()`, `displayed_count()` |
-| **Shape / mask** | Core algorithms + UE async cache + PNG load | Core owns mask cache API; host supplies `load_rgba(path)` only |
-| **Representation delivery** | Core `RepresentationActuationPolicy`; UE driver registry | Policy stays core; one `IRepresentationDriver` interface documented for other engines |
-| **Commands / GUI** | Core catalog + validation; UE HUD draw | Already clean — add code-generated panel rows from catalog |
-| **Session snapshot** | `RuntimeSession` + `HostSession` | Extend with particle FSM summary for HTTP `/health` |
+| Seam | Status |
+|------|--------|
+| **Visual pose** | **Done** — `DisplayedPose`, `freeze_displayed_pose()`, `apply_visual_continuity_for_transition()` |
+| **Particle I/O** | **Done** — `ParticleHostCallbacks` on `SchedulerCallbacks::particle_host` |
+| **Shape / mask** | Core algorithms + UE async cache; host supplies PNG load |
+| **Representation delivery** | Core policy + UE driver registry |
+| **Commands / GUI** | **Done** — catalog + validation; AI + Recording panel rows |
+| **Session snapshot** | Planned — extend `/health` with particle FSM summary |
 
 ---
 
@@ -69,12 +69,12 @@ metaagent/
 │   ├── core/                      Vec3, math, log_sink
 │   ├── media/                     PNG/JPEG decode, MediaStore, mask pipeline
 │   ├── camera/                    Zoom + cinematic rig/controller
-│   ├── particle/                  Pattern domain (FSM, scheduler, actuation, shapes)
+│   ├── particle/                  Pattern domain (FSM, scheduler, actuation, shapes, visual_continuity)
 │   ├── net/                       Route table, handlers, platform_client
 │   ├── notify/                    Notify body parsing
 │   ├── session/                   RuntimeSession + status strings
 │   ├── app/                       Command registry, GUI catalog, action validation
-│   ├── runtime/                   Host service callbacks (recording, AI)
+│   ├── runtime/                   Host service + particle host callbacks
 │   └── input/                     Input policy (GUI vs gameplay)
 ├── tools/
 │   ├── metaagent_server.cpp       Standalone inbound HTTP CLI
@@ -109,7 +109,8 @@ Public entry point: `#include <metaagent/metaagent.h>`.
 |--------|---------|------|
 | `pattern_types` | `PatternConfig`, `PatternRuntime` | FSM state, buffers, curve samples |
 | `transition_graph` | `TransitionGraph` | Declarative FSM table |
-| `scheduler` | `ParticleScheduler`, `SchedulerCallbacks` | Tick, transitions, representation frame, **visual continuity capture** |
+| `scheduler` | `ParticleScheduler`, `SchedulerCallbacks` | Tick, transitions, representation frame, **visual continuity via `particle_host`** |
+| `visual_continuity` | `DisplayedPose`, `freeze_displayed_pose()` | Per-edge pose freeze using displayed (on-screen) positions |
 | `forming_solver` | `FormingSolverRegistry` | Per-particle forming / return motion |
 | `actuation_math` | `ActuationMath` | Phase evaluation, position composition |
 | `representation_actuation` | `RepresentationActuationPolicy` | Direct / Parameters / Hybrid delivery |
@@ -159,64 +160,48 @@ stateDiagram-v2
 
 ---
 
-## Visual continuity and the Idle transition teleport
+## Visual continuity
 
-### Symptom
-
-After leaving **Idle** (first step into **Preparing** or **Forming**), particles can **jump slightly** even when the FSM transition succeeds.
-
-### Root cause (architectural)
+### Problem
 
 Actuation is a **two-stage pipeline**:
 
-1. **Core compose** — `ActuationMath::compose_world_positions()` blends baseline → targets using phase/state (no GPU).
-2. **Host post-compose** — state-effect offsets (ambient breathing) are added in UE when building `LastAppliedWorldPositions`.
+1. **Core compose** — `ActuationMath::compose_world_positions()` blends baseline → targets using phase/state.
+2. **Host post-compose** — state-effect offsets (ambient breathing) are added when building the displayed/GPU pose.
 
-Continuity today is **split**:
+Freezing only the composed rest baseline (stage 1) causes a small jump when stage-2 offsets differ across macro phases (e.g. Idle → Preparing).
 
-| Layer | Mechanism |
-|-------|-----------|
-| Core | `capture_visual_continuity_for_transition()` — freezes **composed rest** (stage 1 only) |
-| UE | `ResolveDisplayedParticlePositions()`, `ApplyDisplayedPoseHold()`, `DirectCaptureAuthoritativeCount` — tries to freeze **displayed** pose (stage 1 + 2) |
-
-Additional host-only issues that caused regressions:
-
-- Niagara callback exports can report **hundreds** of positions while direct capture sees **N** live particles → wrong mask builds and baseline drift.
-- `BeginPatternStart` historically overwrote rest baseline with raw sim capture instead of displayed pose.
-- **Preparing** used macro phase `Prepare` while **Idle** used `Idle` → Niagara driver parameter discontinuity.
-
-Recent mitigations (UE + partial core):
-
-- Authoritative particle count + baseline resync in `UMetaAgentParticleRuntime`.
-- Preparing uses **Idle macro phase** and `pattern_active = false` in `build_representation_frame()`.
-- Manual Idle→start: core capture + UE displayed-pose hold before entering Preparing.
-
-### Target design (library-quality fix)
-
-Move continuity into core as a **first-class concept**:
+### Solution (implemented)
 
 ```cpp
-// Proposed — particle/visual_continuity.hpp
+// particle/visual_continuity.hpp
 struct DisplayedPose {
     core::Array<core::Vec3> world_positions;
     core::Vec3 pattern_center;
 };
 
-// Host callback: return what is actually on screen (after all offsets)
+// runtime/host_interfaces.hpp — also on SchedulerCallbacks::particle_host
 struct ParticleHostCallbacks {
     std::function<bool(DisplayedPose& out)> read_displayed_positions;
     std::function<void(const core::Array<core::Vec3>&)> apply_world_positions;
     std::function<int32_t()> authoritative_particle_count;
 };
 
-// Scheduler API
 void freeze_displayed_pose(ParticleScheduler& scheduler, const DisplayedPose& displayed);
-// Sets baseline == targets == displayed; preserves idle_baseline_world_positions for return
+void apply_visual_continuity_for_transition(
+    ParticleScheduler& scheduler, const TransitionResult& result, const DisplayedPose& displayed);
 ```
 
-**Tests to add:** `visual_continuity_test.cpp` — for each transition edge, assert max position delta ≈ 0 when pose is frozen.
+**Flow on transition:**
 
-**Host responsibility after migration:** implement `read_displayed_positions` / `apply_world_positions` only; remove duplicate hold logic from `BeginPatternStart`.
+1. Scheduler calls `particle_host.read_displayed_positions()` (UE: `LastApplied`, fallback compose).
+2. `apply_visual_continuity_for_transition()` sets baseline/targets per edge (Holding, Preparing, Forming, Returning, …).
+3. Optional `particle_host.apply_world_positions()` syncs host runtime buffers.
+4. `begin_pattern_start` / `enter_pattern_state` sync core → runtime (no duplicate hold logic in UE).
+
+**Tests:** `visual_continuity_test.cpp` — freeze + zero compose delta on Holding, Preparing, Forming, Returning edges.
+
+**Host mitigations retained:** authoritative particle count, Preparing uses Idle macro phase, `pattern_active = false` during Preparing in `build_representation_frame()`.
 
 ---
 
@@ -245,7 +230,7 @@ Focus resolution (particle bounds, locked observation target) remains host-side 
 | `input/policy` | Block move/look in observation mode; allow wheel zoom when GUI closed |
 | `net/router` + `handlers` | `/health`, `/echo`, `/notify` |
 | `net/platform_client` | Outbound platform POST build/parse |
-| `runtime/host_interfaces` | Recording + AI snapshots and toggles |
+| `runtime/host_interfaces` | Recording + AI snapshots/toggles; **ParticleHostCallbacks** |
 
 ---
 
@@ -255,14 +240,15 @@ Focus resolution (particle bounds, locked observation target) remains host-side 
 |-------------|------|
 | `MetaAgentCoreAggregate.cpp` | Embeds `metaagent/metaagent.cpp` |
 | `MetaAgentTypeBridge.*` | UE ↔ core conversion, scheduler bridge, camera sync |
-| `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue, **displayed pose cache** |
+| `MetaAgentParticleRuntime.*` | UObject instance, Niagara tick glue, **ReadDisplayedPose / ApplyHostWorldPositions** |
 | `MetaAgentParticleControl.*` | Orchestrator, drivers, Niagara profiles |
 | `MetaAgentParticleShapes.*` | PNG load, mask cache, shape providers |
-| `MetaAgentPlayerController.*` | Input, camera host, GUI dispatch |
+| `MetaAgentPlayerController.*` | Input, camera host, GUI dispatch, **host service snapshots** |
 | `Host/MetaAgentHttpBridge.*` | Inbound HTTP |
 | `Host/MetaAgentPlatformBridge.*` | Outbound HTTP |
 | `Host/MetaAgentHostSession.*` | Session snapshot |
 | `Host/MetaAgentInputBridge.*` | Command / GUI validation |
+| `Host/MetaAgentHostServicesBridge.*` | `HostServiceCallbacks` → recording + AI |
 
 ---
 
@@ -295,13 +281,14 @@ Outbound: core `platform_client` builds/parses; `FMetaAgentPlatformBridge` perfo
 | F | Camera style registry (`SlowOrbit`) | Done |
 | G | Particle effect catalog in core | Done |
 | H | Standalone `metaagent_server` CLI | Done |
-| I | Recording / AI host_interfaces | Done (UE wiring optional) |
+| I | Recording / AI host_interfaces | Done |
 | J | Manual FSM profile (Preparing, no anticipating on `.`) | Done |
-| K | Host-side displayed-pose hold + authoritative count | Done (interim) |
-| **L** | **Core `DisplayedPose` + `freeze_displayed_pose` + continuity tests** | **Next** |
-| M | `ParticleHostCallbacks` in `runtime/host_interfaces` | Planned |
-| N | Wire recording/AI `HostServiceCallbacks` in UE + GUI rows | Planned |
-| O | Optional: headless particle simulator (no Niagara) for CI visual regression | Future |
+| K | Host-side displayed-pose hold + authoritative count | Done (superseded by L) |
+| **L** | **Core `DisplayedPose` + `freeze_displayed_pose` + continuity tests** | **Done** |
+| M | `ParticleHostCallbacks` on scheduler | Done |
+| N | Wire recording/AI `HostServiceCallbacks` in UE + GUI rows | Done |
+| O | Authoritative count in core `PatternRuntime` | Planned |
+| P | Headless particle simulator (mock host callbacks) for CI | Future |
 
 ---
 
@@ -316,7 +303,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Tests: `transition_graph_test`, `forming_types_test`, `shape_builder_polyline_test`, `actuation_composer_test`, `media_decode_test`, `camera_rig_test`, `net_handler_test`, `app_command_test`, `gui_actions_test`, `platform_client_test`, `gui_catalog_test`, `effect_catalog_test`, `host_interfaces_test`, `state_effects_test`.
+Tests: `transition_graph_test`, `forming_types_test`, `shape_builder_polyline_test`, `actuation_composer_test`, `media_decode_test`, `camera_rig_test`, `net_handler_test`, `app_command_test`, `gui_actions_test`, `platform_client_test`, `gui_catalog_test`, `effect_catalog_test`, `host_interfaces_test`, `state_effects_test`, **`visual_continuity_test`**.
 
 ### Unreal
 
@@ -331,7 +318,7 @@ Tests: `transition_graph_test`, `forming_types_test`, `shape_builder_polyline_te
 3. **New camera style** — `CinematicStyle` + `compute_cinematic_pose` + UE enum/sync.
 4. **New HTTP route** — handler in `net/handlers.cpp`, register in router.
 5. **New validated command** — `CommandId` + `validate_command` + host handler + optional GUI action ID.
-6. **New FSM transition** — row in `transition_graph.cpp` + continuity case in `capture_visual_continuity_for_transition()` + test in `transition_graph_test.cpp`.
-7. **Visual continuity on new edge** — add case to proposed `freeze_displayed_pose` + `visual_continuity_test`.
+6. **New FSM transition** — row in `transition_graph.cpp` + case in `apply_visual_continuity_for_transition()` + test in `transition_graph_test.cpp` / `visual_continuity_test.cpp`.
+7. **Visual continuity on new edge** — add branch in `apply_visual_continuity_for_transition()` + assert zero compose delta in `visual_continuity_test`.
 
 Product usage and keyboard controls: repository root [`README.md`](../README.md).

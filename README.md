@@ -18,10 +18,10 @@ Portable domain logic lives in [`metaagent/`](./metaagent/) and is embedded into
 | Outbound platform HTTP (H/G COMMS) | **`net/platform_client`** (URL, JSON, response parse) | **`FMetaAgentPlatformBridge`** (`FHttpModule` POST only) |
 | Command + GUI validation | Yes (`app/commands`, `app/gui_catalog`, `app/gui_actions`) | Key binds, HUD draw, dispatch |
 | Input policy (GUI open vs observation) | Yes | Enhanced Input, `PlayerTick` mouse hit-test |
-| **Displayed particle pose / GPU apply** | Compose math + state effects | Direct capture, `LastApplied`, Niagara drivers |
-| AI autopilot, recording, character pawn | No | `MetaAgentGameplay`, `MetaAgentPlayerController` |
+| **Displayed particle pose / GPU apply** | `DisplayedPose`, `freeze_displayed_pose()`, continuity on transitions | `ParticleHostCallbacks`: read/apply + Niagara drivers |
+| AI autopilot, recording, character pawn | `HostServiceCallbacks` + GUI catalog rows | `MetaAgentHostServicesBridge`, gameplay, player controller |
 
-Deep dive: [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) — includes the **visual continuity** design for eliminating the small teleport after Idle.
+Deep dive: [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) — **visual continuity** (`DisplayedPose`, `ParticleHostCallbacks`, continuity tests).
 
 ---
 
@@ -68,6 +68,7 @@ Runtime sources under `Source/MetaAgentPlugin/`:
 | `Host/MetaAgentPlatformBridge.*` | Outbound platform POST bridge |
 | `Host/MetaAgentHostSession.*` | Session snapshot for core validation |
 | `Host/MetaAgentInputBridge.*` | Command / GUI validation wrapper |
+| `Host/MetaAgentHostServicesBridge.*` | Recording + AI `HostServiceCallbacks` → player controller |
 
 Editor: `Source/MetaAgentPluginEditor/`.
 
@@ -127,12 +128,14 @@ Press **Q** to toggle the controls panel. Click rows or use keyboard shortcuts.
 | Camera | O — cinematic; P — particle focus; **V — cycle style** |
 | Networking | **H — start audio**; **G — start image** (requires Networking START) |
 | Particle | F — load preview; `,` / `.` — step pattern; B / N — Slow / Dramatic presets |
+| AI | **I — toggle autopilot** (requires AI START) |
+| Recording | **J — start/stop capture**; **U — report status** (requires Recording START) |
 
-Section headers support **START/STOP** toggles for Camera, Networking, and Particle runtimes. Expand/collapse via the `>` / `v` control.
+Section headers support **START/STOP** toggles for Camera, Networking, Particle, AI, and Recording runtimes. Expand/collapse via the `>` / `v` control.
 
-Dispatch: `FMetaAgentGUIRuntime::DispatchPanelAction` → validates via core (`MetaAgentInputBridge`) → host handlers (`ExecuteGuiParticleAction` uses `particle/effect_catalog` lookup).
+Dispatch: `FMetaAgentGUIRuntime::DispatchPanelAction` → validates via core (`MetaAgentInputBridge`) → host handlers. Particle rows use `ExecuteGuiParticleAction` (`particle/effect_catalog` lookup). AI and Recording rows use `FMetaAgentHostServicesBridge` → `invoke_toggle_autopilot` / `invoke_toggle_recording`.
 
-Keyboard shortcuts for morph, cycle modes, snappy/dreamy presets, recording, networking, and AI still exist where bound but are **not** shown as panel rows.
+Keyboard shortcuts for morph, cycle modes, snappy/dreamy presets, and legacy binds still exist where bound; panel rows mirror the primary shortcuts above.
 
 - **Implemented in:** `MetaAgentHUD.h`, `MetaAgentGameplay.cpp` (draw/hit-test), `MetaAgentPlayerController.cpp`
 
@@ -155,17 +158,21 @@ Settings: `UMetaAgentPluginSettings` / game instance config (base URL, endpoint,
 
 ## Module 5 — RecordingRuntime
 
-Viewport capture via Movie Scene Capture (**J** toggle, **U** finalize). Core defines `runtime/host_interfaces` snapshots and callbacks; UE implementation not yet wired to those callbacks.
+Viewport capture via Movie Scene Capture (**J** toggle, **U** status). Core defines `HostServiceCallbacks` (toggle + query); UE wires them through `FMetaAgentHostServicesBridge` and public `ToggleRecordingFromGUI()` / `ReportRecordingStatusFromGUI()`.
 
-- **Implemented in:** `MetaAgentPlayerController.cpp`
+Panel section **Recording Runtime** (enable via START) shows capture state, resolution, FPS, and output path.
+
+- **Implemented in:** `MetaAgentPlayerController.cpp`, `Host/MetaAgentHostServicesBridge.*`, `MetaAgentGameplay.cpp`
 
 ---
 
 ## Module 6 — AIRuntime
 
-Autopilot toggle (**I**). Core `HostServiceCallbacks::toggle_autopilot` defined; UE not yet wired.
+Autopilot toggle (**I**). Core `HostServiceCallbacks::toggle_autopilot` and `query_ai` are wired via `FMetaAgentHostServicesBridge` → `ToggleAutopilotFromGUI()`.
 
-- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`
+Panel section **AI Runtime** (enable via START) shows autopilot state and configured controller class.
+
+- **Implemented in:** `MetaAgentGameplay.h/.cpp`, `MetaAgentPlayerController.cpp`, `Host/MetaAgentHostServicesBridge.*`
 
 ---
 
@@ -181,7 +188,7 @@ FSM and actuation math run in core `ParticleScheduler` (no duplicate graph in th
 
 ### Manual step flow (`.` key)
 
-When stepping with **`.`**, the pattern uses a **silent Preparing** state while the image mask loads (no anticipating motion). Preparing should look like Idle; any remaining jump is a **visual continuity** issue — see [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md#visual-continuity-and-the-idle-transition-teleport).
+When stepping with **`.`**, the pattern uses a **silent Preparing** state while the image mask loads (no anticipating motion). Preparing should look like Idle. Continuity is handled in core via **`DisplayedPose`** and **`apply_visual_continuity_for_transition()`**, with the host supplying the on-screen pose through **`ParticleHostCallbacks::read_displayed_positions`**.
 
 ```mermaid
 stateDiagram-v2
@@ -243,13 +250,17 @@ flowchart LR
         TB[MetaAgentTypeBridge]
         RT[UMetaAgentParticleRuntime]
         CTL[MetaAgentParticleControl]
+        HostCB[ParticleHostCallbacks]
         NIA[Niagara buffers]
     end
 
-    RT --> TB --> Sched
+    RT --> HostCB
+    HostCB --> TB --> Sched
     Sched --> Phase
     CTL --> Pol --> TB --> Compose --> NIA
 ```
+
+Host seam: `read_displayed_positions` returns `LastApplied` (compose + state effects); `apply_world_positions` updates runtime buffers after core freeze. Duplicate hold logic was removed from `BeginPatternStart` / `EnterPatternState`.
 
 ### Implemented in
 
@@ -274,21 +285,20 @@ See [`metaagent/ARCHITECTURE.md`](./metaagent/ARCHITECTURE.md) for the full phas
 |--------|------|
 | `app/gui_catalog` | Panel sections + action IDs (UE renders catalog only) |
 | `particle/effect_catalog` | GUI particle actions → effect IDs / load-preview dispatch |
-| `runtime/host_interfaces` | Recording + AI snapshot types and host callbacks |
+| `runtime/host_interfaces` | Recording + AI + **ParticleHostCallbacks** |
+| `particle/visual_continuity` | `DisplayedPose`, `freeze_displayed_pose()`, per-edge continuity |
 | `tools/metaagent_server` | Standalone inbound HTTP CLI (no editor) |
 
 ### Recommended next steps
 
 | Priority | Work | Why |
 |----------|------|-----|
-| **P0** | Core **`DisplayedPose` + `freeze_displayed_pose()`** + continuity unit tests | Removes Idle→Preparing teleport permanently; single API instead of UE/core split |
-| **P0** | **`ParticleHostCallbacks`** in `runtime/host_interfaces` | Professional host seam: capture, apply, authoritative count |
-| **P1** | Delete duplicate hold logic from `BeginPatternStart` once core owns freeze | Thinner UE bridge |
-| **P1** | Wire **`HostServiceCallbacks`** (recording, AI) | Completes runtime module |
-| **P2** | GUI rows for Recording / AI via `gui_catalog` | Panel parity with keyboard shortcuts |
-| **P2** | Headless particle sim test harness (no Niagara) | CI regression for FSM + continuity |
+| **P1** | **`authoritative_particle_count` in `PatternRuntime`** | Single core count for mask builds and capture rejection (host still supplies via callback) |
+| **P2** | Headless particle sim test harness (no Niagara) | CI regression for full FSM + continuity with mocked host callbacks |
+| **P2** | Extend `/health` session snapshot with particle FSM summary | Better observability for automation |
+| **P3** | Code-generated HUD rows from catalog metadata | Reduce UE dispatch boilerplate when adding actions |
 
-Interim UE mitigations already in place: authoritative particle count, displayed-pose hold, Preparing uses Idle macro phase in core representation frame.
+Completed (2026-06): core `DisplayedPose` + `freeze_displayed_pose()` + `visual_continuity_test`; `ParticleHostCallbacks` on scheduler; UE host read/apply only; `HostServiceCallbacks` + AI/Recording GUI rows.
 
 ---
 

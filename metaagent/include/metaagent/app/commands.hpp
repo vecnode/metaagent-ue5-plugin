@@ -20,6 +20,9 @@ enum class CommandId {
 	ToggleStateEffectCohesion,
 	ToggleStateEffectTurbulence,
 	ParticleGuiEffect,
+	ToggleAutopilot,
+	ToggleRecording,
+	ReportRecordingStatus,
 	QuitApplication,
 };
 

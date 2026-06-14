@@ -110,6 +110,18 @@ CommandId parse_command_name(const core::String& name)
 	{
 		return CommandId::QuitApplication;
 	}
+	if (normalized == "toggle_autopilot" || normalized == "autopilot")
+	{
+		return CommandId::ToggleAutopilot;
+	}
+	if (normalized == "toggle_recording" || normalized == "recording")
+	{
+		return CommandId::ToggleRecording;
+	}
+	if (normalized == "report_recording_status" || normalized == "recording_status")
+	{
+		return CommandId::ReportRecordingStatus;
+	}
 	return CommandId::Unknown;
 }
 
@@ -143,6 +155,12 @@ core::String command_display_name(const CommandId command)
 		return "Toggle Turbulence Overlay";
 	case CommandId::ParticleGuiEffect:
 		return "Particle Effect";
+	case CommandId::ToggleAutopilot:
+		return "Toggle Autopilot";
+	case CommandId::ToggleRecording:
+		return "Toggle Recording";
+	case CommandId::ReportRecordingStatus:
+		return "Report Recording Status";
 	case CommandId::QuitApplication:
 		return "Quit Application";
 	default:
@@ -205,6 +223,21 @@ CommandResult validate_command(const CommandId command, const session::RuntimeSe
 		if (!result.success)
 		{
 			result.user_message = "UI runtime is disabled.";
+		}
+		return result;
+	case CommandId::ToggleAutopilot:
+		result.success = feature_enabled(session, "ai");
+		if (!result.success)
+		{
+			result.user_message = "AI runtime is disabled.";
+		}
+		return result;
+	case CommandId::ToggleRecording:
+	case CommandId::ReportRecordingStatus:
+		result.success = feature_enabled(session, "recording");
+		if (!result.success)
+		{
+			result.user_message = "Recording runtime is disabled.";
 		}
 		return result;
 	default:

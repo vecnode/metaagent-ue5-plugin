@@ -13,6 +13,7 @@
 #include "MetaAgentParticleControl.h"
 #include "Host/MetaAgentHostSession.h"
 #include "metaagent/app/commands.hpp"
+#include "metaagent/runtime/host_interfaces.hpp"
 #include "metaagent/camera/types.hpp"
 #include "MetaAgentPlayerController.generated.h"
 
@@ -747,6 +748,9 @@ public:
 	/** Builds lines for the dedicated recording runtime GUI panel. */
 	TArray<FString> BuildRecordingRuntimePanelLines() const;
 
+	/** Builds lines for the dedicated AI runtime GUI panel. */
+	TArray<FString> BuildAiRuntimePanelLines() const;
+
 	/** Applies the runtime GUI help panel state to the HUD. */
 	void ApplyGUIHelpPanelState();
 
@@ -772,6 +776,18 @@ public:
 
 	/** Toggles autopilot from GUI clicks (skips keyboard debounce). */
 	void ToggleAutopilotFromGUI();
+
+	/** Toggles recording from GUI clicks (same path as keyboard, without extra guards). */
+	void ToggleRecordingFromGUI();
+
+	/** Reports recording status from GUI clicks. */
+	void ReportRecordingStatusFromGUI();
+
+	/** Builds recording snapshot for core host service callbacks. */
+	metaagent::runtime::RecordingSnapshot BuildRecordingHostSnapshot() const;
+
+	/** Builds AI snapshot for core host service callbacks. */
+	metaagent::runtime::AiSnapshot BuildAiHostSnapshot() const;
 
 	/** Applies character-input runtime enable/disable to Enhanced Input and ignore flags. */
 	void ApplyCharacterInputRuntimeState();

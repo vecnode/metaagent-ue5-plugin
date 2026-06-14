@@ -87,6 +87,10 @@ add_executable(metaagent_state_effects_test tests/state_effects_test.cpp)
 target_link_libraries(metaagent_state_effects_test PRIVATE metaagent)
 add_test(NAME state_effects_test COMMAND metaagent_state_effects_test)
 
+add_executable(metaagent_visual_continuity_test tests/visual_continuity_test.cpp)
+target_link_libraries(metaagent_visual_continuity_test PRIVATE metaagent)
+add_test(NAME visual_continuity_test COMMAND metaagent_visual_continuity_test)
+
 add_executable(metaagent_server tools/metaagent_server.cpp tools/mini_http_server.cpp)
 target_link_libraries(metaagent_server PRIVATE metaagent)
 if(WIN32)

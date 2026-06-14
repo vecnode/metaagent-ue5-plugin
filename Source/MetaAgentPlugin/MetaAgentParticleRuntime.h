@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "MetaAgentParticleControl.h"
 #include "MetaAgentParticleTypes.h"
+#include "metaagent/particle/visual_continuity.hpp"
+#include "metaagent/core/types.hpp"
 #include "UObject/Object.h"
 #include "MetaAgentParticleRuntime.generated.h"
 
@@ -272,6 +274,15 @@ public:
 
 	const TArray<FVector>& GetLastAppliedWorldPositions() const { return LastAppliedWorldPositions; }
 
+	/** Host seam: read the pose currently displayed on screen (after state-effect offsets). */
+	bool ReadDisplayedPose(metaagent::particle::DisplayedPose& OutPose);
+
+	/** Host seam: apply world positions from core continuity freeze. */
+	void ApplyHostWorldPositions(const metaagent::core::Array<metaagent::core::Vec3>& Positions);
+
+	/** Host seam: authoritative live particle count from direct capture when available. */
+	int32 GetAuthoritativeParticleCountForHost() const;
+
 	/** Returns the best available world positions for camera focus (applied, captured, or composed). */
 	int32 GetFocusableWorldPositions(TArray<FVector>& OutWorldPositions) const;
 
@@ -312,8 +323,8 @@ private:
 	void EnterPatternState(EMetaAgentParticlePatternState NewState);
 	void CommitAnticipationBaselineForForming();
 	TArray<FVector> ResolveVisualRestBaseline();
-	TArray<FVector> ResolveDisplayedParticlePositions();
-	void ApplyDisplayedPoseHold(const TArray<FVector>& DisplayedPositions);
+	bool ReadDisplayedParticlePositions(metaagent::particle::DisplayedPose& OutPose);
+	void ApplyHostWorldPositionsInternal(const TArray<FVector>& DisplayedPositions);
 	bool MatchesAuthoritativeParticleCount(int32 Count) const;
 	void ResyncIdleBaselineIfAuthoritativeMismatch();
 

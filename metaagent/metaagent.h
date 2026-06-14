@@ -40,6 +40,7 @@
 #include "metaagent/particle/shape_builder.hpp"
 #include "metaagent/particle/shape_types.hpp"
 #include "metaagent/particle/transition_graph.hpp"
+#include "metaagent/particle/visual_continuity.hpp"
 #include "metaagent/particle/effect_catalog.hpp"
 #include "metaagent/particle/state_effects.hpp"
 

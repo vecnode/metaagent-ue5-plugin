@@ -1867,6 +1867,61 @@ void AMetaAgentPlayerController::ToggleAutopilotFromGUI()
 	ApplyGUIHelpPanelState();
 }
 
+void AMetaAgentPlayerController::ToggleRecordingFromGUI()
+{
+	if (!IsMetaAgentRuntimeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording) || !IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (Recording.bTakeRecordingActive)
+	{
+		StopAutopilotTakeRecording();
+	}
+	else
+	{
+		StartAutopilotTakeRecording();
+	}
+
+	ApplyGUIHelpPanelState();
+}
+
+void AMetaAgentPlayerController::ReportRecordingStatusFromGUI()
+{
+	if (!IsMetaAgentRuntimeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording))
+	{
+		return;
+	}
+
+	ReportRuntimeCaptureStatus();
+	ApplyGUIHelpPanelState();
+}
+
+metaagent::runtime::RecordingSnapshot AMetaAgentPlayerController::BuildRecordingHostSnapshot() const
+{
+	metaagent::runtime::RecordingSnapshot Snapshot;
+	Snapshot.runtime_enabled = IsModularRuntimeEnabled(EMetaAgentModularRuntime::Recording);
+	Snapshot.capture_active = Recording.bTakeRecordingActive;
+	const FTCHARToUTF8 OutputPathConverter(*Recording.RuntimeCaptureOutputDirectory);
+	Snapshot.last_output_path = std::string(
+		OutputPathConverter.Get(),
+		static_cast<size_t>(OutputPathConverter.Length()));
+	const FTCHARToUTF8 StatusConverter(*GUI.RecordingStatusLine);
+	Snapshot.status_text = std::string(
+		StatusConverter.Get(),
+		static_cast<size_t>(StatusConverter.Length()));
+	return Snapshot;
+}
+
+metaagent::runtime::AiSnapshot AMetaAgentPlayerController::BuildAiHostSnapshot() const
+{
+	metaagent::runtime::AiSnapshot Snapshot;
+	Snapshot.runtime_enabled = IsModularRuntimeEnabled(EMetaAgentModularRuntime::AI);
+	Snapshot.autopilot_enabled = Autopilot.bEnabled;
+	Snapshot.status_text = Autopilot.bEnabled ? "Autopilot: ON" : "Autopilot: OFF";
+	return Snapshot;
+}
+
 void AMetaAgentPlayerController::HandleToggleAutopilotPressed()
 {
 	if (!IsMetaAgentRuntimeActive() || !IsModularRuntimeEnabled(EMetaAgentModularRuntime::AI))
@@ -2381,6 +2436,23 @@ TArray<FString> AMetaAgentPlayerController::BuildRecordingRuntimePanelLines() co
 	Lines.Add(FString::Printf(
 		TEXT("Output Dir    : %s"),
 		Recording.RuntimeCaptureOutputDirectory.IsEmpty() ? TEXT("Saved/Renders") : *Recording.RuntimeCaptureOutputDirectory));
+	return Lines;
+}
+
+TArray<FString> AMetaAgentPlayerController::BuildAiRuntimePanelLines() const
+{
+	TArray<FString> Lines;
+	Lines.Add(TEXT("AI Runtime"));
+	Lines.Add(FString::Printf(TEXT("Autopilot      : %s"), Autopilot.bEnabled ? TEXT("ON") : TEXT("OFF")));
+	if (UClass* AIControllerClass = Autopilot.AIControllerClass.Get())
+	{
+		Lines.Add(FString::Printf(TEXT("Controller     : %s"), *GetNameSafe(AIControllerClass)));
+	}
+	else
+	{
+		Lines.Add(TEXT("Controller     : Default wander AI"));
+	}
+	Lines.Add(FString::Printf(TEXT("Debounce       : %0.2fs"), Autopilot.ToggleDebounceSeconds));
 	return Lines;
 }
 

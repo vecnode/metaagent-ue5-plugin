@@ -2,6 +2,7 @@
 
 #include "metaagent/core/types.hpp"
 #include "metaagent/export.hpp"
+#include "metaagent/particle/visual_continuity.hpp"
 
 #include <functional>
 
@@ -20,6 +21,12 @@ struct AiSnapshot {
 	core::String status_text;
 };
 
+struct ParticleHostCallbacks {
+	std::function<bool(particle::DisplayedPose& out)> read_displayed_positions;
+	std::function<void(const core::Array<core::Vec3>& positions)> apply_world_positions;
+	std::function<int32_t()> authoritative_particle_count;
+};
+
 struct HostServiceCallbacks {
 	std::function<bool()> toggle_recording;
 	std::function<bool()> toggle_autopilot;
@@ -34,5 +41,9 @@ METAAGENT_API AiSnapshot default_ai_snapshot();
 METAAGENT_API bool invoke_toggle_recording(const HostServiceCallbacks& callbacks);
 
 METAAGENT_API bool invoke_toggle_autopilot(const HostServiceCallbacks& callbacks);
+
+METAAGENT_API RecordingSnapshot invoke_query_recording(const HostServiceCallbacks& callbacks);
+
+METAAGENT_API AiSnapshot invoke_query_ai(const HostServiceCallbacks& callbacks);
 
 } // namespace metaagent::runtime

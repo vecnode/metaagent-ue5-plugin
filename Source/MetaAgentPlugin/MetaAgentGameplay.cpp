@@ -35,6 +35,7 @@
 #include "MetaAgentPlayerController.h"
 #include "MetaAgentHUD.h"
 #include "Host/MetaAgentInputBridge.h"
+#include "Host/MetaAgentHostServicesBridge.h"
 #include "metaagent/app/gui_catalog.hpp"
 #include "NavigationSystem.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
@@ -2061,6 +2062,14 @@ void FMetaAgentGUIRuntime::BuildRuntimeSections(
 		{
 			StatusLines = Controller.BuildParticleRuntimePanelStatusLines();
 		}
+		else if (SectionSpec.section_id == "Recording")
+		{
+			StatusLines = Controller.BuildRecordingRuntimePanelLines();
+		}
+		else if (SectionSpec.section_id == "AI")
+		{
+			StatusLines = Controller.BuildAiRuntimePanelLines();
+		}
 
 		FMetaAgentGUIRuntimeSection Section = MakeSection(
 			FName(*CoreToFString(SectionSpec.section_id)),
@@ -2212,6 +2221,35 @@ void FMetaAgentGUIRuntime::DispatchPanelAction(
 		{
 			RunApplyHelpPanelSequence(Controller, GUI);
 		}
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ToggleAutopilot)
+	{
+		const metaagent::runtime::HostServiceCallbacks HostCallbacks =
+			FMetaAgentHostServicesBridge::BuildFromPlayerController(Controller);
+		if (metaagent::runtime::invoke_toggle_autopilot(HostCallbacks))
+		{
+			RunApplyHelpPanelSequence(Controller, GUI);
+		}
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ToggleRecording)
+	{
+		const metaagent::runtime::HostServiceCallbacks HostCallbacks =
+			FMetaAgentHostServicesBridge::BuildFromPlayerController(Controller);
+		if (metaagent::runtime::invoke_toggle_recording(HostCallbacks))
+		{
+			RunApplyHelpPanelSequence(Controller, GUI);
+		}
+		return;
+	}
+
+	if (ActionId == MetaAgentRuntimeIds::ReportRecording)
+	{
+		Controller.ReportRecordingStatusFromGUI();
+		RunApplyHelpPanelSequence(Controller, GUI);
 		return;
 	}
 
