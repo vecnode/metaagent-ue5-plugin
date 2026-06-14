@@ -1,0 +1,3 @@
+[submodule "metaagent"]
+	path = metaagent
+	url = https://github.com/vecnode/metaagent.git
